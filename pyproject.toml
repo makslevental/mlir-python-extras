@@ -1,0 +1,23 @@
+[project]
+name = "mlir-utils"
+version = "0.0.1"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy"
+]
+
+[project.optional-dependencies]
+test = ["pytest", "mlir-python-bindings", "mlir-native-tools"]
+mlir = ["mlir-python-bindings"]
+
+[project.scripts]
+configure-mlir-utils = "mlir_utils:configuration.configure_host_bindings"
+
+[build-system]
+# https://stackoverflow.com/a/69711730
+requires = ["setuptools>=64.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mlir_utils", "mlir_utils.*"]  # alternatively: `exclude = ["additional*"]`

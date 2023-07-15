@@ -1,0 +1,73 @@
+name: Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    branches:
+      - main
+
+jobs:
+
+  test-with-configuration:
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-11, windows-2022 ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install and configure
+        shell: bash
+        run: |
+          export PIP_EXTRA_INDEX_URL=https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
+          pip install .[test] -v
+          configure-mlir-utils -y mlir
+
+      - name: Test
+        shell: bash
+        run: |
+          pytest tests
+          
+  test-with-env:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-11 ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install and configure
+        run: |
+          export PIP_EXTRA_INDEX_URL=https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
+          pip install .[test] -v
+
+      - name: Test
+        run: |
+          export MLIR_PYTHON_PACKAGE_PREFIX=mlir
+          pytest tests
