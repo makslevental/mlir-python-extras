@@ -4,15 +4,19 @@ version = "0.0.1"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 dependencies = [
-    "numpy"
+    "numpy",
+    "black",
+    "PyYAML",
+    "inflection",
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "mlir-python-bindings", "mlir-native-tools"]
+torch-mlir-test = ["pytest", "torch-mlir-core", "mlir-native-tools"]
+mlir-test = ["pytest", "mlir-python-bindings", "mlir-native-tools"]
 mlir = ["mlir-python-bindings"]
 
 [project.scripts]
-configure-mlir-utils = "mlir_utils:configuration.configure_host_bindings"
+configure-mlir-utils = "mlir_utils:__configuration.configure_host_bindings"
 
 [build-system]
 # https://stackoverflow.com/a/69711730

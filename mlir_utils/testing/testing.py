@@ -1,5 +1,8 @@
+import platform
 import shutil
 import tempfile
+import sys
+from pathlib import Path
 from subprocess import Popen, PIPE
 from textwrap import dedent
 
@@ -10,8 +13,16 @@ from .generate_test_checks import main
 
 
 def filecheck(correct: str, module):
-    filecheck_path = shutil.which("FileCheck")
-    assert filecheck_path is not None, "couldn't find FileCheck"
+    filecheck_name = "FileCheck"
+    if platform.system() == "Windows":
+        filecheck_name += ".exe"
+
+    # try from mlir-native-tools
+    filecheck_path = Path(sys.prefix) / "bin" / filecheck_name
+    # try to find using which
+    if not filecheck_path.exists():
+        filecheck_path = shutil.which(filecheck_name)
+    assert Path(filecheck_path).exists() is not None, "couldn't find FileCheck"
 
     correct = dedent(correct)
     op = dedent(str(module).strip())

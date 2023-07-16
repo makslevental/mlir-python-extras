@@ -13,7 +13,7 @@ on:
 
 jobs:
 
-  test-with-configuration:
+  test-against-torch-mlir-bindings:
 
     runs-on: ${{ matrix.os }}
     continue-on-error: true
@@ -35,39 +35,12 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          export PIP_EXTRA_INDEX_URL=https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-          pip install .[test] -v
-          configure-mlir-utils -y mlir
+          pip install .[torch-mlir-test] \
+            -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest \
+            -f https://llvm.github.io/torch-mlir/package-index/
+          pushd /tmp && python -m mlir_utils.__configuration -y torch_mlir && popd
 
       - name: Test
         shell: bash
         run: |
-          pytest tests
-          
-  test-with-env:
-
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-22.04, macos-11 ]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-
-      - name: Install and configure
-        run: |
-          export PIP_EXTRA_INDEX_URL=https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-          pip install .[test] -v
-
-      - name: Test
-        run: |
-          export MLIR_PYTHON_PACKAGE_PREFIX=mlir
           pytest tests

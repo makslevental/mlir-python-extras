@@ -2,7 +2,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
-from .configuration import _host_bindings_mlir as mlir
+import mlir
 
 
 @dataclass
@@ -20,7 +20,7 @@ def mlir_mod_ctx(
     context: mlir.ir.Context = None,
     location: mlir.ir.Location = None,
     allow_unregistered_dialects=False,
-):
+) -> MLIRContext:
     if context is None:
         context = mlir.ir.Context()
     if allow_unregistered_dialects:

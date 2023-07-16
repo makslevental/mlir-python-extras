@@ -74,7 +74,7 @@ def process_line(line_chunks, variable_namer):
             output_line += "%[[" + variable + ":.*]]"
 
         # Append the non named group.
-        output_line += chunk[len(ssa_name):]
+        output_line += chunk[len(ssa_name) :]
 
     return output_line.rstrip() + "\n"
 
