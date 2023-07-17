@@ -21,7 +21,9 @@ def ast_call(name, args=None, keywords=None):
     )
 
 
-def make_fun(op_name, op_class):
+# TODO(max): ops that have symboltables need to be classes but that requires some upstream support for statically
+# identifying such ops
+def generate_free_fun(op_class):
     _mod = ast.parse(dedent(inspect.getsource(op_class.__init__)))
     init_fn = next(n for n in _mod.body if isinstance(n, ast.FunctionDef))
     args = init_fn.args
@@ -39,17 +41,33 @@ def make_fun(op_name, op_class):
 
     for a in args.args + args.kwonlyargs:
         a.annotation = None
-    ret = ast.parse(
-        f"return get_result_or_results({ast.unparse(ast_call(op_name, args.args, keywords))})"
-    ).body[0]
     fun_name = op_class.OPERATION_NAME.split(".")[-1]
     if keyword.iskeyword(fun_name):
         fun_name = fun_name + "_"
+    op_class_name = op_class.__name__
+    body = []
+    if len(args.args) == 1 and args.args[0].arg == "results_":
+        args.defaults.append(ast.Constant(None))
+        body += [ast.parse("results_ = results_ or []").body[0]]
+    if (
+        hasattr(op_class, "_ODS_REGIONS")
+        and op_class._ODS_REGIONS[0] == 1
+        and not op_class.OPERATION_NAME.startswith("linalg")
+    ):
+        decorator_list = [ast.Name(id="region_op", ctx=ast.Load())]
+        body += [ast.Return([ast_call(op_class_name, args.args, keywords)])]
+    else:
+        decorator_list = []
+        body += [
+            ast.parse(
+                f"return get_result_or_results({ast.unparse(ast_call(op_class_name, args.args, keywords))})"
+            ).body[0]
+        ]
     n = ast.FunctionDef(
         name=fun_name,
         args=copy.deepcopy(args),
-        body=[ret],
-        decorator_list=[],
+        body=body,
+        decorator_list=decorator_list,
     )
     ast.fix_missing_locations(n)
     return n
@@ -58,6 +76,7 @@ def make_fun(op_name, op_class):
 def generate_trampoline(input_module, output_file_path, skips=None):
     import mlir_utils
     from mlir_utils.dialects.util import get_result_or_results
+    import mlir.dialects._ods_common
 
     if skips is None:
         skips = set()
@@ -69,6 +88,9 @@ def generate_trampoline(input_module, output_file_path, skips=None):
             and hasattr(obj, "OPERATION_NAME")
             and obj.__name__ not in skips
         ):
+            if obj.__module__ == mlir.dialects._ods_common.__name__:
+                # these are extension classes and we should wrap the generated class instead
+                obj = obj.__base__
             if not inspect.isfunction(obj.__init__):
                 # some builders don't have any __init__ but inherit from opview
                 continue
@@ -77,11 +99,14 @@ def generate_trampoline(input_module, output_file_path, skips=None):
     if not len(init_funs):
         return
 
-    functions = [make_fun(n, s) for n, s in init_funs.items()]
+    functions = [
+        generate_free_fun(op_class)
+        for op_class in sorted(init_funs.values(), key=lambda o: o.__name__)
+    ]
 
     ods_imports = ast.ImportFrom(
         module=mlir_utils.dialects.util.__name__,
-        names=[ast.alias(get_result_or_results.__name__)],
+        names=[ast.alias(get_result_or_results.__name__), ast.alias("region_op")],
         level=0,
     )
     op_imports = ast.ImportFrom(

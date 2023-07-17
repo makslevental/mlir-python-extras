@@ -7,20 +7,20 @@ import mlir_utils.dialects
 from mlir_utils.dialects.generate_trampolines import generate_trampoline
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx, filecheck, MLIRContext
+from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
-pytest.mark.usefixtures("mlir_ctx")
+pytest.mark.usefixtures("ctx")
 
 
-def test_smoke(mlir_ctx: MLIRContext):
+def test_smoke(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
     }
     """
     )
-    filecheck(correct, mlir_ctx.module)
+    filecheck(correct, ctx.module)
 
 
 def test_dialect_trampolines_smoke():
@@ -48,6 +48,18 @@ def test_dialect_trampolines_smoke():
     )
 
 
+def skip_torch_mlir_not_installed():
+    try:
+        from torch_mlir.dialects import torch
+
+        # don't skip
+        return False
+    except ImportError:
+        # skip
+        return True
+
+
+@pytest.mark.skipif(skip_torch_mlir_not_installed(), reason="torch_mlir not installed")
 def test_torch_dialect_trampolines_smoke():
     from torch_mlir.dialects import torch
 

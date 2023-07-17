@@ -25,14 +25,14 @@ def filecheck(correct: str, module):
     assert Path(filecheck_path).exists() is not None, "couldn't find FileCheck"
 
     correct = dedent(correct)
+    correct_with_checks = main(correct).replace("CHECK:", "CHECK-NEXT:")
     op = dedent(str(module).strip())
     with tempfile.NamedTemporaryFile() as tmp:
-        correct_with_checks = main(correct)
         tmp.write(correct_with_checks.encode())
         tmp.flush()
         p = Popen([filecheck_path, tmp.name], stdout=PIPE, stdin=PIPE, stderr=PIPE)
         out, err = map(lambda o: o.decode(), p.communicate(input=op.encode()))
-        if len(err):
+        if p.returncode:
             raise ValueError(err)
 
 
