@@ -2,7 +2,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
-import mlir
+import mlir.ir
 
 
 @dataclass

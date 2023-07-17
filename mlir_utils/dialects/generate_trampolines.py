@@ -2,6 +2,7 @@ import ast
 import copy
 import inspect
 import keyword
+import pkgutil
 from pathlib import Path
 from textwrap import dedent
 
@@ -23,7 +24,7 @@ def ast_call(name, args=None, keywords=None):
 
 # TODO(max): ops that have symboltables need to be classes but that requires some upstream support for statically
 # identifying such ops
-def generate_free_fun(op_class):
+def generate_op_trampoline(op_class):
     _mod = ast.parse(dedent(inspect.getsource(op_class.__init__)))
     init_fn = next(n for n in _mod.body if isinstance(n, ast.FunctionDef))
     args = init_fn.args
@@ -73,7 +74,7 @@ def generate_free_fun(op_class):
     return n
 
 
-def generate_trampoline(input_module, output_file_path, skips=None):
+def generate_dialect_trampolines(input_module, output_file_path, skips=None):
     import mlir_utils
     from mlir_utils.dialects.util import get_result_or_results
     import mlir.dialects._ods_common
@@ -100,7 +101,7 @@ def generate_trampoline(input_module, output_file_path, skips=None):
         return
 
     functions = [
-        generate_free_fun(op_class)
+        generate_op_trampoline(op_class)
         for op_class in sorted(init_funs.values(), key=lambda o: o.__name__)
     ]
 
@@ -137,31 +138,10 @@ def generate_trampoline(input_module, output_file_path, skips=None):
 def generate_all_upstream_trampolines():
     import mlir.dialects
 
-    # noinspection PyUnresolvedReferences
-    from mlir.dialects import (
-        arith,
-        async_dialect,
-        bufferization,
-        builtin,
-        cf,
-        complex,
-        func,
-        gpu,
-        linalg,
-        math,
-        memref,
-        ml_program,
-        pdl,
-        quant,
-        scf,
-        shape,
-        sparse_tensor,
-        tensor,
-        tosa,
-        transform,
-        vector,
-    )
-
-    for name, mod in inspect.getmembers(mlir.dialects, inspect.ismodule):
-        if not name.startswith("_"):
-            generate_trampoline(mod, Path(__file__).parent / (name + ".py"))
+    for mod in pkgutil.iter_modules(mlir.dialects.__path__):
+        if not mod.name.startswith("_"):
+            # you need the star here to import the whole submodule path rather than just the root module (mlir)
+            modu = __import__(f"mlir.dialects.{mod.name}", fromlist=["*"])
+            generate_dialect_trampolines(
+                modu, Path(__file__).parent / (mod.name + ".py")
+            )

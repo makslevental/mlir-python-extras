@@ -4,7 +4,7 @@ from textwrap import dedent
 import pytest
 
 import mlir_utils.dialects
-from mlir_utils.dialects.generate_trampolines import generate_trampoline
+from mlir_utils.dialects.generate_trampolines import generate_dialect_trampolines
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -63,6 +63,6 @@ def skip_torch_mlir_not_installed():
 def test_torch_dialect_trampolines_smoke():
     from torch_mlir.dialects import torch
 
-    generate_trampoline(torch, Path(mlir_utils.dialects.__path__[0]) / "torch.py")
+    generate_dialect_trampolines(torch, Path(mlir_utils.dialects.__path__[0]) / "torch.py")
     # noinspection PyUnresolvedReferences
     from mlir_utils.dialects import torch

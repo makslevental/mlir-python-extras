@@ -1,22 +1,16 @@
 import argparse
-import importlib
 import os
-import pkgutil
 import sys
 from pathlib import Path
 
+from mlir_utils.__configuration._module_alias_map import (
+    get_meta_path_insertion_index,
+    AliasedModuleFinder,
+)
 
-__MLIR_PYTHON_PACKAGE_PREFIX__ = None
 THIS_DIR = Path(__file__).resolve().parent
 MLIR_PYTHON_PACKAGE_PREFIX_FILE_PATH = THIS_DIR / "__MLIR_PYTHON_PACKAGE_PREFIX__"
-
-
-def import_submodules(package_name):
-    package = sys.modules[package_name]
-    return {
-        name: importlib.import_module(package_name + "." + name)
-        for loader, name, is_pkg in pkgutil.walk_packages(package.__path__)
-    }
+__MLIR_PYTHON_PACKAGE_PREFIX__ = None
 
 
 def load_upstream_bindings():
@@ -28,35 +22,18 @@ def load_upstream_bindings():
 
     if os.getenv("MLIR_PYTHON_PACKAGE_PREFIX"):
         __MLIR_PYTHON_PACKAGE_PREFIX__ = os.getenv("MLIR_PYTHON_PACKAGE_PREFIX")
-
     if __MLIR_PYTHON_PACKAGE_PREFIX__ is not None:
-        _mlir = sys.modules["mlir"] = __import__(
-            __MLIR_PYTHON_PACKAGE_PREFIX__, globals(), locals(), fromlist=["*"]
+        sys.meta_path.insert(
+            get_meta_path_insertion_index(),
+            AliasedModuleFinder({"mlir": __MLIR_PYTHON_PACKAGE_PREFIX__}),
         )
-        for submod in ["ir", "dialects", "_mlir_libs"]:
-            sys.modules[f"mlir.{submod}"] = __import__(
-                f"{__MLIR_PYTHON_PACKAGE_PREFIX__}.{submod}",
-                globals(),
-                locals(),
-                fromlist=["*"],
-            )
-        mlir_modules = {}
-        for name, mod in sys.modules.items():
-            if name.startswith(__MLIR_PYTHON_PACKAGE_PREFIX__ + "."):
-                mlir_name = (
-                    "mlir." + name[len(__MLIR_PYTHON_PACKAGE_PREFIX__ + ".") + 1 :]
-                )
-                mlir_modules[mlir_name] = mod
-        sys.modules.update(mlir_modules)
-
-    else:
-        if not (
-            sys.argv[0].endswith("configure-mlir-utils")
-            or ("-m" in sys.orig_argv and "mlir_utils.__configuration" in sys.orig_argv)
-        ):
-            raise Exception(
-                "mlir-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set"
-            )
+    elif not (
+        sys.argv[0].endswith("configure-mlir-utils")
+        or ("-m" in sys.orig_argv and "mlir_utils.__configuration" in sys.orig_argv)
+    ):
+        raise Exception(
+            "mlir-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set"
+        )
 
 
 def configure_host_bindings():

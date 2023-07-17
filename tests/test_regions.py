@@ -74,7 +74,7 @@ def test_func(ctx: MLIRContext):
     @func
     def demo_fun1():
         one = constant(1)
-        return
+        return one
 
     demo_fun1()
     ctx.module.operation.verify()
@@ -82,10 +82,11 @@ def test_func(ctx: MLIRContext):
         dedent(
             """\
     module {
-      func.func @demo_fun1() {
+      func.func @demo_fun1() -> i64 {
         %c1_i64 = arith.constant 1 : i64
-        return
+        return %c1_i64 : i64
       }
+      %0 = func.call @demo_fun1() : () -> i64
     }
     """
         ),

@@ -1,8 +1,14 @@
 import inspect
 from functools import wraps
 
-from mlir.dialects.func import FuncOp, ReturnOp
-from mlir.ir import InsertionPoint, FunctionType, StringAttr, TypeAttr
+from mlir.dialects.func import FuncOp, ReturnOp, CallOp
+from mlir.ir import (
+    InsertionPoint,
+    FunctionType,
+    StringAttr,
+    TypeAttr,
+    FlatSymbolRefAttr,
+)
 
 from mlir_utils.dialects.util import (
     get_result_or_results,
@@ -16,18 +22,20 @@ def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None)
 
     def builder_wrapper(body_builder):
         @wraps(body_builder)
-        def wrapper(*args):
+        def wrapper(*call_args):
             sig = inspect.signature(body_builder)
             implicit_return = sig.return_annotation is inspect._empty
+            input_types = [a.type for a in call_args]
             function_type = TypeAttr.get(
                 FunctionType.get(
-                    inputs=[a.type for a in args],
+                    inputs=input_types,
                     results=[] if implicit_return else sig.return_annotation,
                 )
             )
             # FuncOp is extended but we do really want the base
-            op = FuncOp.__base__(
-                body_builder.__name__,
+            func_name = body_builder.__name__
+            func_op = FuncOp.__base__(
+                func_name,
                 function_type,
                 sym_visibility=StringAttr.get(str(sym_visibility))
                 if sym_visibility is not None
@@ -37,19 +45,30 @@ def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None)
                 loc=loc,
                 ip=ip,
             )
-            op.regions[0].blocks.append(*[a.type for a in args])
-            with InsertionPoint(op.regions[0].blocks[0]):
-                r = get_result_or_results(
-                    body_builder(*op.regions[0].blocks[0].arguments)
+            func_op.regions[0].blocks.append(*[a.type for a in call_args])
+            with InsertionPoint(func_op.regions[0].blocks[0]):
+                results = get_result_or_results(
+                    body_builder(*func_op.regions[0].blocks[0].arguments)
                 )
-                if r is not None:
-                    if isinstance(r, (tuple, list)):
-                        ReturnOp(list(r))
+                if results is not None:
+                    if isinstance(results, (tuple, list)):
+                        results = list(results)
                     else:
-                        ReturnOp([r])
+                        results = [results]
                 else:
-                    ReturnOp([])
-                return r
+                    results = []
+                ReturnOp(results)
+            # Recompute the function type.
+            return_types = [v.type for v in results]
+            function_type = FunctionType.get(inputs=input_types, results=return_types)
+            func_op.attributes["function_type"] = TypeAttr.get(function_type)
+
+            call_op = CallOp(
+                [r.type for r in results], FlatSymbolRefAttr.get(func_name), call_args
+            )
+            if results is None:
+                return None
+            return get_result_or_results(call_op)
 
         # wrapper.op = op
         return wrapper
