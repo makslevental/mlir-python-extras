@@ -1,4 +1,4 @@
-# mlir-utils
+# mlir-python-utils
 
 The missing pieces (as far as boilerplate reduction goes) of the upstream MLIR python bindings.
 
@@ -8,15 +8,16 @@ The missing pieces (as far as boilerplate reduction goes) of the upstream MLIR p
 
 ```shell
 $ pip install .[mlir] -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-$ configure-mlir-utils mlir
+$ configure-mlir-python-utils mlir
+```
 
 or for maximum convenience
 
 ```shell
 $ pip install mlir-python-utils[mlir] \
   -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-  -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-$ configure-mlir-utils mlir
+  -f https://github.com/makslevental/mlir-python-utils/releases/expanded_assets/latest
+$ configure-mlir-python-utils mlir
 ```
 
 ### Details
@@ -25,9 +26,9 @@ This package is meant to work in concert with the upstream bindings.
 Practically speaking that means you need to have *some* package installed that includes mlir python bindings.
 In addition, you have to do one of two things to **configure this package** (after installing it):
 
-1. `$ configure-mlir-utils -y <MLIR_PYTHON_PACKAGE_PREFIX>`, where `MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the
+1. `$ configure-mlir-python-utils -y <MLIR_PYTHON_PACKAGE_PREFIX>`, where `MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the
    package prefix for your chosen upstream bindings. So for example, for `torch-mlir`, you would
-   execute `configure-mlir-utils torch_mlir`, since `torch-mlir`'s bindings are the root of the `torch-mlir` python
+   execute `configure-mlir-python-utils torch_mlir`, since `torch-mlir`'s bindings are the root of the `torch-mlir` python
    package. **When in doubt about this prefix**, it is everything up until `ir` (e.g., as
    in `from torch_mlir import ir`).
 2. `$ export MLIR_PYTHON_PACKAGE_PREFIX=<MLIR_PYTHON_PACKAGE_PREFIX>`, i.e., you can set this string as an environment

@@ -58,19 +58,19 @@ def alias_upstream_bindings():
         )
         return True
     elif not (
-        sys.argv[0].endswith("configure-mlir-utils")
+        sys.argv[0].endswith("configure-mlir-python-utils")
         or ("-m" in sys.orig_argv and __package__ in sys.orig_argv)
     ):
         raise Exception(
-            "mlir-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set"
+            "mlir-python-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set"
         )
     return False
 
 
 def configure_host_bindings():
     parser = argparse.ArgumentParser(
-        prog="configure-mlir-utils",
-        description="Configure mlir-utils",
+        prog="configure-mlir-python-utils",
+        description="Configure mlir-python-utils",
     )
     parser.add_argument("-y", "--yes", action="store_true", default=False)
     parser.add_argument("mlir_python_package_prefix")

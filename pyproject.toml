@@ -16,7 +16,7 @@ mlir-test = ["pytest", "mlir-python-bindings", "mlir-native-tools"]
 mlir = ["mlir-python-bindings"]
 
 [project.scripts]
-configure-mlir-utils = "mlir_utils:_configuration.configuration.configure_host_bindings"
+configure-mlir-python-utils = "mlir_utils:_configuration.configuration.configure_host_bindings"
 generate-trampolines = "mlir_utils:_configuration.generate_trampolines.generate_trampolines"
 
 [build-system]
