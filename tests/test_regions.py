@@ -1,14 +1,17 @@
 from textwrap import dedent
 
 import pytest
-
-from mlir_utils.dialects.ext.func import func
 from mlir_utils.dialects.memref import alloca_scope, return_
-from mlir_utils.dialects.scf import execute_region, yield_
-from mlir_utils.dialects.util import constant
+from mlir_utils.dialects.scf import execute_region, yield_ as scf_yield
+from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield
+
+from mlir_utils.dialects.ext.arith import constant
+from mlir_utils.dialects.ext.func import func
+from mlir_utils.dialects.ext.tensor import Tensor, S, rank
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir_utils.types import f64, index
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -18,9 +21,7 @@ def test_simple_region_op(ctx: MLIRContext):
     @execute_region([])
     def demo_region():
         one = constant(1)
-        yield_()
-
-    demo_region()
+        scf_yield()
 
     ctx.module.operation.verify()
     filecheck(
@@ -48,9 +49,6 @@ def test_no_args_decorator(ctx: MLIRContext):
     def demo_scope2():
         one = constant(2)
         return_()
-
-    demo_scope1()
-    demo_scope2()
 
     ctx.module.operation.verify()
     filecheck(
@@ -87,6 +85,39 @@ def test_func(ctx: MLIRContext):
         return %c1_i64 : i64
       }
       %0 = func.call @demo_fun1() : () -> i64
+    }
+    """
+        ),
+        ctx.module,
+    )
+
+
+def test_block_args(ctx: MLIRContext):
+    one = constant(1, index)
+    two = constant(2, index)
+
+    @generate(
+        Tensor[(S, 3, S), f64], dynamic_extents=[one, two], block_args=[index] * 3
+    )
+    def demo_fun1(i, j, k):
+        one = constant(1.0)
+        tensor_yield(one)
+
+    r = rank(demo_fun1)
+
+    ctx.module.operation.verify()
+    filecheck(
+        dedent(
+            """\
+    module {
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %generated = tensor.generate %c1, %c2 {
+      ^bb0(%arg0: index, %arg1: index, %arg2: index):
+        %cst = arith.constant 1.000000e+00 : f64
+        tensor.yield %cst : f64
+      } : tensor<?x3x?xf64>
+      %rank = tensor.rank %generated : tensor<?x3x?xf64>
     }
     """
         ),

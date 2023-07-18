@@ -23,9 +23,48 @@ def ast_call(name, args=None, keywords=None):
     )
 
 
+class FindOperands(ast.NodeVisitor):
+    def __init__(self):
+        self.operands = {}
+        self.results = {}
+
+    def visit_Call(self, node: ast.Call):
+        if hasattr(node.func, "value") and hasattr(node.func.value, "id"):
+            if node.func.value.id == "operands":
+                if isinstance(node.args[0], ast.Call):
+                    nested_call = node.args[0]
+                    is_optional = False
+                elif isinstance(node.args[0], ast.IfExp):
+                    nested_call = node.args[0].body
+                    is_optional = True
+                else:
+                    raise RuntimeError(
+                        f"unsupported operands python code: {ast.unparse(node)}"
+                    )
+                oper_name = inflection.underscore(nested_call.args[0].id).lower()
+                is_variadic = "values" in nested_call.func.id
+                type = "list[Value]" if is_variadic else "Value"
+                if is_optional:
+                    type = f"Optional[{type}]"
+                self.operands[oper_name] = type
+            elif node.func.value.id == "results":
+                if node.func.attr == "extend":
+                    if isinstance(node.args[0], ast.BinOp):
+                        # something like results.extend([operands[0].type] * 1)
+                        return
+                    else:
+                        self.results[node.args[0].id] = "list[Type]"
+                elif node.func.attr == "append":
+                    self.results[node.args[0].id] = "Type"
+                else:
+                    raise ValueError("unknown results object")
+
+
 # TODO(max): ops that have symboltables need to be classes but that requires some upstream support for statically
 # identifying such ops
 def generate_op_trampoline(op_class):
+    from mlir_utils.dialects.util import get_result_or_results, maybe_cast, region_op
+
     _mod = ast.parse(dedent(inspect.getsource(op_class.__init__)))
     init_fn = next(n for n in _mod.body if isinstance(n, ast.FunctionDef))
     args = init_fn.args
@@ -41,8 +80,6 @@ def generate_op_trampoline(op_class):
         for k, d in zip(args.kwonlyargs, args.kw_defaults)
     ]
 
-    for a in args.args + args.kwonlyargs:
-        a.annotation = None
     fun_name = op_class.OPERATION_NAME.split(".")[-1]
     if keyword.iskeyword(fun_name):
         fun_name = fun_name + "_"
@@ -56,18 +93,27 @@ def generate_op_trampoline(op_class):
         and op_class._ODS_REGIONS[0] == 1
         and not op_class.OPERATION_NAME.startswith("linalg")
     ):
-        decorator_list = [ast.Name(id="region_op", ctx=ast.Load())]
+        decorator_list = [ast.Name(id=region_op.__name__, ctx=ast.Load())]
         body += [ast.Return([ast_call(op_class_name, args.args, keywords)])]
     else:
         decorator_list = []
         body += [
             ast.parse(
-                f"return get_result_or_results({ast.unparse(ast_call(op_class_name, args.args, keywords))})"
+                f"return {maybe_cast.__name__}({get_result_or_results.__name__}({ast.unparse(ast_call(op_class_name, args.args, keywords))}))"
             ).body[0]
         ]
+
+    args = copy.deepcopy(args)
+    oper_finder = FindOperands()
+    oper_finder.visit(init_fn)
+    for a in args.args:
+        if a.arg in oper_finder.operands:
+            a.annotation = ast.Name(id=oper_finder.operands[a.arg], ctx=ast.Load())
+        elif a.arg in oper_finder.results:
+            a.annotation = ast.Name(id=oper_finder.results[a.arg], ctx=ast.Load())
     n = ast.FunctionDef(
         name=fun_name,
-        args=copy.deepcopy(args),
+        args=args,
         body=body,
         decorator_list=decorator_list,
     )
@@ -77,8 +123,9 @@ def generate_op_trampoline(op_class):
 
 def generate_dialect_trampolines_from_module(input_module, skips: set):
     import mlir_utils
-    from mlir_utils.dialects.util import get_result_or_results
+    from mlir_utils.dialects.util import get_result_or_results, maybe_cast, region_op
     import mlir.dialects._ods_common
+    from mlir_utils._configuration.configuration import _get_mlir_package_prefix
 
     skips.update({"_Dialect"})
     init_funs = {}
@@ -92,6 +139,7 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
                 # these are extension classes and we should wrap the generated class instead
                 obj = obj.__base__
             if not inspect.isfunction(obj.__init__):
+                print(f"skipping {obj.__name__} because it has no __init__")
                 # some builders don't have any __init__ but inherit from opview
                 continue
             init_funs[obj.__name__] = obj
@@ -104,9 +152,17 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
         for op_class in sorted(init_funs.values(), key=lambda o: o.__name__)
     ]
 
+    ir_imports = ast.ImportFrom(
+        module=_get_mlir_package_prefix() + ".ir",
+        names=[ast.alias(i) for i in ["Value", "Attribute", "Type"]],
+        level=0,
+    )
     ods_imports = ast.ImportFrom(
         module=mlir_utils.dialects.util.__name__,
-        names=[ast.alias(get_result_or_results.__name__), ast.alias("region_op")],
+        names=[
+            ast.alias(f.__name__)
+            for f in [get_result_or_results, maybe_cast, region_op]
+        ],
         level=0,
     )
     op_imports = ast.ImportFrom(
@@ -125,7 +181,11 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
     else:
         linalg_imports = []
 
-    new_mod = ast.Module([op_imports, *linalg_imports, ods_imports] + functions, [])
+    all = ast.parse(f"__all__ = [{', '.join(repr(f.name) for f in functions)}]")
+
+    new_mod = ast.Module(
+        [ir_imports, op_imports, *linalg_imports, ods_imports] + functions + [all], []
+    )
     new_src = ast.unparse(new_mod)
     return black.format_file_contents(new_src, fast=False, mode=black.Mode())
 

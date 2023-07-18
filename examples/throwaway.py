@@ -8,18 +8,19 @@ from mlir_utils._configuration.generate_trampolines import (
     generate_all_upstream_trampolines,
 )
 from mlir_utils._configuration.configuration import _add_file_to_sources_txt_file
+from mlir_utils.dialects.ext.tensor import Tensor, S
 
 # _add_file_to_sources_txt_file(Path("_configuration/__MLIR_PYTHON_PACKAGE_PREFIX__"))
-generate_all_upstream_trampolines()
+# generate_all_upstream_trampolines()
 from mlir_utils.dialects.memref import alloca_scope, return_
-from mlir_utils.dialects.transform import foreach, yield_
+from mlir_utils.dialects.tensor import generate, yield_, rank
+from mlir_utils.dialects.transform import foreach
 from mlir_utils.dialects import gpu
 from mlir_utils.dialects.ext import func
+from mlir_utils.dialects.ext.arith import constant
+from mlir_utils.types import f64, index
 
-
-from mlir_utils.dialects.util import constant
-
-# # generate_all_upstream_trampolines()
+generate_all_upstream_trampolines()
 # from mlir.dialects.scf import WhileOp
 # from mlir.ir import InsertionPoint
 #
@@ -48,19 +49,24 @@ from mlir_utils.dialects.util import constant
 # #
 #
 #
-# with mlir_mod_ctx() as ctx:
-#     one = constant(1)
-#
-#     @func.func
-#     def demo_fun1():
-#         one = constant(1)
-#         return
-#
-#     demo_fun1()
-#     ctx.module.operation.verify()
+with mlir_mod_ctx() as ctx:
+
+    one = constant(1, index)
+    two = constant(2, index)
+
+    @generate(
+        Tensor[(S, 3, S), f64], dynamic_extents=[one, two], block_args=[index] * 3
+    )
+    def demo_fun1(i, j, k):
+        one = constant(1.0)
+        yield_(one)
+
+    r = rank(demo_fun1)
+
+    print(ctx.module)
+    ctx.module.operation.verify()
 #
 #
 # print(ctx.module)
-# ctx.module.operation.verify()
 # print(ctx.module)
 # from importlib.resources import files

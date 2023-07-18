@@ -67,7 +67,7 @@ def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None)
                 [r.type for r in results], FlatSymbolRefAttr.get(func_name), call_args
             )
             if results is None:
-                return None
+                return func_op
             return get_result_or_results(call_op)
 
         # wrapper.op = op

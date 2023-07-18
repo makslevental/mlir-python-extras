@@ -36,8 +36,6 @@ def _add_file_to_sources_txt_file(file_path: Path):
             sources_file.write(
                 f"{relative_file_path},sha256={encoded[:-1].decode()},{len(file)}\n"
             )
-    else:
-        raise RuntimeError("unsupported distribution scheme; please file a bug!")
 
 
 def _get_mlir_package_prefix():
@@ -58,6 +56,7 @@ def alias_upstream_bindings():
             get_meta_path_insertion_index(),
             AliasedModuleFinder({"mlir": mlir_python_package_prefix}),
         )
+        return True
     elif not (
         sys.argv[0].endswith("configure-mlir-utils")
         or ("-m" in sys.orig_argv and __package__ in sys.orig_argv)
@@ -65,6 +64,7 @@ def alias_upstream_bindings():
         raise Exception(
             "mlir-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set"
         )
+    return False
 
 
 def configure_host_bindings():
