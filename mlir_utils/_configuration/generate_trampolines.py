@@ -1,3 +1,4 @@
+import argparse
 import ast
 import copy
 import inspect
@@ -74,13 +75,11 @@ def generate_op_trampoline(op_class):
     return n
 
 
-def generate_dialect_trampolines(input_module, output_file_path, skips=None):
+def generate_dialect_trampolines_from_module(input_module, skips: set):
     import mlir_utils
     from mlir_utils.dialects.util import get_result_or_results
     import mlir.dialects._ods_common
 
-    if skips is None:
-        skips = set()
     skips.update({"_Dialect"})
     init_funs = {}
     for name, obj in inspect.getmembers(input_module):
@@ -128,20 +127,67 @@ def generate_dialect_trampolines(input_module, output_file_path, skips=None):
 
     new_mod = ast.Module([op_imports, *linalg_imports, ods_imports] + functions, [])
     new_src = ast.unparse(new_mod)
-    formatted_new_src = black.format_file_contents(
-        new_src, fast=False, mode=black.Mode()
+    return black.format_file_contents(new_src, fast=False, mode=black.Mode())
+
+
+def generate_trampolines(
+    mod_path=None, dst_path: Path = None, output_name=None, skips: set = None
+):
+    from mlir_utils._configuration.configuration import (
+        _add_file_to_sources_txt_file,
+        PACKAGE_ROOT_PATH,
     )
-    output_file = open(output_file_path, "w")
-    output_file.write(formatted_new_src)
+
+    if mod_path is None:
+        parser = argparse.ArgumentParser(
+            prog="generate-trampolines",
+            description="Generate trampolines for a particular module",
+        )
+        parser.add_argument("mod_path", type=str)
+        parser.add_argument("-d", "--dst-path", type=Path, required=False)
+        parser.add_argument("-n", "--name", required=False)
+        parser.add_argument("--skips", required=False, nargs="*", type=set)
+        args = parser.parse_args()
+        mod_path = args.mod_path
+        if args.dst_path:
+            dst_path = args.dst_path
+        if args.skips:
+            skips = set(args.skips)
+        if args.name:
+            output_name = args.name
+
+    if dst_path is None:
+        dst_path = Path(mlir_utils.dialects.__path__[0])
+
+    assert dst_path.is_dir(), "destination path isn't a directory or doesn't exist"
+    if skips is None:
+        skips = set()
+    if output_name is None:
+        output_name = mod_path.rsplit(".", maxsplit=1)[-1]
+
+    try:
+        # you need the star here to import the whole submodule path rather than just the root module (mlir)
+        modu = __import__(mod_path, fromlist=["*"])
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"couldn't import or find module {mod_path}")
+        raise e
+
+    if generated := generate_dialect_trampolines_from_module(modu, skips):
+        dst_path = dst_path / f"{output_name}.py"
+        with open(dst_path, "w") as f:
+            f.write(generated)
+        if dst_path.is_relative_to(PACKAGE_ROOT_PATH):
+            _add_file_to_sources_txt_file(dst_path)
 
 
 def generate_all_upstream_trampolines():
     import mlir.dialects
+    import mlir_utils.dialects
 
     for mod in pkgutil.iter_modules(mlir.dialects.__path__):
         if not mod.name.startswith("_"):
-            # you need the star here to import the whole submodule path rather than just the root module (mlir)
-            modu = __import__(f"mlir.dialects.{mod.name}", fromlist=["*"])
-            generate_dialect_trampolines(
-                modu, Path(__file__).parent / (mod.name + ".py")
+            generate_trampolines(
+                f"mlir.dialects.{mod.name}",
+                Path(mlir_utils.dialects.__path__[0]),
+                mod.name,
             )

@@ -1,10 +1,13 @@
+import os
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
 import mlir_utils.dialects
-from mlir_utils.dialects.generate_trampolines import generate_dialect_trampolines
+from mlir_utils._configuration.generate_trampolines import (
+    generate_trampolines,
+)
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -61,8 +64,13 @@ def skip_torch_mlir_not_installed():
 
 @pytest.mark.skipif(skip_torch_mlir_not_installed(), reason="torch_mlir not installed")
 def test_torch_dialect_trampolines_smoke():
-    from torch_mlir.dialects import torch
-
-    generate_dialect_trampolines(torch, Path(mlir_utils.dialects.__path__[0]) / "torch.py")
+    try:
+        modu = __import__("mlir_utils.dialects.torch", fromlist=["*"])
+        os.remove(modu.__file__)
+    except ModuleNotFoundError:
+        pass
+    generate_trampolines(
+        "torch_mlir.dialects.torch", Path(mlir_utils.dialects.__path__[0]), "torch"
+    )
     # noinspection PyUnresolvedReferences
     from mlir_utils.dialects import torch

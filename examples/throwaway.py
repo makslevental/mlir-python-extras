@@ -1,8 +1,16 @@
 import inspect
+import sys
 from functools import wraps
+from pathlib import Path
 
 from mlir_utils.context import mlir_mod_ctx
-from mlir_utils.dialects.generate_trampolines import generate_all_upstream_trampolines
+from mlir_utils._configuration.generate_trampolines import (
+    generate_all_upstream_trampolines,
+)
+from mlir_utils._configuration.configuration import _add_file_to_sources_txt_file
+
+# _add_file_to_sources_txt_file(Path("_configuration/__MLIR_PYTHON_PACKAGE_PREFIX__"))
+generate_all_upstream_trampolines()
 from mlir_utils.dialects.memref import alloca_scope, return_
 from mlir_utils.dialects.transform import foreach, yield_
 from mlir_utils.dialects import gpu
@@ -11,7 +19,6 @@ from mlir_utils.dialects.ext import func
 
 from mlir_utils.dialects.util import constant
 
-generate_all_upstream_trampolines()
 # # generate_all_upstream_trampolines()
 # from mlir.dialects.scf import WhileOp
 # from mlir.ir import InsertionPoint
@@ -56,3 +63,4 @@ generate_all_upstream_trampolines()
 # print(ctx.module)
 # ctx.module.operation.verify()
 # print(ctx.module)
+# from importlib.resources import files
