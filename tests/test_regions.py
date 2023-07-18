@@ -11,7 +11,7 @@ from mlir_utils.dialects.ext.tensor import Tensor, S, rank
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import f64, index
+from mlir_utils.types import f64_t, index_t, tensor_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -93,13 +93,11 @@ def test_func(ctx: MLIRContext):
 
 
 def test_block_args(ctx: MLIRContext):
-    one = constant(1, index)
-    two = constant(2, index)
+    one = constant(1, index_t)
+    two = constant(2, index_t)
 
-    @generate(
-        Tensor[(S, 3, S), f64], dynamic_extents=[one, two], block_args=[index] * 3
-    )
-    def demo_fun1(i, j, k):
+    @generate(tensor_t(S, 3, S, f64_t), dynamic_extents=[one, two])
+    def demo_fun1(i: index_t, j: index_t, k: index_t):
         one = constant(1.0)
         tensor_yield(one)
 

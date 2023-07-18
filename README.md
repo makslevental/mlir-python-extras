@@ -15,8 +15,8 @@ or for maximum convenience
 
 ```shell
 $ pip install mlir-python-utils[mlir] \
+  -i https://test.pypi.org/simple \
   -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-  -f https://github.com/makslevental/mlir-python-utils/releases/expanded_assets/latest
 $ configure-mlir-python-utils mlir
 ```
 

@@ -56,6 +56,9 @@ class AliasedModuleLoader(Loader):
 
 class AliasedModuleFinder(MetaPathFinder):
     def __init__(self, alias_map: Mapping[str, str]):
+        for k, v in dict(alias_map).items():
+            if k == v:
+                alias_map.pop(k)
         self.alias_map = alias_map
 
     def find_spec(

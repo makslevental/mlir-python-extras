@@ -18,7 +18,7 @@ from mlir_utils.dialects.transform import foreach
 from mlir_utils.dialects import gpu
 from mlir_utils.dialects.ext import func
 from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.types import f64, index
+from mlir_utils.types import f64_t, index_t
 
 generate_all_upstream_trampolines()
 # from mlir.dialects.scf import WhileOp
@@ -51,11 +51,11 @@ generate_all_upstream_trampolines()
 #
 with mlir_mod_ctx() as ctx:
 
-    one = constant(1, index)
-    two = constant(2, index)
+    one = constant(1, index_t)
+    two = constant(2, index_t)
 
     @generate(
-        Tensor[(S, 3, S), f64], dynamic_extents=[one, two], block_args=[index] * 3
+        Tensor[(S, 3, S), f64_t], dynamic_extents=[one, two], block_args=[index_t] * 3
     )
     def demo_fun1(i, j, k):
         one = constant(1.0)

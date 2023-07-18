@@ -1,8 +1,9 @@
 import ctypes
 from functools import wraps
+import inspect
 
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from mlir.ir import InsertionPoint, Value
+from mlir.ir import InsertionPoint, Value, Type
 
 
 def get_result_or_results(op):
@@ -53,12 +54,21 @@ def maybe_cast(val: Value):
 def region_op(op_constructor):
     # the decorator itself
     def op_decorator(*args, **kwargs):
-        block_arg_types = kwargs.pop("block_args", [])
         op = op_constructor(*args, **kwargs)
 
         def builder_wrapper(body_builder):
             # add a block with block args having types ...
-            op.regions[0].blocks.append(*[t for t in block_arg_types])
+            sig = inspect.signature(body_builder)
+            types = [p.annotation for p in sig.parameters.values()]
+            if not (
+                len(types) == len(sig.parameters)
+                and all(isinstance(t, Type) for t in types)
+            ):
+                raise ValueError(
+                    f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
+                )
+
+            op.regions[0].blocks.append(*types)
             with InsertionPoint(op.regions[0].blocks[0]):
                 body_builder(
                     *[maybe_cast(a) for a in op.regions[0].blocks[0].arguments]

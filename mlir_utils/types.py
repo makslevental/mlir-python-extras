@@ -8,30 +8,31 @@ from mlir.ir import (
     IndexType,
     F16Type,
     F32Type,
+    Type,
 )
 
-index = IndexType.get()
-bool_ = IntegerType.get_signless(1)
-i8 = IntegerType.get_signless(8)
-i16 = IntegerType.get_signless(16)
-i32 = IntegerType.get_signless(32)
-i64 = IntegerType.get_signless(64)
-f16 = F16Type.get()
-f32 = F32Type.get()
-f64 = F64Type.get()
+index_t = IndexType.get()
+bool_t = IntegerType.get_signless(1)
+i8_t = IntegerType.get_signless(8)
+i16_t = IntegerType.get_signless(16)
+i32_t = IntegerType.get_signless(32)
+i64_t = IntegerType.get_signless(64)
+f16_t = F16Type.get()
+f32_t = F32Type.get()
+f64_t = F64Type.get()
 
 NP_DTYPE_TO_MLIR_TYPE = lambda: {
-    np.int8: i8,
-    np.int16: i16,
-    np.int32: i32,
-    np.int64: i64,
+    np.int8: i8_t,
+    np.int16: i16_t,
+    np.int32: i32_t,
+    np.int64: i64_t,
     # this is techincally wrong i guess but numpy by default casts python scalars to this
     # so to support passing lists of ints we map this to index type
-    np.longlong: index,
-    np.uintp: index,
-    np.float16: f16,
-    np.float32: f32,
-    np.float64: f64,
+    np.longlong: index_t,
+    np.uintp: index_t,
+    np.float16: f16_t,
+    np.float32: f32_t,
+    np.float64: f64_t,
 }
 
 MLIR_TYPE_TO_NP_DTYPE = lambda: {v: k for k, v in NP_DTYPE_TO_MLIR_TYPE().items()}
@@ -51,11 +52,11 @@ def infer_mlir_type(
       MLIR type corresponding to py_val.
     """
     if isinstance(py_val, bool):
-        return bool_
+        return bool_t
     elif isinstance(py_val, int):
-        return i64
+        return i64_t
     elif isinstance(py_val, float):
-        return f64
+        return f64_t
     elif isinstance(py_val, np.ndarray):
         dtype = NP_DTYPE_TO_MLIR_TYPE()[py_val.dtype.type]
         return RankedTensorType.get(py_val.shape, dtype)
@@ -63,3 +64,17 @@ def infer_mlir_type(
         raise NotImplementedError(
             f"Unsupported Python value {py_val=} with type {type(py_val)}"
         )
+
+
+def tensor_t(*args, element_type: Type = None):
+    if (element_type is None and not isinstance(args[-1], Type)) or (
+        isinstance(args[-1], Type) and element_type is not None
+    ):
+        raise ValueError(
+            f"either element_type must be provided explicitly XOR last arg to tensor type constructor must be the element type"
+        )
+    if element_type is not None:
+        type = element_type
+    else:
+        type = args[-1]
+    return RankedTensorType.get(args[:-1], type)
