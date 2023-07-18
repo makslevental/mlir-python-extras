@@ -1,0 +1,72 @@
+name: Wheels
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+jobs:
+  build_wheels:
+    runs-on: ubuntu-20.04
+    outputs:
+      VERSION: ${{ steps.build_wheel.outputs.version }}
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Build wheel
+      id: build_wheel
+      run: |
+        pip wheel -w wheelhouse .
+        pip install toml
+        VERSION="$(python -c 'import toml; print(toml.load("pyproject.toml")["project"]["version"])')"
+        echo "version=${VERSION}" | tee -a $GITHUB_OUTPUT
+
+    - name: Upload wheels
+      uses: actions/upload-artifact@v3
+      with:
+        path: wheelhouse/*.whl
+        name: build_artifact
+
+  upload_wheels:
+
+    name: Upload wheels
+
+    needs: [build_wheels]
+
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          # unpacks default artifact into dist/
+          # if `name: artifact` is omitted, the action will create extra parent dir
+          name: build_artifact
+          path: dist
+
+      - name: Set up a release page
+        id: setup_release
+        run: |
+          VERSION=${{ needs.build_wheels.outputs.version }}
+          echo "`mlir-python-utils` $VERSION distribution created at $(date)" > body.md
+          echo "tag_name=${VERSION}" | tee -a $GITHUB_OUTPUT
+          echo "release_title=mlir-python-utils-${VERSION}" | tee -a $GITHUB_OUTPUT
+
+      - name: Release current commit
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          artifacts: "dist/*.whl"
+          bodyFile: body.md
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          tag: "${{ steps.setup_release.outputs.tag_name }}"
+          name: "${{ steps.setup_release.outputs.release_title }}"
+          removeArtifacts: false
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
