@@ -1,14 +1,20 @@
+from functools import partial
 from typing import Union
 
 import numpy as np
 from mlir.ir import (
-    IntegerType,
-    F64Type,
-    RankedTensorType,
-    IndexType,
+    Attribute,
     F16Type,
     F32Type,
+    F64Type,
+    IndexType,
+    IntegerType,
+    MemRefType,
+    RankedTensorType,
     Type,
+    UnrankedMemRefType,
+    UnrankedTensorType,
+    VectorType,
 )
 
 index_t = IndexType.get()
@@ -66,15 +72,55 @@ def infer_mlir_type(
         )
 
 
-def tensor_t(*args, element_type: Type = None):
-    if (element_type is None and not isinstance(args[-1], Type)) or (
-        isinstance(args[-1], Type) and element_type is not None
+def shaped_t(*args, element_type: Type = None, type_constructor=None):
+    if type_constructor is None:
+        raise ValueError("shaped_t is an abstract base class - cannot be constructed")
+    if (element_type is None and args and not isinstance(args[-1], Type)) or (
+        args and isinstance(args[-1], Type) and element_type is not None
     ):
         raise ValueError(
             f"either element_type must be provided explicitly XOR last arg to tensor type constructor must be the element type"
         )
     if element_type is not None:
         type = element_type
+        sizes = args
     else:
         type = args[-1]
-    return RankedTensorType.get(args[:-1], type)
+        sizes = args[:-1]
+    if sizes:
+        return type_constructor(sizes, type)
+    else:
+        return type_constructor(type)
+
+
+def vector_t(*args, element_type: Type = None):
+    return shaped_t(*args, element_type=element_type, type_constructor=VectorType.get)
+
+
+def tensor_t(*args, element_type: Type = None):
+    if not len(args) or len(args) == 1 and isinstance(args[-1], Type):
+        return shaped_t(
+            *args, element_type=element_type, type_constructor=UnrankedTensorType.get
+        )
+    else:
+        return shaped_t(
+            *args, element_type=element_type, type_constructor=RankedTensorType.get
+        )
+
+
+def memref_t(*args, element_type: Type = None, memory_space: int = None):
+    if memory_space is None:
+        memory_space = 0
+    memory_space = Attribute.parse(str(memory_space))
+    if not len(args) or len(args) == 1 and isinstance(args[-1], Type):
+        return shaped_t(
+            *args,
+            element_type=element_type,
+            type_constructor=partial(UnrankedMemRefType.get, memory_space=memory_space),
+        )
+    else:
+        return shaped_t(
+            *args,
+            element_type=element_type,
+            type_constructor=partial(MemRefType.get, memory_space=memory_space),
+        )
