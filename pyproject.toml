@@ -10,6 +10,7 @@ dependencies = [
     "black",
     "PyYAML",
     "inflection",
+    "ctypesgen",
 ]
 
 [project.optional-dependencies]
