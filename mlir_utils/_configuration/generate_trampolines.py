@@ -80,7 +80,7 @@ def generate_op_trampoline(op_class):
         for k, d in zip(args.kwonlyargs, args.kw_defaults)
     ]
 
-    fun_name = op_class.OPERATION_NAME.split(".")[-1]
+    fun_name = op_class.OPERATION_NAME.split(".")[-1].replace("-", "_")
     if keyword.iskeyword(fun_name):
         fun_name = fun_name + "_"
     op_class_name = op_class.__name__

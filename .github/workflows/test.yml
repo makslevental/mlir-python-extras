@@ -49,3 +49,40 @@ jobs:
         shell: bash
         run: |
           pytest tests
+
+
+  test-against-jax-bindings:
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-11, windows-2022 ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install and configure
+        shell: bash
+        run: |
+          pip install .[jax-test] \
+            -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
+          if [ ${{ matrix.os }} == 'windows-2022' ]; then
+            # configure-mlir-python-utils.exe -y jaxlib.mlir
+            pushd /tmp && python -m mlir_utils._configuration -y jaxlib.mlir && popd
+          else
+            configure-mlir-python-utils -y jaxlib.mlir
+          fi
+
+      - name: Test
+        shell: bash
+        run: |
+          pytest tests/test_smoke.py

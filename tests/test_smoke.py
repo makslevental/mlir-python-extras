@@ -11,6 +11,7 @@ from mlir_utils._configuration.generate_trampolines import (
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from util import skip_jax_not_installed, skip_torch_mlir_not_installed
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -26,6 +27,8 @@ def test_smoke(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+# skip if jax *is* installed because jax doesn't generate almost any of the upstream dialects
+@pytest.mark.skipif(lambda: not skip_jax_not_installed(), reason="jax installed")
 def test_dialect_trampolines_smoke():
     # noinspection PyUnresolvedReferences
     from mlir_utils.dialects import (
@@ -51,15 +54,18 @@ def test_dialect_trampolines_smoke():
     )
 
 
-def skip_torch_mlir_not_installed():
-    try:
-        from torch_mlir.dialects import torch
-
-        # don't skip
-        return False
-    except ImportError:
-        # skip
-        return True
+@pytest.mark.skipif(skip_jax_not_installed(), reason="jax not installed")
+def test_dialect_trampolines_smoke():
+    # noinspection PyUnresolvedReferences
+    from mlir_utils.dialects import (
+        builtin,
+        chlo,
+        func,
+        mhlo,
+        ml_program,
+        sparse_tensor,
+        stablehlo,
+    )
 
 
 @pytest.mark.skipif(skip_torch_mlir_not_installed(), reason="torch_mlir not installed")
@@ -74,3 +80,26 @@ def test_torch_dialect_trampolines_smoke():
     )
     # noinspection PyUnresolvedReferences
     from mlir_utils.dialects import torch
+
+
+@pytest.mark.skipif(skip_jax_not_installed(), reason="jax not installed")
+def test_jax_trampolines_smoke():
+    for mod in ["chlo", "mhlo", "stablehlo"]:
+        try:
+            modu = __import__(f"mlir_utils.dialects.{mod}", fromlist=["*"])
+            os.remove(modu.__file__)
+        except ModuleNotFoundError:
+            pass
+        generate_trampolines(
+            f"jaxlib.mlir.dialects.{mod}", Path(mlir_utils.dialects.__path__[0]), mod
+        )
+    # noinspection PyUnresolvedReferences
+    from mlir_utils.dialects import (
+        builtin,
+        chlo,
+        func,
+        mhlo,
+        ml_program,
+        sparse_tensor,
+        stablehlo,
+    )
