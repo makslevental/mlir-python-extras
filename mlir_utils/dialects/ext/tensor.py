@@ -6,6 +6,7 @@ from mlir.dialects.tensor import EmptyOp
 from mlir.ir import Type, Value, RankedTensorType, DenseElementsAttr, ShapedType
 
 from mlir_utils.dialects.ext.arith import ArithValue
+from mlir_utils.dialects.util import register_value_caster
 
 try:
     from mlir_utils.dialects.tensor import *
@@ -64,28 +65,5 @@ class Tensor(ArithValue):
 
         return cls(EmptyOp(shape, el_type).result)
 
-    def __class_getitem__(
-        cls, dim_sizes_dtype: Tuple[Union[list[int], tuple[int, ...]], Type]
-    ) -> Type:
-        """A convenience method for creating RankedTensorType.
 
-        Args:
-          dim_sizes_dtype: A tuple of both the shape of the type and the dtype.
-
-        Returns:
-          An instance of RankedTensorType.
-        """
-        if len(dim_sizes_dtype) != 2:
-            raise ValueError(
-                f"Wrong type of argument to {cls.__name__}: {dim_sizes_dtype=}"
-            )
-        dim_sizes, dtype = dim_sizes_dtype
-        if not isinstance(dtype, Type):
-            raise ValueError(f"{dtype=} is not {Type=}")
-        static_sizes = []
-        for s in dim_sizes:
-            if isinstance(s, int):
-                static_sizes.append(s)
-            else:
-                static_sizes.append(ShapedType.get_dynamic_size())
-        return RankedTensorType.get(static_sizes, dtype)
+register_value_caster(RankedTensorType.static_typeid, Tensor)

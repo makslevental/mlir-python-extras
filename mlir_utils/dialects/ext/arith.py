@@ -155,7 +155,7 @@ class ArithValueMeta(type(Value)):
 
 
 class ArithValue(Value, metaclass=ArithValueMeta):
-    """Mixin class for functionality shared by Value subclasses that support
+    """Class for functionality shared by Value subclasses that support
     arithmetic operations.
 
     Note, since we bind the ArithValueMeta here, it is here that the __new__ and

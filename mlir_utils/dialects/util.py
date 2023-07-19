@@ -1,9 +1,11 @@
 import ctypes
-from functools import wraps
 import inspect
+from collections import defaultdict
+from functools import wraps
+from typing import Callable
 
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from mlir.ir import InsertionPoint, Value, Type
+from mlir.ir import InsertionPoint, Value, Type, TypeID
 
 
 def get_result_or_results(op):
@@ -31,20 +33,52 @@ def make_maybe_no_args_decorator(decorator):
     return maybe_no_args
 
 
+__VALUE_CASTERS: defaultdict[
+    TypeID, list[Callable[[Value], Value | None]]
+] = defaultdict(list)
+
+
+def register_value_caster(
+    typeid: TypeID, caster: Callable[[Value], Value], priority: int = None
+):
+    if not isinstance(typeid, TypeID):
+        raise ValueError(f"{typeid=} is not a TypeID")
+    if priority is None:
+        __VALUE_CASTERS[typeid].append(caster)
+    else:
+        __VALUE_CASTERS[typeid].insert(priority, caster)
+
+
+def has_value_caster(typeid: TypeID):
+    if not isinstance(typeid, TypeID):
+        raise ValueError(f"{typeid=} is not a TypeID")
+    if not typeid in __VALUE_CASTERS:
+        return False
+    return True
+
+
+def get_value_caster(typeid: TypeID):
+    if not has_value_caster(typeid):
+        raise ValueError(f"no registered caster for {typeid=}")
+    return __VALUE_CASTERS[typeid]
+
+
 def maybe_cast(val: Value):
     """Maybe cast an ir.Value to one of Tensor, Scalar.
 
     Args:
       val: The ir.Value to maybe cast.
     """
-    from mlir_utils.dialects.ext.tensor import Tensor
     from mlir_utils.dialects.ext.arith import Scalar
 
     if not isinstance(val, Value):
         return val
 
-    if Tensor.isinstance(val):
-        return Tensor(val)
+    if has_value_caster(val.type.typeid):
+        for caster in get_value_caster(val.type.typeid):
+            if casted := caster(val):
+                return casted
+        raise ValueError(f"no successful casts for {val=}")
     if Scalar.isinstance(val):
         return Scalar(val)
     return val

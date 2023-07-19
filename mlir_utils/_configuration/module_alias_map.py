@@ -87,3 +87,11 @@ class AliasedModuleFinder(MetaPathFinder):
             )
         else:
             return None
+
+
+def maybe_remove_alias_module_loader():
+    for i in range(len(sys.meta_path)):
+        finder = sys.meta_path[i]
+        if isinstance(finder, AliasedModuleFinder):
+            del sys.meta_path[i]
+            return
