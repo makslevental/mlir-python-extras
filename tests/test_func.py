@@ -2,7 +2,6 @@ import inspect
 from textwrap import dedent
 
 import pytest
-
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
 
@@ -20,7 +19,7 @@ def test_emit(ctx: MLIRContext):
         return one
 
     assert hasattr(demo_fun1, "emit")
-    assert inspect.isfunction(demo_fun1.emit)
+    assert inspect.ismethod(demo_fun1.emit)
     demo_fun1.emit()
     correct = dedent(
         """\
@@ -29,6 +28,66 @@ def test_emit(ctx: MLIRContext):
         %c1_i64 = arith.constant 1 : i64
         return %c1_i64 : i64
       }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_func_base_meta(ctx: MLIRContext):
+    print()
+
+    @func
+    def foo1():
+        one = constant(1)
+        return one
+
+    # print("wrapped foo", foo1)
+    foo1.emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @foo1() -> i64 {
+        %c1_i64 = arith.constant 1 : i64
+        return %c1_i64 : i64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    foo1()
+    correct = dedent(
+        """\
+    module {
+      func.func @foo1() -> i64 {
+        %c1_i64 = arith.constant 1 : i64
+        return %c1_i64 : i64
+      }
+      %0 = func.call @foo1() : () -> i64
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_func_base_meta2(ctx: MLIRContext):
+    print()
+
+    @func
+    def foo1():
+        one = constant(1)
+        return one
+
+    foo1()
+    correct = dedent(
+        """\
+    module {
+      func.func @foo1() -> i64 {
+        %c1_i64 = arith.constant 1 : i64
+        return %c1_i64 : i64
+      }
+      %0 = func.call @foo1() : () -> i64
     }
     """
     )
