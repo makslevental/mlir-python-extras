@@ -35,9 +35,8 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[torch-mlir-test] \
-            -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest \
-            -f https://llvm.github.io/torch-mlir/package-index/
+          export PIP_EXTRA_INDEX_URL=https://github.com/makslevental/wheels/releases/expanded_assets/i
+          pip install .[torch-mlir-test] -f https://llvm.github.io/torch-mlir/package-index/
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
             # configure-mlir-python-utils.exe -y torch_mlir
             pushd /tmp && python -m mlir_utils._configuration -y torch_mlir && popd

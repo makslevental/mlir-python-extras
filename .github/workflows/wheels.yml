@@ -39,9 +39,7 @@ jobs:
     needs: [build_wheels]
 
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: write
+    permissions: write-all
     steps:
       - uses: actions/download-artifact@v3
         with:
@@ -79,6 +77,20 @@ jobs:
           token: "${{ secrets.GITHUB_TOKEN }}"
           tag: "latest"
           name: "latest"
+          removeArtifacts: false
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+
+      - name: Release current commit
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          owner: makslevental
+          repo: wheels
+          artifacts: "dist/*.whl"
+          token: "${{ secrets.WHEELS_REPO }}"
+          tag: "i"
+          name: "i"
           removeArtifacts: false
           allowUpdates: true
           replacesArtifacts: true
