@@ -19,7 +19,12 @@ from mlir.ir import (
     Value,
     IndexType,
     RankedTensorType,
+    IntegerAttr,
+    IntegerType,
     DenseElementsAttr,
+    register_attribute_builder,
+    Context,
+    Attribute,
 )
 
 from mlir_utils.dialects.util import get_result_or_results, maybe_cast
@@ -244,3 +249,53 @@ class Scalar(ArithValue):
             or _is_index_type(other.type)
             or _is_complex_type(other.type)
         )
+
+
+@register_attribute_builder("Arith_CmpIPredicateAttr")
+def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
+    predicates = {
+        "eq": 0,
+        "ne": 1,
+        "slt": 2,
+        "sle": 3,
+        "sgt": 4,
+        "sge": 5,
+        "ult": 6,
+        "ule": 7,
+        "ugt": 8,
+        "uge": 9,
+    }
+    if isinstance(predicate, Attribute):
+        return predicate
+    assert predicate in predicates, f"predicate {predicate} not in predicates"
+    return IntegerAttr.get(
+        IntegerType.get_signless(64, context=context), predicates[predicate]
+    )
+
+
+@register_attribute_builder("Arith_CmpFPredicateAttr")
+def _arith_CmpFPredicateAttr(predicate: str | Attribute, context: Context):
+    predicates = {
+        "false": 0,
+        "oeq": 1,
+        "ogt": 2,
+        "oge": 3,
+        "olt": 4,
+        "ole": 5,
+        "one": 6,
+        "ord": 7,
+        "ueq": 8,
+        "ugt": 9,
+        "uge": 10,
+        "ult": 11,
+        "ule": 12,
+        "une": 13,
+        "uno": 14,
+        "true": 15,
+    }
+    if isinstance(predicate, Attribute):
+        return predicate
+    assert predicate in predicates, f"predicate {predicate} not in predicates"
+    return IntegerAttr.get(
+        IntegerType.get_signless(64, context=context), predicates[predicate]
+    )

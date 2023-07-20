@@ -15,9 +15,9 @@ pytest.mark.usefixtures("ctx")
 
 def test_tensor_arithmetic(ctx: MLIRContext):
     print()
-    one = constant(1, index_t)
+    one = constant(1)
     assert isinstance(one, Scalar)
-    two = constant(2, index_t)
+    two = constant(2)
     assert isinstance(two, Scalar)
     three = one + two
     assert isinstance(three, Scalar)
@@ -34,9 +34,9 @@ def test_tensor_arithmetic(ctx: MLIRContext):
         dedent(
             """\
     module {
-      %c1 = arith.constant 1 : index
-      %c2 = arith.constant 2 : index
-      %0 = arith.addi %c1, %c2 : index
+      %c1_i64 = arith.constant 1 : i64
+      %c2_i64 = arith.constant 2 : i64
+      %0 = arith.addi %c1_i64, %c2_i64 : i64
       %1 = tensor.empty() : tensor<10x10x10xf64>
       %2 = tensor.empty() : tensor<10x10x10xf64>
       %3 = arith.addf %1, %2 : tensor<10x10x10xf64>

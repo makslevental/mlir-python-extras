@@ -19,7 +19,6 @@ def test_caster_registration(ctx: MLIRContext):
     assert repr(ten) == "Tensor(%0, tensor<?x3x?xf64>)"
 
     def dummy_caster(val):
-        print(val)
         return val
 
     register_value_caster(RankedTensorType.static_typeid, dummy_caster)

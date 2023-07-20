@@ -1,11 +1,21 @@
 import ctypes
 import inspect
+import warnings
 from collections import defaultdict
 from functools import wraps
 from typing import Callable
 
+import mlir
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from mlir.ir import InsertionPoint, Value, Type, TypeID
+from mlir.ir import InsertionPoint, Value, Type
+
+try:
+    from mlir.ir import TypeID
+except ImportError:
+    warnings.warn(
+        f"TypeID not supported by {mlir=}; value casting won't work correctly"
+    )
+    TypeID = object
 
 
 def get_result_or_results(op):

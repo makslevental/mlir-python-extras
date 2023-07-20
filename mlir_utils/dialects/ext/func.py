@@ -1,5 +1,5 @@
 import inspect
-from functools import wraps
+from functools import wraps, partial
 
 from mlir.dialects.func import FuncOp, ReturnOp, CallOp
 from mlir.ir import (
@@ -8,24 +8,47 @@ from mlir.ir import (
     StringAttr,
     TypeAttr,
     FlatSymbolRefAttr,
+    Type,
 )
 
 from mlir_utils.dialects.util import (
     get_result_or_results,
     make_maybe_no_args_decorator,
+    maybe_cast,
 )
 
 
-@make_maybe_no_args_decorator
-def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None):
+def func_base(
+    FuncOp,
+    ReturnOp,
+    CallOp,
+    sym_visibility=None,
+    arg_attrs=None,
+    res_attrs=None,
+    loc=None,
+    ip=None,
+):
     ip = ip or InsertionPoint.current
+
+    # if this is set to true then wrapper below won't emit a call op
+    # it is set below by a def emit fn that is attached to the body_builder
+    # wrapper; thus you can call wrapped_fn.emit() (i.e., without an operands)
+    # and the func will be emitted.
+    _emit = False
 
     def builder_wrapper(body_builder):
         @wraps(body_builder)
         def wrapper(*call_args):
+            # TODO(max): implement constexpr ie enable passing constants that skip being
+            # part of the signature
             sig = inspect.signature(body_builder)
             implicit_return = sig.return_annotation is inspect._empty
-            input_types = [a.type for a in call_args]
+            input_types = [p.annotation for p in sig.parameters.values()]
+            if not (
+                len(input_types) == len(sig.parameters)
+                and all(isinstance(t, Type) for t in input_types)
+            ):
+                input_types = [a.type for a in call_args]
             function_type = TypeAttr.get(
                 FunctionType.get(
                     inputs=input_types,
@@ -34,7 +57,7 @@ def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None)
             )
             # FuncOp is extended but we do really want the base
             func_name = body_builder.__name__
-            func_op = FuncOp.__base__(
+            func_op = FuncOp(
                 func_name,
                 function_type,
                 sym_visibility=StringAttr.get(str(sym_visibility))
@@ -45,7 +68,7 @@ def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None)
                 loc=loc,
                 ip=ip,
             )
-            func_op.regions[0].blocks.append(*[a.type for a in call_args])
+            func_op.regions[0].blocks.append(*input_types)
             with InsertionPoint(func_op.regions[0].blocks[0]):
                 results = get_result_or_results(
                     body_builder(*func_op.regions[0].blocks[0].arguments)
@@ -63,14 +86,27 @@ def func(sym_visibility=None, arg_attrs=None, res_attrs=None, loc=None, ip=None)
             function_type = FunctionType.get(inputs=input_types, results=return_types)
             func_op.attributes["function_type"] = TypeAttr.get(function_type)
 
-            call_op = CallOp(
-                [r.type for r in results], FlatSymbolRefAttr.get(func_name), call_args
-            )
-            if results is None:
-                return func_op
-            return get_result_or_results(call_op)
+            if _emit:
+                return maybe_cast(get_result_or_results(func_op))
+            else:
+                call_op = CallOp(
+                    [r.type for r in results],
+                    FlatSymbolRefAttr.get(func_name),
+                    call_args,
+                )
+                return maybe_cast(get_result_or_results(call_op))
 
-        # wrapper.op = op
+        def emit():
+            nonlocal _emit
+            _emit = True
+            wrapper()
+
+        wrapper.emit = emit
         return wrapper
 
     return builder_wrapper
+
+
+func = make_maybe_no_args_decorator(
+    partial(func_base, FuncOp=FuncOp.__base__, ReturnOp=ReturnOp, CallOp=CallOp)
+)

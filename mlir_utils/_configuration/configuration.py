@@ -52,6 +52,13 @@ def _get_mlir_package_prefix():
 
 def alias_upstream_bindings():
     if mlir_python_package_prefix := _get_mlir_package_prefix():
+        # check if valid package/module
+        try:
+            _host_bindings_mlir = __import__(f"{mlir_python_package_prefix}._mlir_libs")
+        except (ImportError, ModuleNotFoundError) as e:
+            print(f"couldn't import {mlir_python_package_prefix=} due to: {e}")
+            raise e
+
         sys.meta_path.insert(
             get_meta_path_insertion_index(),
             AliasedModuleFinder({"mlir": mlir_python_package_prefix}),

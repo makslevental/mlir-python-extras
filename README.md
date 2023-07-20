@@ -60,3 +60,14 @@ Workaround is to delete the prefix token before configuring, like so:
 ```shell
 rm /home/mlevental/dev_projects/mlir_utils/mlir_utils/_configuration/__MLIR_PYTHON_PACKAGE_PREFIX__ && configure-mlir-python-utils mlir
 ```
+
+## Gotchas
+
+There's a `DefaultContext` created when this package is loaded. If you have weird things happen like
+
+```
+E error: unknown: 'arith.constant' op requires attribute 'value'
+E  note: unknown: see current operation: %0 = "arith.constant"() {value = 64 : i32} : () -> i32
+```
+
+which looks patently insane (because `value` is in fact there as an attribute), then you have a `Context`s problem.
