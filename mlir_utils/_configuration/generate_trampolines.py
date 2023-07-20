@@ -72,14 +72,6 @@ def generate_op_trampoline(op_class):
     for a in args.args:
         a.arg = inflection.underscore(a.arg).lower()
 
-    for k in args.kwonlyargs:
-        k.arg = inflection.underscore(k.arg).lower()
-
-    keywords = [
-        ast.keyword(k.arg, ast.Name(k.arg))
-        for k, d in zip(args.kwonlyargs, args.kw_defaults)
-    ]
-
     fun_name = op_class.OPERATION_NAME.split(".")[-1].replace("-", "_")
     if keyword.iskeyword(fun_name):
         fun_name = fun_name + "_"
@@ -88,6 +80,11 @@ def generate_op_trampoline(op_class):
     if len(args.args) == 1 and args.args[0].arg == "results_":
         args.defaults.append(ast.Constant(None))
         body += [ast.parse("results_ = results_ or []").body[0]]
+
+    keywords = [
+        ast.keyword(k.arg, ast.Name(inflection.underscore(k.arg).lower()))
+        for k, d in zip(args.kwonlyargs, args.kw_defaults)
+    ]
     if (
         hasattr(op_class, "_ODS_REGIONS")
         and op_class._ODS_REGIONS[0] == 1
@@ -102,6 +99,9 @@ def generate_op_trampoline(op_class):
                 f"return {maybe_cast.__name__}({get_result_or_results.__name__}({ast.unparse(ast_call(op_class_name, args.args, keywords))}))"
             ).body[0]
         ]
+
+    for k in args.kwonlyargs:
+        k.arg = inflection.underscore(k.arg).lower()
 
     args = copy.deepcopy(args)
     oper_finder = FindOperands()
