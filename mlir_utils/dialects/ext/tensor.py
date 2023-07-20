@@ -2,7 +2,7 @@ from functools import cached_property
 from typing import Union, Tuple, Sequence
 
 import numpy as np
-from mlir.dialects.tensor import EmptyOp
+from mlir.dialects.tensor import EmptyOp, GenerateOp
 from mlir.ir import Type, Value, RankedTensorType, DenseElementsAttr, ShapedType
 
 from mlir_utils.dialects.ext.arith import ArithValue
@@ -62,7 +62,6 @@ class Tensor(ArithValue):
         shape: Union[list[Union[int, Value]], tuple[Union[int, Value], ...]],
         el_type: Type,
     ) -> "Tensor":
-
         return cls(EmptyOp(shape, el_type).result)
 
 

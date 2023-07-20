@@ -15,6 +15,7 @@ from mlir.ir import (
     UnrankedMemRefType,
     UnrankedTensorType,
     VectorType,
+    BF16Type,
 )
 
 index_t = IndexType.get()
@@ -26,6 +27,7 @@ i64_t = IntegerType.get_signless(64)
 f16_t = F16Type.get()
 f32_t = F32Type.get()
 f64_t = F64Type.get()
+bf16_t = BF16Type.get()
 
 NP_DTYPE_TO_MLIR_TYPE = lambda: {
     np.int8: i8_t,
