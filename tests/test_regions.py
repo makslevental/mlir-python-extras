@@ -7,7 +7,7 @@ from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield
 
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
-from mlir_utils.dialects.ext.tensor import Tensor, S, rank
+from mlir_utils.dialects.ext.tensor import S, rank
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext

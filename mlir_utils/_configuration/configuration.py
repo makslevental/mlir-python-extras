@@ -5,6 +5,7 @@ import sys
 from base64 import urlsafe_b64encode
 from importlib.metadata import distribution, packages_distributions
 from importlib.resources import files
+from importlib.resources.readers import MultiplexedPath
 from pathlib import Path
 
 from .module_alias_map import get_meta_path_insertion_index, AliasedModuleFinder
@@ -12,6 +13,8 @@ from .module_alias_map import get_meta_path_insertion_index, AliasedModuleFinder
 __MLIR_PYTHON_PACKAGE_PREFIX__ = "__MLIR_PYTHON_PACKAGE_PREFIX__"
 PACKAGE = __package__.split(".")[0]
 PACKAGE_ROOT_PATH = files(PACKAGE)
+if isinstance(PACKAGE_ROOT_PATH, MultiplexedPath):
+    PACKAGE_ROOT_PATH = PACKAGE_ROOT_PATH._paths[0]
 DIST = distribution(packages_distributions()[PACKAGE][0])
 MLIR_PYTHON_PACKAGE_PREFIX_TOKEN_PATH = (
     Path(__file__).parent / __MLIR_PYTHON_PACKAGE_PREFIX__
