@@ -7,16 +7,7 @@ The missing pieces (as far as boilerplate reduction goes) of the upstream MLIR p
 ### TL;DR
 
 ```shell
-$ pip install .[mlir] -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
-$ configure-mlir-python-utils mlir
-```
-
-or for maximum convenience
-
-```shell
-$ pip install mlir-python-utils[mlir] \
-  -i https://test.pypi.org/simple \
-  -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
+$ pip install .[mlir] -f https://makslevental.github.io/wheels/
 $ configure-mlir-python-utils mlir
 ```
 
@@ -49,7 +40,7 @@ Check out the [tests](tests).
 # you need setuptools >= 64 for build_editable
 pip install setuptools -U
 pip install -e .[torch-mlir-test] \
-   -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest \
+   -f https://makslevental.github.io/wheels/ \
    -f https://llvm.github.io/torch-mlir/package-index/
 ```
 
