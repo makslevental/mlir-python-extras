@@ -35,8 +35,6 @@ def test_emit(ctx: MLIRContext):
 
 
 def test_func_base_meta(ctx: MLIRContext):
-    print()
-
     @func
     def foo1():
         one = constant(1)
