@@ -3,11 +3,11 @@ import inspect
 import warnings
 from collections import defaultdict
 from functools import wraps
-from typing import Callable
+from typing import Callable, Sequence
 
 import mlir
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from mlir.ir import InsertionPoint, Value, Type
+from mlir.ir import InsertionPoint, Value, Type, OpResultList
 
 try:
     from mlir.ir import TypeID
@@ -95,37 +95,49 @@ def maybe_cast(val: Value):
 
 
 # builds the decorator
-def region_op(op_constructor):
+def region_op(op_constructor, terminator=None):
     # the decorator itself
     def op_decorator(*args, **kwargs):
         op = op_constructor(*args, **kwargs)
 
         def builder_wrapper(body_builder):
             # add a block with block args having types ...
-            sig = inspect.signature(body_builder)
-            types = [p.annotation for p in sig.parameters.values()]
-            if not (
-                len(types) == len(sig.parameters)
-                and all(isinstance(t, Type) for t in types)
-            ):
-                raise ValueError(
-                    f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
-                )
+            if len(op.regions[0].blocks) == 0:
+                sig = inspect.signature(body_builder)
+                types = [p.annotation for p in sig.parameters.values()]
+                if not (
+                    len(types) == len(sig.parameters)
+                    and all(isinstance(t, Type) for t in types)
+                ):
+                    raise ValueError(
+                        f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
+                    )
 
-            op.regions[0].blocks.append(*types)
+                op.regions[0].blocks.append(*types)
             with InsertionPoint(op.regions[0].blocks[0]):
-                body_builder(
+                results = body_builder(
                     *[maybe_cast(a) for a in op.regions[0].blocks[0].arguments]
                 )
+                if terminator is not None:
+                    res = []
+                    if isinstance(results, (tuple, list)):
+                        res.extend(results)
+                    elif results is not None:
+                        res.append(results)
+                    terminator(res)
 
-            return maybe_cast(get_result_or_results(op))
+            res = get_result_or_results(op)
+            if isinstance(res, OpResultList):
+                return tuple(map(maybe_cast, res))
+            else:
+                return maybe_cast(res)
 
         return builder_wrapper
 
     return make_maybe_no_args_decorator(op_decorator)
 
 
-def _update_caller_vars(previous_frame, args, replacements):
+def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
     """Update caller vars passed as args.
 
     This function uses CPython API  to update the values
@@ -153,9 +165,9 @@ def _update_caller_vars(previous_frame, args, replacements):
     ]
     for i, var_names in enumerate(var_names):
         for var_name in var_names:
-            # previous_frame.f_locals[var_name] = maybe_cast(replacements[i])
             previous_frame.f_locals[var_name] = replacements[i]
-    # signal to update
-    ctypes.pythonapi.PyFrame_LocalsToFast(
-        ctypes.py_object(previous_frame), ctypes.c_int(1)
-    )
+            # signal to update
+            # for some reason you can only update one at a time?
+            ctypes.pythonapi.PyFrame_LocalsToFast(
+                ctypes.py_object(previous_frame), ctypes.c_int(1)
+            )
