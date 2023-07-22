@@ -10,17 +10,7 @@ from textwrap import dedent
 import black
 import inflection
 
-
-def ast_call(name, args=None, keywords=None):
-    if keywords is None:
-        keywords = []
-    if args is None:
-        args = []
-    return ast.Call(
-        func=ast.Name(id=name, ctx=ast.Load()),
-        args=args,
-        keywords=keywords,
-    )
+from mlir_utils.ast.util import ast_call
 
 
 class FindOperands(ast.NodeVisitor):
@@ -197,6 +187,7 @@ def generate_trampolines(
         _add_file_to_sources_txt_file,
         PACKAGE_ROOT_PATH,
     )
+    import mlir_utils.dialects
 
     if mod_path is None:
         parser = argparse.ArgumentParser(
