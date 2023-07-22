@@ -2,8 +2,14 @@ from textwrap import dedent
 
 import pytest
 
+from mlir_utils.ast.canonicalize import canonicalize
 from mlir_utils.dialects.ext.arith import constant, Scalar
-from mlir_utils.dialects.ext.scf import for_, range_, yield_
+from mlir_utils.dialects.ext.scf import (
+    for_,
+    range_,
+    yield_,
+    canonicalizer,
+)
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -85,6 +91,86 @@ def test_for_bare(ctx: MLIRContext):
 
     assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%0#0, f64)"
     assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%0#1, f64)"
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 1.000000e+00 : f64
+      %c0 = arith.constant 0 : index
+      %c10 = arith.constant 10 : index
+      %c1 = arith.constant 1 : index
+      %0:2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f64, f64) {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_2 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_1, %cst_2 : f64, f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_scf_canonicalizer(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def foo():
+        one = constant(1.0)
+        two = constant(1.0)
+
+        _i = 0
+        for i, i1 in range_(0, 10, iter_args=[one]):
+            _i += 1
+            assert isinstance(i, Scalar) and repr(i) == "Scalar(%arg0, index)"
+            assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f64)"
+            three = constant(3.0)
+            yield three
+        assert _i == 1
+
+        assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%0, f64)"
+
+    foo()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 1.000000e+00 : f64
+      %c0 = arith.constant 0 : index
+      %c10 = arith.constant 10 : index
+      %c1 = arith.constant 1 : index
+      %0 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst) -> (f64) {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+        scf.yield %cst_1 : f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_scf_canonicalizer_tuple(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def foo():
+        one = constant(1.0)
+        two = constant(1.0)
+
+        _i = 0
+        for i, (i1, i2) in range_(0, 10, iter_args=[one, two]):
+            _i += 1
+            assert isinstance(i, Scalar) and repr(i) == "Scalar(%arg0, index)"
+            assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f64)"
+            assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f64)"
+            three = constant(3.0)
+            four = constant(4.0)
+            yield three, four
+        assert _i == 1
+
+        assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%0#0, f64)"
+        assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%0#1, f64)"
+
+    foo()
 
     ctx.module.operation.verify()
     correct = dedent(

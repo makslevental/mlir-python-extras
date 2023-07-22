@@ -1,9 +1,12 @@
+import ast
 import inspect
 from typing import Optional, Sequence
 
 from mlir.dialects import scf
 from mlir.ir import InsertionPoint, Value
 
+from mlir_utils.ast.canonicalize import StrictTransformer, Canonicalizer
+from mlir_utils.ast.util import ast_call
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.scf import yield_ as yield__
 from mlir_utils.dialects.util import region_op, maybe_cast, _update_caller_vars
@@ -62,3 +65,25 @@ def range_(
 
 def yield_(*args):
     yield__(args)
+
+
+class ReplaceSCFYield(StrictTransformer):
+    def visit_Yield(self, node: ast.Yield) -> ast.Call:
+        if isinstance(node.value, ast.Tuple):
+            args = node.value.elts
+        else:
+            args = [node.value]
+        return ast_call(yield_.__name__, args)
+
+
+class SCFCanonicalizer(Canonicalizer):
+    @property
+    def ast_rewriters(self):
+        return [ReplaceSCFYield]
+
+    @property
+    def bytecode_rewriters(self):
+        return []
+
+
+canonicalizer = SCFCanonicalizer()
