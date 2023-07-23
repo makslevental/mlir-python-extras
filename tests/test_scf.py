@@ -9,6 +9,7 @@ from mlir_utils.dialects.ext.scf import (
     range_,
     yield_,
     canonicalizer,
+    if_,
 )
 
 # noinspection PyUnresolvedReferences
@@ -185,6 +186,60 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
         %cst_1 = arith.constant 3.000000e+00 : f64
         %cst_2 = arith.constant 4.000000e+00 : f64
         scf.yield %cst_1, %cst_2 : f64, f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_simple(ctx: MLIRContext):
+    one = constant(1.0)
+    two = constant(2.0)
+
+    @if_(one < two)
+    def iffoo():
+        one = constant(1.0)
+        return
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_1 = arith.constant 1.000000e+00 : f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_simple_rewrite(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+
+        if one < two:
+            three = constant(3.0)
+
+        return
+
+    iffoo()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_1 = arith.constant 3.000000e+00 : f64
       }
     }
     """

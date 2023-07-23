@@ -6,13 +6,7 @@ from abc import ABC
 from textwrap import dedent
 from types import CodeType
 
-
-class StrictTransformer(ast.NodeTransformer):
-    def __init__(self, context=None):
-        self.context = context
-
-    def visit_FunctionDef(self, node: ast.FunctionDef):
-        return node
+from bytecode import ConcreteBytecode
 
 
 def bind(func, instance, as_name=None):
@@ -41,7 +35,15 @@ def copy_func(f, new_code):
     return g
 
 
-def rewrite_ast(f, rewriters: list[StrictTransformer.__class__] = None):
+class StrictTransformer(ast.NodeTransformer):
+    def __init__(self, context=None):
+        self.context = context
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        return node
+
+
+def rewrite_ast(f, rewriters: list[type(StrictTransformer)] = None):
     if rewriters is None:
         rewriters = []
     tree = ast.parse(dedent(inspect.getsource(f)))
@@ -68,19 +70,40 @@ def rewrite_ast(f, rewriters: list[StrictTransformer.__class__] = None):
     return copy_func(f, new_f_code_o)
 
 
+class BytecodePatcher(ABC):
+    def __init__(self, context=None):
+        self.context = context
+
+    @property
+    def patch_bytecode(self, code: ConcreteBytecode, original_f) -> ConcreteBytecode:
+        pass
+
+
+def patch_bytecode(f, patchers: list[type(BytecodePatcher)] = None):
+    if patchers is None:
+        patchers = []
+    code = ConcreteBytecode.from_code(f.__code__)
+    context = types.SimpleNamespace()
+    for patcher in patchers:
+        code = patcher(context).patch_bytecode(code, f)
+
+    return copy_func(f, code.to_code())
+
+
 class Canonicalizer(ABC):
     @property
     def ast_rewriters(self) -> list[StrictTransformer]:
         pass
 
     @property
-    def bytecode_rewriters(self) -> list[StrictTransformer]:
+    def bytecode_patchers(self) -> list[BytecodePatcher]:
         pass
 
 
 def canonicalize(*, with_: Canonicalizer):
     def wrapper(f):
         f = rewrite_ast(f, with_.ast_rewriters)
+        f = patch_bytecode(f, with_.bytecode_patchers)
         return f
 
     return wrapper
