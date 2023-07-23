@@ -84,10 +84,10 @@ _current_if_op: list[scf.IfOp] = []
 _if_ip: InsertionPoint = None
 
 
-def stack_if(cond: Value):
+def stack_if(cond: Value, results_=None, *, has_else=False):
     assert isinstance(cond, Value)
     global _if_ip, _current_if_op
-    if_op = _if(cond)
+    if_op = _if(cond, results_, has_else=has_else)
     cond.owner.move_before(if_op)
     _current_if_op.append(if_op)
     _if_ip = InsertionPoint(if_op.then_block)
@@ -109,16 +109,15 @@ def stack_else():
     return True
 
 
-def stack_else_if(cond):
+def stack_else_if(cond, results_=None, *, has_else=False):
     global _if_ip, _current_if_op
     _if_ip = InsertionPoint(_current_if_op[-1].add_else())
     _if_ip.__enter__()
-    return stack_if(cond)
+    return stack_if(cond, results_, has_else=has_else)
 
 
 def stack_endif_branch():
     global _if_ip
-    scf.YieldOp([])
     _if_ip.__exit__(None, None, None)
 
 
@@ -135,7 +134,7 @@ class ReplaceSCFYield(StrictTransformer):
         if isinstance(node.value, ast.Tuple):
             args = node.value.elts
         else:
-            args = [node.value]
+            args = [node.value] if node.value else []
         return ast_call(yield_.__name__, args)
 
 
@@ -146,8 +145,18 @@ class InsertEndIfs(StrictTransformer):
         for i, b in enumerate(node.orelse):
             node.orelse[i] = self.visit(b)
 
+        if yield_in_body := next(
+            (n for n in node.body if ast.unparse(n).startswith("yield")), None
+        ):
+            yield_call = yield_in_body.value
+            if yield_call.args:
+                # TODO
+                print(yield_in_body)
+
         node.test = ast_call(stack_if.__name__, args=[node.test])
         # every if branch needs a scf_endif_branch
+        if yield_in_body is None:
+            node.body.append(ast.Expr(ast_call(yield_.__name__)))
         node.body.append(ast.Expr(ast_call(stack_endif_branch.__name__)))
         # no else, then need to end the whole if in the body of the true branch
         if not node.orelse:
