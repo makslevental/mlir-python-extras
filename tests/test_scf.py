@@ -226,10 +226,72 @@ def test_if_simple_rewrite(ctx: MLIRContext):
 
         if one < two:
             three = constant(3.0)
+            yield
 
         return
 
     iffoo()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_simple_rewrite_no_yield(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+
+        if one < two:
+            three = constant(3.0)
+
+        return
+
+    iffoo()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+@pytest.mark.xfail()
+def test_if_simple_rewrite_yield(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+
+        if one < two:
+            three = constant(3.0)
+            yield three
+
+        return
+
+    iffoo()
+    print(ctx.module)
 
     ctx.module.operation.verify()
     correct = dedent(
