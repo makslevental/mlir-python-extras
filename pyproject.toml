@@ -11,12 +11,13 @@ dependencies = [
     "PyYAML",
     "inflection",
     "bytecode",
+    "libcst",
 ]
 
 [project.optional-dependencies]
-torch-mlir-test = ["pytest", "torch-mlir-core", "mlir-native-tools"]
-jax-test = ["pytest", "jax[cpu]", "mlir-native-tools"]
-mlir-test = ["pytest", "mlir-python-bindings", "mlir-native-tools"]
+test = ["pytest", "pytest-xdist", "pytest-forked", "mlir-native-tools"]
+torch-mlir = ["torch-mlir-core"]
+jax = ["jax[cpu]", ]
 mlir = ["mlir-python-bindings"]
 
 [project.scripts]

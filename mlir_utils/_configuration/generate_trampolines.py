@@ -10,7 +10,18 @@ from textwrap import dedent
 import black
 import inflection
 
-from mlir_utils.ast.util import ast_call
+
+def ast_call(name, args=None, keywords=None):
+    if keywords is None:
+        keywords = []
+    if args is None:
+        args = []
+    call = ast.Call(
+        func=ast.Name(name),
+        args=args,
+        keywords=keywords,
+    )
+    return call
 
 
 class FindOperands(ast.NodeVisitor):

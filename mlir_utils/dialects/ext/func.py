@@ -13,7 +13,6 @@ from mlir.ir import (
 
 from mlir_utils.dialects.util import (
     get_result_or_results,
-    make_maybe_no_args_decorator,
     maybe_cast,
 )
 

@@ -13,6 +13,45 @@ on:
 
 jobs:
 
+  test-against-mlir-bindings:
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-11, windows-2022 ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install and configure
+        shell: bash
+        run: |
+          pip install .[test,mlir] -f https://makslevental.github.io/wheels
+          if [ ${{ matrix.os }} == 'windows-2022' ]; then
+            # configure-mlir-python-utils.exe -y torch_mlir
+            pushd /tmp && python -m mlir_utils._configuration -y mlir && popd
+          else
+            configure-mlir-python-utils -y mlir
+          fi
+
+      - name: Test
+        shell: bash
+        run: |
+          if [ ${{ matrix.os }} == 'windows-2022' ]; then
+            pytest --ignore-glob=*test_smoke* -n 20 tests
+          else
+            pytest --ignore-glob=*test_smoke* --forked tests
+          fi
+
   test-against-torch-mlir-bindings:
 
     runs-on: ${{ matrix.os }}
@@ -35,8 +74,7 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          export PIP_EXTRA_INDEX_URL=https://github.com/makslevental/wheels/releases/expanded_assets/i
-          pip install .[torch-mlir-test] -f https://llvm.github.io/torch-mlir/package-index/
+          pip install .[test,torch-mlir] -f https://llvm.github.io/torch-mlir/package-index -f https://makslevental.github.io/wheels
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
             # configure-mlir-python-utils.exe -y torch_mlir
             pushd /tmp && python -m mlir_utils._configuration -y torch_mlir && popd
@@ -47,7 +85,11 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          pytest tests
+          if [ ${{ matrix.os }} == 'windows-2022' ]; then
+            pytest -n 20 tests/test_smoke.py
+          else
+            pytest --forked tests/test_smoke.py
+          fi
 
 
   test-against-jax-bindings:
@@ -72,8 +114,7 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[jax-test] \
-            -f https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest
+          pip install .[test,jax] -f https://makslevental.github.io/wheels
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
             # configure-mlir-python-utils.exe -y jaxlib.mlir
             pushd /tmp && python -m mlir_utils._configuration -y jaxlib.mlir && popd
@@ -84,4 +125,8 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          pytest tests/test_smoke.py
+          if [ ${{ matrix.os }} == 'windows-2022' ]; then
+            pytest -n 20 tests/test_smoke.py
+          else
+            pytest --forked tests/test_smoke.py
+          fi
