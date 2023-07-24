@@ -1,64 +1,65 @@
 import ast
-import functools
 import inspect
 import types
 from abc import ABC
-from textwrap import dedent
 from types import CodeType
+from typing import Type, Optional
 
+import libcst as cst
 from bytecode import ConcreteBytecode
+from libcst.matchers import MatcherDecoratableTransformer
+from libcst.metadata import ParentNodeProvider
+
+from mlir_utils.ast.util import get_module_cst, copy_func
 
 
-def bind(func, instance, as_name=None):
-    if as_name is None:
-        as_name = func.__name__
-    bound_method = func.__get__(instance, instance.__class__)
-    setattr(instance, as_name, bound_method)
-    return bound_method
+class FuncIdentTypeTable(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (ParentNodeProvider,)
+
+    def __init__(self, f):
+        super().__init__()
+        self.ident_type: dict[str, Type] = {}
+        module_cst = get_module_cst(f)
+        wrapper = cst.MetadataWrapper(module_cst)
+        wrapper.visit(self)
+
+    def visit_Annotation(self, node: cst.Annotation) -> Optional[bool]:
+        parent = self.get_metadata(ParentNodeProvider, node)
+        if isinstance(node.annotation, (cst.Tuple, cst.List)):
+            self.ident_type[parent.target.value] = [
+                e.value.value for e in node.annotation.elements
+            ]
+        else:
+            self.ident_type[parent.target.value] = [node.annotation.value]
+
+    def __getitem__(self, ident):
+        return self.ident_type[ident]
 
 
-def copy_func(f, new_code):
-    """Based on http://stackoverflow.com/a/6528148/190597 (Glenn Maynard)"""
-    g = types.FunctionType(
-        new_code,
-        f.__globals__,
-        name=f.__name__,
-        argdefs=f.__defaults__,
-        closure=f.__closure__,
-    )
-    g.__kwdefaults__ = f.__kwdefaults__
-    g.__dict__.update(f.__dict__)
-    g = functools.update_wrapper(g, f)
-
-    if inspect.ismethod(f):
-        g = bind(g, f.__self__)
-    return g
-
-
-class StrictTransformer(ast.NodeTransformer):
-    def __init__(self, context=None):
+class StrictTransformer(MatcherDecoratableTransformer):
+    def __init__(self, context, func_sym_table: FuncIdentTypeTable):
+        super().__init__()
         self.context = context
+        self.func_sym_table = func_sym_table
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
-        return node
+    def visit_FunctionDef(self, node: cst.FunctionDef):
+        return False
 
 
-def rewrite_ast(f, rewriters: list[type(StrictTransformer)] = None):
-    if rewriters is None:
-        rewriters = []
-    tree = ast.parse(dedent(inspect.getsource(f)))
-    assert isinstance(
-        tree.body[0], ast.FunctionDef
-    ), f"unexpected ast node {tree.body[0]}"
-    func_node = tree.body[0]
+def transform_cst(f, transformers: list[type(StrictTransformer)] = None):
+    if transformers is None:
+        return f
+
+    module_cst = get_module_cst(f)
+    func_sym_table = FuncIdentTypeTable(f)
     context = types.SimpleNamespace()
-    for rewriter in rewriters:
-        for i, b in enumerate(func_node.body):
-            func_node.body[i] = rewriter(context).visit(b)
+    for transformer in transformers:
+        func_node = module_cst.body[0]
+        replace = transformer(context, func_sym_table)
+        new_func = func_node._visit_and_replace_children(replace)
+        module_cst = module_cst.deep_replace(func_node, new_func)
 
-    tree = ast.Module([func_node], type_ignores=[])
-
-    tree = ast.fix_missing_locations(tree)
+    tree = ast.parse(module_cst.code, filename=inspect.getfile(f))
     tree = ast.increment_lineno(tree, f.__code__.co_firstlineno - 1)
     module_code_o = compile(tree, f.__code__.co_filename, "exec")
     new_f_code_o = next(
@@ -81,7 +82,7 @@ class BytecodePatcher(ABC):
 
 def patch_bytecode(f, patchers: list[type(BytecodePatcher)] = None):
     if patchers is None:
-        patchers = []
+        return f
     code = ConcreteBytecode.from_code(f.__code__)
     context = types.SimpleNamespace()
     for patcher in patchers:
@@ -92,7 +93,7 @@ def patch_bytecode(f, patchers: list[type(BytecodePatcher)] = None):
 
 class Canonicalizer(ABC):
     @property
-    def ast_rewriters(self) -> list[StrictTransformer]:
+    def cst_transformers(self) -> list[StrictTransformer]:
         pass
 
     @property
@@ -102,7 +103,7 @@ class Canonicalizer(ABC):
 
 def canonicalize(*, with_: Canonicalizer):
     def wrapper(f):
-        f = rewrite_ast(f, with_.ast_rewriters)
+        f = transform_cst(f, with_.cst_transformers)
         f = patch_bytecode(f, with_.bytecode_patchers)
         return f
 
