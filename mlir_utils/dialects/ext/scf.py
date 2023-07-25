@@ -81,6 +81,8 @@ def yield_(*args):
 def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
     if results_ is None:
         results_ = []
+    if results_:
+        has_else = True
     return scf.IfOp(cond, results_, hasElse=has_else, loc=loc, ip=ip)
 
 
@@ -93,6 +95,8 @@ _if_ip: InsertionPoint = None
 def stack_if(cond: Value, results_=None, has_else=False):
     if results_ is None:
         results_ = []
+    if results_:
+        has_else = True
     assert isinstance(cond, Value)
     global _if_ip, _current_if_op
     if_op = _if(cond, results_, has_else=has_else)
@@ -171,7 +175,13 @@ class InsertSCFYield(StrictTransformer):
 
 
 class ReplaceSCFCond(StrictTransformer):
-    @m.leave(m.If(test=m.NamedExpr()))
+    @m.leave(m.If(test=m.NamedExpr(value=m.Call(func=m.Name(stack_if.__name__)))))
+    def insert_with_results(
+        self, original_node: cst.If, _updated_node: cst.If
+    ) -> cst.If:
+        return original_node
+
+    @m.leave(m.If(test=m.NamedExpr(value=m.Comparison())))
     def insert_with_results(
         self, original_node: cst.If, updated_node: cst.If
     ) -> cst.If:
@@ -187,8 +197,7 @@ class ReplaceSCFCond(StrictTransformer):
             compare, cst.Comparison
         ), f"expected cst.Compare from {compare=}"
         new_compare = ast_call(
-            stack_if.__name__,
-            args=[cst.Arg(compare), cst.Arg(results), cst.Arg(cst.Name(str(True)))],
+            stack_if.__name__, args=[cst.Arg(compare), cst.Arg(results)]
         )
         new_test = test.deep_replace(compare, new_compare)
         return updated_node.deep_replace(updated_node.test, new_test)
