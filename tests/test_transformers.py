@@ -187,7 +187,7 @@ def test_if_replace_cond(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         res: f64_t
-        if res := stack_if(one < two, (f64_t,), True):
+        if res := stack_if(one < two, (f64_t,)):
             three = constant(3.0)
             yield three
         return
@@ -212,7 +212,7 @@ def test_if_replace_cond(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         res: (f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t), True):
+        if res := stack_if(one < two, (f64_t, f64_t)):
             three = constant(3.0)
             yield three, three
         return
@@ -237,7 +237,7 @@ def test_if_replace_cond(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         res: (f64_t, f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t, f64_t), True):
+        if res := stack_if(one < two, (f64_t, f64_t, f64_t)):
             three = constant(3.0)
             yield three, three, three
         return
@@ -419,7 +419,7 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         res: f64_t
-        if res := stack_if(one < two, (f64_t,), True):
+        if res := stack_if(one < two, (f64_t,)):
             three = constant(3.0)
             if stack_if(two < three):
                 four = constant(4.0); yield_(); stack_endif_branch(); stack_endif()
@@ -457,7 +457,7 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         res: (f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t), True):
+        if res := stack_if(one < two, (f64_t, f64_t)):
             three = constant(3.0)
             if stack_if(two < three):
                 four = constant(4.0); yield_(); stack_endif_branch(); stack_endif()

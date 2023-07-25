@@ -10,6 +10,7 @@ from mlir_utils.dialects.ext.scf import (
     yield_,
     canonicalizer,
     if_,
+    stack_if,
 )
 
 # noinspection PyUnresolvedReferences
@@ -217,6 +218,45 @@ def test_if_simple_rewrite(ctx: MLIRContext):
       %0 = arith.cmpf olt, %cst, %cst_0 : f64
       scf.if %0 {
         %cst_1 = arith.constant 3.000000e+00 : f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_simple_rewrite_else_cond_yield(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+
+        if res := stack_if(one < two, (f64_t,)):
+            three = constant(3.0)
+            yield three
+        else:
+            four = constant(4.0)
+            yield four
+
+        assert repr(res) == "Scalar(%1, f64)"
+        assert res.owner.name == "scf.if"
+
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1 = scf.if %0 -> (f64) {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+        scf.yield %cst_1 : f64
+      } else {
+        %cst_1 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_1 : f64
       }
     }
     """
@@ -736,6 +776,52 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
             three = constant(3.0)
             res2: f64_t
             if res2 := two < three:
+                four = constant(4.0)
+                yield four
+            else:
+                yield three
+            yield three, res2
+        else:
+            five = constant(5.0)
+            yield five, five
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1:2 = scf.if %0 -> (f64, f64) {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %3 = scf.if %2 -> (f64) {
+          %cst_2 = arith.constant 4.000000e+00 : f64
+          scf.yield %cst_2 : f64
+        } else {
+          scf.yield %cst_1 : f64
+        }
+        scf.yield %cst_1, %3 : f64, f64
+      } else {
+        %cst_1 = arith.constant 5.000000e+00 : f64
+        scf.yield %cst_1, %cst_1 : f64, f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_else_cond_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        if res := stack_if(one < two, (f64_t, f64_t)):
+            three = constant(3.0)
+            if res2 := stack_if(two < three, (f64_t,)):
                 four = constant(4.0)
                 yield four
             else:
