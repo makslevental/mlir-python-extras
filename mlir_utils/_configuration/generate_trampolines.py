@@ -64,7 +64,12 @@ class FindOperands(ast.NodeVisitor):
 # TODO(max): ops that have symboltables need to be classes but that requires some upstream support for statically
 # identifying such ops
 def generate_op_trampoline(op_class):
-    from mlir_utils.dialects.util import get_result_or_results, maybe_cast, region_op
+    from mlir_utils.util import (
+        get_result_or_results,
+        maybe_cast,
+        region_op,
+        get_user_code_loc,
+    )
 
     _mod = ast.parse(dedent(inspect.getsource(op_class.__init__)))
     init_fn = next(n for n in _mod.body if isinstance(n, ast.FunctionDef))
@@ -77,7 +82,7 @@ def generate_op_trampoline(op_class):
     if keyword.iskeyword(fun_name):
         fun_name = fun_name + "_"
     op_class_name = op_class.__name__
-    body = []
+    body = [ast.parse(f"if loc is None: loc = {get_user_code_loc.__name__}()")]
     if len(args.args) == 1 and args.args[0].arg == "results_":
         args.defaults.append(ast.Constant(None))
         body += [ast.parse("results_ = results_ or []").body[0]]
@@ -124,7 +129,12 @@ def generate_op_trampoline(op_class):
 
 def generate_dialect_trampolines_from_module(input_module, skips: set):
     import mlir_utils
-    from mlir_utils.dialects.util import get_result_or_results, maybe_cast, region_op
+    from mlir_utils.util import (
+        get_result_or_results,
+        maybe_cast,
+        region_op,
+        get_user_code_loc,
+    )
     import mlir.dialects._ods_common
     from mlir_utils._configuration.configuration import _get_mlir_package_prefix
 
@@ -159,10 +169,10 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
         level=0,
     )
     ods_imports = ast.ImportFrom(
-        module=mlir_utils.dialects.util.__name__,
+        module=mlir_utils.util.__name__,
         names=[
             ast.alias(f.__name__)
-            for f in [get_result_or_results, maybe_cast, region_op]
+            for f in [get_result_or_results, maybe_cast, region_op, get_user_code_loc]
         ],
         level=0,
     )

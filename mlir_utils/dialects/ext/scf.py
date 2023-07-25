@@ -1,11 +1,13 @@
 import inspect
+import logging
+from textwrap import dedent
 from typing import Optional, Sequence
 
 import libcst as cst
 import libcst.matchers as m
 from bytecode import ConcreteBytecode, ConcreteInstr
 from mlir.dialects import scf
-from mlir.ir import InsertionPoint, Value
+from mlir.ir import InsertionPoint, Value, OpResultList
 
 from mlir_utils.ast.canonicalize import (
     StrictTransformer,
@@ -15,12 +17,14 @@ from mlir_utils.ast.canonicalize import (
 from mlir_utils.ast.util import ast_call
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.scf import yield_ as yield__
-from mlir_utils.dialects.util import (
+from mlir_utils.util import (
     region_op,
     maybe_cast,
     _update_caller_vars,
     get_result_or_results,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _for(
@@ -75,6 +79,8 @@ def range_(
 
 
 def yield_(*args):
+    if len(args) == 1 and isinstance(args[0], OpResultList):
+        args = list(args[0])
     yield__(args)
 
 
@@ -88,46 +94,78 @@ def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
 
 if_ = region_op(_if, terminator=yield__)
 
-_current_if_op: list[scf.IfOp] = []
-_if_ip: InsertionPoint = None
 
+class IfStack:
+    __current_if_op: list[scf.IfOp] = []
+    __if_ip: list[InsertionPoint] = []
 
-def stack_if(cond: Value, results_=None, has_else=False):
-    if results_ is None:
-        results_ = []
-    if results_:
-        has_else = True
-    assert isinstance(cond, Value)
-    global _if_ip, _current_if_op
-    if_op = _if(cond, results_, has_else=has_else)
-    cond.owner.move_before(if_op)
-    _current_if_op.append(if_op)
-    _if_ip = InsertionPoint(if_op.then_block)
-    _if_ip.__enter__()
-    if len(results_):
+    @staticmethod
+    def _repr_current_stacks():
+        return dedent(
+            f"""\
+            {IfStack.__current_if_op}
+            {IfStack.__if_ip}
+        """
+        )
+
+    @staticmethod
+    def __push_block_ip(block):
+        ip = InsertionPoint(block)
+        ip.__enter__()
+        IfStack.__if_ip.append(ip)
+
+    @staticmethod
+    def push(cond: Value, results_=None, has_else=False):
+        if results_ is None:
+            results_ = []
+        if results_:
+            has_else = True
+        assert isinstance(cond, Value), f"cond must be a mlir.Value: {cond=}"
+        if_op = _if(cond, results_, has_else=has_else)
+        cond.owner.move_before(if_op)
+
+        IfStack.__current_if_op.append(if_op)
+        IfStack.__push_block_ip(if_op.then_block)
+
         return maybe_cast(get_result_or_results(if_op))
-    else:
-        return True
+
+    @staticmethod
+    def pop_branch():
+        ip = IfStack.__if_ip.pop()
+        ip.__exit__(None, None, None)
+
+    @staticmethod
+    def push_else():
+        if_op = IfStack.__current_if_op[-1]
+        assert len(
+            if_op.regions[1].blocks
+        ), f"can't have else without bb in second region of {if_op=}"
+        IfStack.__push_block_ip(if_op.else_block)
+        return maybe_cast(get_result_or_results(if_op))
+
+    @staticmethod
+    def pop():
+        if len(IfStack.__if_ip):
+            ip = IfStack.__if_ip.pop()
+            ip.__exit__(None, None, None)
+        IfStack.__current_if_op.pop()
 
 
-def stack_endif_branch():
-    global _if_ip
-    _if_ip.__exit__(None, None, None)
+# forward here for readability
+def stack_if(*args, **kwargs):
+    return IfStack.push(*args, **kwargs)
 
 
-def stack_else():
-    global _if_ip, _current_if_op
-    _if_ip = InsertionPoint(_current_if_op[-1].else_block)
-    _if_ip.__enter__()
-    return True
+def end_branch():
+    IfStack.pop_branch()
 
 
-def stack_endif():
-    global _current_if_op
-    _current_if_op.pop()
+def else_():
+    return IfStack.push_else()
 
 
-_for_ip = None
+def end_if():
+    IfStack.pop()
 
 
 class ReplaceSCFYield(StrictTransformer):
@@ -142,6 +180,38 @@ class ReplaceSCFYield(StrictTransformer):
         return ast_call(yield_.__name__, args)
 
 
+def insert_body_maybe_semicolon(
+    node: cst.CSTNode, index: int, new_node: cst.CSTNode, before=False
+):
+    indented_block = node.body
+    assert isinstance(
+        indented_block, cst.IndentedBlock
+    ), f"expected IndentedBlock, got {indented_block=}"
+    body = list(indented_block.body)
+    maybe_statement = body[index]
+    if isinstance(maybe_statement, cst.SimpleStatementLine):
+        # can append (with semicolon) to the simplestatement
+        if before:
+            maybe_statement_body = [cst.Expr(new_node)] + list(maybe_statement.body)
+        else:
+            maybe_statement_body = list(maybe_statement.body) + [cst.Expr(new_node)]
+        return node.deep_replace(
+            maybe_statement,
+            maybe_statement.with_changes(body=maybe_statement_body),
+        )
+
+    # else have to create new statement at index (or append to body if -1)
+    new_statement = cst.SimpleStatementLine([cst.Expr(new_node)])
+    indented_block_body = list(indented_block.body)
+    if index == -1:
+        indented_block_body.append(new_statement)
+    else:
+        indented_block_body.insert(index, new_statement)
+    return node.with_changes(
+        body=indented_block.with_changes(body=indented_block_body),
+    )
+
+
 class InsertSCFYield(StrictTransformer):
     @m.leave(m.If() | m.Else())
     def leave_(
@@ -149,29 +219,40 @@ class InsertSCFYield(StrictTransformer):
     ) -> cst.If | cst.Else:
         indented_block = updated_node.body
         last_statement = indented_block.body[-1]
-        if not isinstance(last_statement, cst.SimpleStatementLine):
-            return updated_node.deep_replace(
-                indented_block,
-                indented_block.with_deep_changes(
-                    indented_block,
-                    body=list(indented_block.body)
-                    + [cst.SimpleStatementLine([cst.Expr(ast_call(yield_.__name__))])],
-                ),
+        if not m.matches(last_statement, m.SimpleStatementLine([m.Expr(m.Yield())])):
+            return insert_body_maybe_semicolon(
+                updated_node, -1, ast_call(yield_.__name__)
             )
-
-        last_statement_body = list(last_statement.body)
-        if not (
-            isinstance(last_statement.body[0], cst.Expr)
-            and isinstance(last_statement.body[0].value, cst.Yield)
-        ):
-            last_statement_body.append(cst.Expr(ast_call(yield_.__name__)))
-            return updated_node.deep_replace(
-                last_statement,
-                last_statement.with_deep_changes(
-                    last_statement, body=last_statement_body
-                ),
-            )
+        # VERY IMPORTANT: you have to return the updated node if you believe
+        # at any point there was a mutation anywhere in the tree below
         return updated_node
+
+
+class CanonicalizeElIfs(StrictTransformer):
+    @m.leave(m.If(orelse=m.If(test=m.NamedExpr())))
+    def leave_if_with_elif_named(
+        self, _original_node: cst.If, updated_node: cst.If
+    ) -> cst.If:
+        return updated_node.with_changes(
+            orelse=cst.Else(
+                cst.IndentedBlock(
+                    [
+                        updated_node.orelse,
+                        cst.SimpleStatementLine(
+                            [cst.Expr(cst.Yield(updated_node.orelse.test.target))]
+                        ),
+                    ]
+                )
+            )
+        )
+
+    @m.leave(m.If(orelse=m.If(test=~m.NamedExpr())))
+    def leave_if_with_elif(
+        self, _original_node: cst.If, updated_node: cst.If
+    ) -> cst.If:
+        return updated_node.with_changes(
+            orelse=cst.Else(cst.IndentedBlock([updated_node.orelse]))
+        )
 
 
 class ReplaceSCFCond(StrictTransformer):
@@ -200,91 +281,40 @@ class ReplaceSCFCond(StrictTransformer):
             stack_if.__name__, args=[cst.Arg(compare), cst.Arg(results)]
         )
         new_test = test.deep_replace(compare, new_compare)
-        return updated_node.deep_replace(updated_node.test, new_test)
+        return updated_node.with_changes(test=new_test)
 
-    @m.leave(m.If(test=~m.NamedExpr()))
+    @m.leave(m.If(test=m.Comparison()))
     def insert_no_results(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
         test = original_node.test
-        assert isinstance(
-            original_node.test, cst.Comparison
-        ), f"expected cst.Compare for {test=}"
         args = [cst.Arg(test)]
         if original_node.orelse:
             args += [cst.Arg(cst.Tuple([])), cst.Arg(cst.Name(str(True)))]
         new_test = ast_call(stack_if.__name__, args=args)
-        return updated_node.deep_replace(updated_node.test, new_test)
+        return updated_node.with_changes(test=new_test)
 
 
 class InsertEndIfs(StrictTransformer):
     @m.leave(m.If(orelse=None))
     def no_else(self, _original_node: cst.If, updated_node: cst.If) -> cst.If:
         # every if branch needs a scf_endif_branch
-        last_then_statement = updated_node.body.body[-1]
-        assert isinstance(
-            last_then_statement, cst.SimpleStatementLine
-        ), f"expected SimpleStatementLine; got {last_then_statement=}"
-        last_then_statement_body = list(last_then_statement.body) + [
-            cst.Expr(ast_call(stack_endif_branch.__name__))
-        ]
         # no else, then need to end the whole if in the body of the true branch
-        last_then_statement_body.append(cst.Expr(ast_call(stack_endif.__name__)))
-        return updated_node.deep_replace(
-            last_then_statement,
-            last_then_statement.with_deep_changes(
-                last_then_statement, body=last_then_statement_body
-            ),
-        )
+        return insert_body_maybe_semicolon(updated_node, -1, ast_call(end_if.__name__))
 
     @m.leave(m.If(orelse=m.Else()))
-    def has_else(self, _original_node: cst.If, updated_node: cst.If) -> cst.If:
+    def has_else(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
         # every if branch needs a scf_endif_branch
-        last_then_statement = updated_node.body.body[-1]
-        assert isinstance(
-            last_then_statement, cst.SimpleStatementLine
-        ), f"expected SimpleStatementLine; got {last_then_statement=}"
-        last_then_statement_body = list(last_then_statement.body) + [
-            cst.Expr(ast_call(stack_endif_branch.__name__))
-        ]
-        updated_node = updated_node.deep_replace(
-            last_then_statement,
-            last_then_statement.with_deep_changes(
-                last_then_statement, body=last_then_statement_body
-            ),
-        )
-        orig_orelse = updated_node.orelse
-
-        # otherwise insert the else
-        first_else_statement = updated_node.orelse.body.body[0]
-        assert isinstance(
-            first_else_statement, cst.SimpleStatementLine
-        ), f"expected SimpleStatementLine; got {first_else_statement=}"
-
-        first_else_statement_body = [cst.Expr(ast_call(stack_else.__name__))] + list(
-            first_else_statement.body
-        )
-        orelse = updated_node.orelse.deep_replace(
-            first_else_statement,
-            first_else_statement.with_deep_changes(
-                first_else_statement, body=first_else_statement_body
-            ),
+        updated_node = insert_body_maybe_semicolon(
+            updated_node, -1, ast_call(end_branch.__name__)
         )
 
+        # insert the else at beginning of else
+        orelse = updated_node.orelse
+        orelse = insert_body_maybe_semicolon(
+            orelse, 0, ast_call(else_.__name__), before=True
+        )
         # and end the if after the else branch
-        last_else_statement = orelse.body.body[-1]
-        assert isinstance(
-            last_else_statement, cst.SimpleStatementLine
-        ), f"expected SimpleStatementLine; got {last_else_statement=}"
-        last_else_statement_body = list(last_else_statement.body) + [
-            cst.Expr(ast_call(stack_endif_branch.__name__)),
-            cst.Expr(ast_call(stack_endif.__name__)),
-        ]
-        orelse = orelse.deep_replace(
-            last_else_statement,
-            last_else_statement.with_deep_changes(
-                last_else_statement, body=last_else_statement_body
-            ),
-        )
-        return updated_node.deep_replace(orig_orelse, orelse)
+        orelse = insert_body_maybe_semicolon(orelse, -1, ast_call(end_if.__name__))
+        return updated_node.with_changes(orelse=orelse)
 
 
 class RemoveJumpsAndInsertGlobals(BytecodePatcher):
@@ -323,20 +353,22 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
 
         # TODO(max): this is bad
         f.__globals__["stack_if"] = stack_if
-        f.__globals__["stack_endif_branch"] = stack_endif_branch
-        f.__globals__["stack_endif"] = stack_endif
-        f.__globals__["stack_else"] = stack_else
+        f.__globals__["end_branch"] = end_branch
+        f.__globals__["end_if"] = end_if
+        f.__globals__["else_"] = else_
         return code
 
 
 class SCFCanonicalizer(Canonicalizer):
-    @property
-    def cst_transformers(self):
-        return [InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs]
+    cst_transformers = [
+        CanonicalizeElIfs,
+        InsertSCFYield,
+        ReplaceSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
+    ]
 
-    @property
-    def bytecode_patchers(self):
-        return [RemoveJumpsAndInsertGlobals]
+    bytecode_patchers = [RemoveJumpsAndInsertGlobals]
 
 
 canonicalizer = SCFCanonicalizer()

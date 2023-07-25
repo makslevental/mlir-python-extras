@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "pytest-xdist", "pytest-forked", "mlir-native-tools"]
+test = ["pytest", "mlir-native-tools"]
 torch-mlir = ["torch-mlir-core"]
 jax = ["jax[cpu]", ]
 mlir = ["mlir-python-bindings"]
@@ -31,3 +31,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["mlir_utils", "mlir_utils.*"]  # alternatively: `exclude = ["additional*"]`
+
+[tool.pytest.ini_options]
+log_cli = false
+log_cli_level = "DEBUG"
+log_cli_format = "[%(filename)s:%(funcName)s:%(lineno)d] %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"

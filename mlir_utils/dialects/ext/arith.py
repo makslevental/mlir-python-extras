@@ -27,7 +27,7 @@ from mlir.ir import (
     Attribute,
 )
 
-from mlir_utils.dialects.util import get_result_or_results, maybe_cast
+from mlir_utils.util import get_result_or_results, maybe_cast
 
 try:
     from mlir_utils.dialects.arith import *

@@ -9,7 +9,6 @@ from mlir_utils.dialects.ext.scf import (
     range_,
     yield_,
     canonicalizer,
-    if_,
     stack_if,
 )
 
@@ -195,21 +194,18 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def test_if_simple_rewrite(ctx: MLIRContext):
+def test_if_replace_yield_2(ctx: MLIRContext):
     @canonicalize(with_=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
         if one < two:
             three = constant(3.0)
-            yield
-
         return
 
     iffoo()
-
     ctx.module.operation.verify()
+
     correct = dedent(
         """\
     module {
@@ -225,26 +221,22 @@ def test_if_simple_rewrite(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def test_if_simple_rewrite_else_cond_yield(ctx: MLIRContext):
+def test_if_replace_yield_3(ctx: MLIRContext):
     @canonicalize(with_=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
         if res := stack_if(one < two, (f64_t,)):
             three = constant(3.0)
             yield three
         else:
             four = constant(4.0)
             yield four
-
-        assert repr(res) == "Scalar(%1, f64)"
-        assert res.owner.name == "scf.if"
-
         return
 
     iffoo()
     ctx.module.operation.verify()
+
     correct = dedent(
         """\
     module {
@@ -264,12 +256,81 @@ def test_if_simple_rewrite_else_cond_yield(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def test_if_simple_rewrite_yield(ctx: MLIRContext):
+def test_if_replace_yield_4(ctx: MLIRContext):
     @canonicalize(with_=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
+        if res := stack_if(one < two, (f64_t, f64_t)):
+            three = constant(3.0)
+            yield three, three
+        else:
+            four = constant(4.0)
+            yield four, four
+        return
 
+    iffoo()
+    ctx.module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1:2 = scf.if %0 -> (f64, f64) {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+        scf.yield %cst_1, %cst_1 : f64, f64
+      } else {
+        %cst_1 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_1, %cst_1 : f64, f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_replace_yield_5(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        if res := stack_if(one < two, (f64_t, f64_t, f64_t)):
+            three = constant(3.0)
+            yield three, three, three
+        else:
+            four = constant(4.0)
+            yield four, four, four
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1:3 = scf.if %0 -> (f64, f64, f64) {
+        %cst_1 = arith.constant 3.000000e+00 : f64
+        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
+      } else {
+        %cst_1 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_replace_cond_2(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
         res: f64_t
         if res := one < two:
             three = constant(3.0)
@@ -278,13 +339,11 @@ def test_if_simple_rewrite_yield(ctx: MLIRContext):
             four = constant(4.0)
             yield four
 
-        assert repr(res) == "Scalar(%1, f64)"
-        assert res.owner.name == "scf.if"
-
         return
 
     iffoo()
     ctx.module.operation.verify()
+
     correct = dedent(
         """\
     module {
@@ -304,70 +363,35 @@ def test_if_simple_rewrite_yield(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def test_if_nested_no_else(ctx: MLIRContext):
+def test_if_replace_cond_3(ctx: MLIRContext):
     @canonicalize(with_=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
-        if one < two:
+        res: (f64_t, f64_t)
+        if res := one < two:
             three = constant(3.0)
-            if one < two:
-                four = constant(4.0)
-                yield
-            yield
-
-        return
-
-    iffoo()
-
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
-        scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_with_else_with_yields(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            yield
+            yield three, three
         else:
-            five = constant(5.0)
-            yield
-
+            four = constant(4.0)
+            yield four, four
         return
 
     iffoo()
     ctx.module.operation.verify()
+
     correct = dedent(
         """\
     module {
       %cst = arith.constant 1.000000e+00 : f64
       %cst_0 = arith.constant 2.000000e+00 : f64
       %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
+      %1:2 = scf.if %0 -> (f64, f64) {
         %cst_1 = arith.constant 3.000000e+00 : f64
+        scf.yield %cst_1, %cst_1 : f64, f64
       } else {
-        %cst_1 = arith.constant 5.000000e+00 : f64
+        %cst_1 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_1, %cst_1 : f64, f64
       }
     }
     """
@@ -375,140 +399,35 @@ def test_if_with_else_with_yields(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def test_if_else_with_nested_with_yields(ctx: MLIRContext):
+def test_if_replace_cond_4(ctx: MLIRContext):
     @canonicalize(with_=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
-        if one < two:
+        res: (f64_t, f64_t, f64_t)
+        if res := one < two:
             three = constant(3.0)
-            if one < two:
-                four = constant(4.0)
-                yield
-            yield
+            yield three, three, three
         else:
-            five = constant(5.0)
-            yield
-
+            four = constant(4.0)
+            yield four, four, four
         return
 
     iffoo()
     ctx.module.operation.verify()
+
     correct = dedent(
         """\
     module {
       %cst = arith.constant 1.000000e+00 : f64
       %cst_0 = arith.constant 2.000000e+00 : f64
       %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
+      %1:3 = scf.if %0 -> (f64, f64, f64) {
         %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
-        scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-        }
+        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
       } else {
-        %cst_1 = arith.constant 5.000000e+00 : f64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_nested_with_else_with_yields(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
-                four = constant(4.0)
-                yield
-            else:
-                five = constant(5.0)
-                yield
-            yield
-        else:
-            six = constant(6.0)
-            yield
-
-        return
-
-    iffoo()
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
-        scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-        } else {
-          %cst_2 = arith.constant 5.000000e+00 : f64
-        }
-      } else {
-        %cst_1 = arith.constant 6.000000e+00 : f64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_simple_no_yield(ctx: MLIRContext):
-    one = constant(1.0)
-    two = constant(2.0)
-
-    @if_(one < two)
-    def iffoo():
-        one = constant(1.0)
-        return
-
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 1.000000e+00 : f64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_simple_rewrite_no_yield(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-
-        return
-
-    iffoo()
-
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
       }
     }
     """
@@ -521,16 +440,13 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
         if one < two:
             three = constant(3.0)
             if one < two:
                 four = constant(4.0)
-
         return
 
     iffoo()
-
     ctx.module.operation.verify()
     correct = dedent(
         """\
@@ -556,93 +472,12 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
         if one < two:
             three = constant(3.0)
             if one < two:
                 four = constant(4.0)
             else:
                 five = constant(5.0)
-
-        return
-
-    iffoo()
-
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
-        scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-        } else {
-          %cst_2 = arith.constant 5.000000e+00 : f64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_else_with_nested_no_yields(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
-                four = constant(4.0)
-        else:
-            five = constant(5.0)
-
-        return
-
-    iffoo()
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
-        scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-        }
-      } else {
-        %cst_1 = arith.constant 5.000000e+00 : f64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_nested_with_else_no_yields(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
-                four = constant(4.0)
-            else:
-                five = constant(5.0)
-        else:
-            six = constant(6.0)
-
         return
 
     iffoo()
@@ -661,61 +496,6 @@ def test_if_nested_with_else_no_yields(ctx: MLIRContext):
         } else {
           %cst_2 = arith.constant 5.000000e+00 : f64
         }
-      } else {
-        %cst_1 = arith.constant 6.000000e+00 : f64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-###################################################
-
-
-def test_if_nested_no_else_yield_results(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        res: f64_t
-        if res := one < two:
-            res2: f64_t
-            if res2 := one < two:
-                four = constant(4.0)
-                yield four
-            else:
-                five = constant(5.0)
-                yield five
-            yield res2
-        else:
-            three = constant(3.0)
-            yield three
-        return
-
-    iffoo()
-
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %2 = arith.cmpf olt, %cst, %cst_0 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_1 = arith.constant 4.000000e+00 : f64
-          scf.yield %cst_1 : f64
-        } else {
-          %cst_1 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_1 : f64
-        }
-        scf.yield %3 : f64
-      } else {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1 : f64
       }
     }
     """
@@ -728,17 +508,15 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
         res: f64_t
         if res := one < two:
             three = constant(3.0)
-            if one < two:
+            if two < three:
                 four = constant(4.0)
             yield three
         else:
             five = constant(5.0)
             yield five
-
         return
 
     iffoo()
@@ -751,7 +529,7 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
       %0 = arith.cmpf olt, %cst, %cst_0 : f64
       %1 = scf.if %0 -> (f64) {
         %cst_1 = arith.constant 3.000000e+00 : f64
-        %2 = arith.cmpf olt, %cst, %cst_0 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
         scf.if %2 {
           %cst_2 = arith.constant 4.000000e+00 : f64
         }
@@ -774,13 +552,9 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
         res: (f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
-            res2: f64_t
-            if res2 := two < three:
+            if two < three:
                 four = constant(4.0)
-                yield four
-            else:
-                yield three
-            yield three, res2
+            yield three, three
         else:
             five = constant(5.0)
             yield five, five
@@ -797,13 +571,10 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
       %1:2 = scf.if %0 -> (f64, f64) {
         %cst_1 = arith.constant 3.000000e+00 : f64
         %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
+        scf.if %2 {
           %cst_2 = arith.constant 4.000000e+00 : f64
-          scf.yield %cst_2 : f64
-        } else {
-          scf.yield %cst_1 : f64
         }
-        scf.yield %cst_1, %3 : f64, f64
+        scf.yield %cst_1, %cst_1 : f64, f64
       } else {
         %cst_1 = arith.constant 5.000000e+00 : f64
         scf.yield %cst_1, %cst_1 : f64, f64
@@ -814,22 +585,20 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def test_if_else_cond_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
+def test_if_with_else_else_with_yields(ctx: MLIRContext):
     @canonicalize(with_=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (f64_t, f64_t)):
+
+        if one < two:
             three = constant(3.0)
-            if res2 := stack_if(two < three, (f64_t,)):
-                four = constant(4.0)
-                yield four
-            else:
-                yield three
-            yield three, res2
         else:
-            five = constant(5.0)
-            yield five, five
+            if one < two:
+                four = constant(4.0)
+            else:
+                five = constant(5.0)
+
         return
 
     iffoo()
@@ -840,19 +609,366 @@ def test_if_else_cond_with_nested_no_yields_yield_multiple_results(ctx: MLIRCont
       %cst = arith.constant 1.000000e+00 : f64
       %cst_0 = arith.constant 2.000000e+00 : f64
       %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:2 = scf.if %0 -> (f64, f64) {
+      scf.if %0 {
         %cst_1 = arith.constant 3.000000e+00 : f64
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
+      } else {
+        %1 = arith.cmpf olt, %cst, %cst_0 : f64
+        scf.if %1 {
+          %cst_1 = arith.constant 4.000000e+00 : f64
+        } else {
+          %cst_1 = arith.constant 5.000000e+00 : f64
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_canonicalize_elif(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+
+        if one < two:
+            four = constant(4.0)
+            yield
+        elif two < three:
+            five = constant(5.0)
+            yield
+        else:
+            six = constant(6.0)
+            yield
+
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %cst_1 = arith.constant 3.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_2 = arith.constant 4.000000e+00 : f64
+      } else {
+        %1 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        scf.if %1 {
+          %cst_2 = arith.constant 5.000000e+00 : f64
+        } else {
+          %cst_2 = arith.constant 6.000000e+00 : f64
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_canonicalize_elif_elif(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+
+        if one < two:
+            four = constant(4.0)
+        elif two < three:
+            five = constant(5.0)
+        elif two < three:
+            six = constant(6.0)
+        else:
+            seven = constant(7.0)
+
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %cst_1 = arith.constant 3.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_2 = arith.constant 4.000000e+00 : f64
+      } else {
+        %1 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        scf.if %1 {
+          %cst_2 = arith.constant 5.000000e+00 : f64
+        } else {
+          %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+          scf.if %2 {
+            %cst_2 = arith.constant 6.000000e+00 : f64
+          } else {
+            %cst_2 = arith.constant 7.000000e+00 : f64
+          }
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_with_else_nested_elif(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(4.0)
+
+        if one < two:
+            five = constant(5.0)
+        else:
+            if two < three:
+                six = constant(6.0)
+            elif three < four:
+                seven = constant(7.0)
+            else:
+                eight = constant(8.0)
+
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %cst_1 = arith.constant 3.000000e+00 : f64
+      %cst_2 = arith.constant 4.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      scf.if %0 {
+        %cst_3 = arith.constant 5.000000e+00 : f64
+      } else {
+        %1 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        scf.if %1 {
+          %cst_3 = arith.constant 6.000000e+00 : f64
+        } else {
+          %2 = arith.cmpf olt, %cst_1, %cst_2 : f64
+          scf.if %2 {
+            %cst_3 = arith.constant 7.000000e+00 : f64
+          } else {
+            %cst_3 = arith.constant 8.000000e+00 : f64
+          }
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_with_elif_yields_results(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+
+        res: f64_t
+        res1: f64_t
+        if res := one < two:
+            four = constant(4.0)
+            yield four
+        elif res1 := two < three:
+            five = constant(5.0)
+            yield five
+        else:
+            six = constant(6.0)
+            yield six
+
+        correct = dedent(
+            """\
+        module
+        %1 = scf.if %0 -> (f64) {
           %cst_2 = arith.constant 4.000000e+00 : f64
           scf.yield %cst_2 : f64
         } else {
-          scf.yield %cst_1 : f64
+          %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+          %3 = scf.if %2 -> (f64) {
+            %cst_2 = arith.constant 5.000000e+00 : f64
+            scf.yield %cst_2 : f64
+          } else {
+            %cst_2 = arith.constant 6.000000e+00 : f64
+            scf.yield %cst_2 : f64
+          }
+          scf.yield %3 : f64
         }
-        scf.yield %cst_1, %3 : f64, f64
+        """
+        )
+        filecheck(correct, "module\n" + str(res.owner))
+        correct = """\
+        module
+        %3 = scf.if %2 -> (f64) {
+          %cst_2 = arith.constant 5.000000e+00 : f64
+          scf.yield %cst_2 : f64
+        } else {
+          %cst_2 = arith.constant 6.000000e+00 : f64
+          scf.yield %cst_2 : f64
+        }
+        """
+        filecheck(correct, "module\n" + str(res1.owner))
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %cst_1 = arith.constant 3.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1 = scf.if %0 -> (f64) {
+        %cst_2 = arith.constant 4.000000e+00 : f64
+        scf.yield %cst_2 : f64
       } else {
-        %cst_1 = arith.constant 5.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %3 = scf.if %2 -> (f64) {
+          %cst_2 = arith.constant 5.000000e+00 : f64
+          scf.yield %cst_2 : f64
+        } else {
+          %cst_2 = arith.constant 6.000000e+00 : f64
+          scf.yield %cst_2 : f64
+        }
+        scf.yield %3 : f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(4.0)
+
+        res: (f64_t, f64_t)
+        res1: (f64_t, f64_t)
+        res2: (f64_t, f64_t)
+        if res := one < two:
+            five = constant(5.0)
+            yield five, five
+        elif res1 := two < three:
+            six = constant(6.0)
+            yield six, six
+        elif res2 := three < four:
+            seven = constant(7.0)
+            yield seven, seven
+        else:
+            eight = constant(8.0)
+            yield eight, eight
+
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %cst_1 = arith.constant 3.000000e+00 : f64
+      %cst_2 = arith.constant 4.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1:2 = scf.if %0 -> (f64, f64) {
+        %cst_3 = arith.constant 5.000000e+00 : f64
+        scf.yield %cst_3, %cst_3 : f64, f64
+      } else {
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %3:2 = scf.if %2 -> (f64, f64) {
+          %cst_3 = arith.constant 6.000000e+00 : f64
+          scf.yield %cst_3, %cst_3 : f64, f64
+        } else {
+          %4 = arith.cmpf olt, %cst_1, %cst_2 : f64
+          %5:2 = scf.if %4 -> (f64, f64) {
+            %cst_3 = arith.constant 7.000000e+00 : f64
+            scf.yield %cst_3, %cst_3 : f64, f64
+          } else {
+            %cst_3 = arith.constant 8.000000e+00 : f64
+            scf.yield %cst_3, %cst_3 : f64, f64
+          }
+          scf.yield %5#0, %5#1 : f64, f64
+        }
+        scf.yield %3#0, %3#1 : f64, f64
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_if_with_elif_elif_explicit_yields_results(ctx: MLIRContext):
+    @canonicalize(with_=canonicalizer)
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(4.0)
+
+        if res := stack_if(one < two, (f64_t, f64_t)):
+            five = constant(5.0)
+            yield five, five
+        elif res1 := stack_if(two < three, (f64_t, f64_t)):
+            six = constant(6.0)
+            yield six, six
+        elif res2 := stack_if(three < four, (f64_t, f64_t)):
+            seven = constant(7.0)
+            yield seven, seven
+        else:
+            eight = constant(8.0)
+            yield eight, eight
+
+        return
+
+    iffoo()
+    ctx.module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %cst_1 = arith.constant 3.000000e+00 : f64
+      %cst_2 = arith.constant 4.000000e+00 : f64
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %1:2 = scf.if %0 -> (f64, f64) {
+        %cst_3 = arith.constant 5.000000e+00 : f64
+        scf.yield %cst_3, %cst_3 : f64, f64
+      } else {
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %3:2 = scf.if %2 -> (f64, f64) {
+          %cst_3 = arith.constant 6.000000e+00 : f64
+          scf.yield %cst_3, %cst_3 : f64, f64
+        } else {
+          %4 = arith.cmpf olt, %cst_1, %cst_2 : f64
+          %5:2 = scf.if %4 -> (f64, f64) {
+            %cst_3 = arith.constant 7.000000e+00 : f64
+            scf.yield %cst_3, %cst_3 : f64, f64
+          } else {
+            %cst_3 = arith.constant 8.000000e+00 : f64
+            scf.yield %cst_3, %cst_3 : f64, f64
+          }
+          scf.yield %5#0, %5#1 : f64, f64
+        }
+        scf.yield %3#0, %3#1 : f64, f64
       }
     }
     """

@@ -1,13 +1,16 @@
 import ctypes
 import inspect
+import sys
+import traceback
 import warnings
 from collections import defaultdict
 from functools import wraps
+from pathlib import Path
 from typing import Callable, Sequence
 
 import mlir
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from mlir.ir import InsertionPoint, Value, Type, OpResultList
+from mlir.ir import InsertionPoint, Value, Type, OpResultList, Location
 
 try:
     from mlir.ir import TypeID
@@ -33,14 +36,23 @@ def get_result_or_results(op):
 
 
 def make_maybe_no_args_decorator(decorator):
-    @wraps(decorator)
-    def maybe_no_args(*args, **kwargs):
-        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-            return decorator()(args[0])
-        else:
-            return decorator(*args, **kwargs)
+    """
+    a decorator decorator, allowing the decorator to be used as:
+    @decorator(with, arguments, and=kwargs)
+    or
+    @decorator
+    """
 
-    return maybe_no_args
+    @wraps(decorator)
+    def new_dec(*args, **kwargs):
+        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+            # actual decorated function
+            return decorator(args[0])
+        else:
+            # decorator arguments
+            return lambda realf: decorator(realf, *args, **kwargs)
+
+    return new_dec
 
 
 __VALUE_CASTERS: defaultdict[
@@ -134,7 +146,16 @@ def region_op(op_constructor, terminator=None):
 
         return builder_wrapper
 
-    return make_maybe_no_args_decorator(op_decorator)
+    # this is like make_maybe_no_args_decorator but a little different because the decorators here
+    # are already wrapped (or something like that)
+    @wraps(op_decorator)
+    def maybe_no_args(*args, **kwargs):
+        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+            return op_decorator()(args[0])
+        else:
+            return op_decorator(*args, **kwargs)
+
+    return maybe_no_args
 
 
 def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
@@ -171,3 +192,25 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
             ctypes.pythonapi.PyFrame_LocalsToFast(
                 ctypes.py_object(previous_frame), ctypes.c_int(1)
             )
+
+
+def get_user_code_loc():
+    import mlir_utils
+
+    mlir_utis_root_path = Path(mlir_utils.__path__[0])
+
+    prev_frame = inspect.currentframe().f_back
+    stack = traceback.StackSummary.extract(traceback.walk_stack(prev_frame))
+
+    user_frame = next(
+        (
+            fr
+            for fr in stack
+            if not Path(fr.filename).is_relative_to(mlir_utis_root_path)
+        ),
+        None,
+    )
+    if user_frame is None:
+        warnings.warn("couldn't find user code frame")
+        return
+    return Location.file(user_frame.filename, user_frame.lineno, user_frame.colno or 0)

@@ -11,27 +11,15 @@ from mlir.ir import (
     Type,
 )
 
-from mlir_utils.dialects.util import (
+from mlir_utils.util import (
     get_result_or_results,
     maybe_cast,
+    make_maybe_no_args_decorator,
+    get_user_code_loc,
 )
 
 
-class FuncOpMeta(type):
-    def __call__(cls, *args, **kwargs):
-        cls_obj = cls.__new__(cls)
-        if len(args) == 1 and len(kwargs) == 0 and inspect.isfunction(args[0]):
-            return cls.__init__(cls_obj, args[0])
-        else:
-
-            def init_wrapper(f):
-                cls.__init__(cls_obj, f, *args, **kwargs)
-                return cls_obj
-
-            return lambda f: init_wrapper(f)
-
-
-class FuncBase(metaclass=FuncOpMeta):
+class FuncBase:
     def __init__(
         self,
         body_builder,
@@ -127,4 +115,26 @@ class FuncBase(metaclass=FuncOpMeta):
         return maybe_cast(get_result_or_results(call_op))
 
 
-func = FuncBase(FuncOp.__base__, ReturnOp, CallOp.__base__)
+@make_maybe_no_args_decorator
+def func(
+    f,
+    *,
+    sym_visibility=None,
+    arg_attrs=None,
+    res_attrs=None,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
+    return FuncBase(
+        body_builder=f,
+        func_op_ctor=FuncOp.__base__,
+        return_op_ctor=ReturnOp,
+        call_op_ctor=CallOp.__base__,
+        sym_visibility=sym_visibility,
+        arg_attrs=arg_attrs,
+        res_attrs=res_attrs,
+        loc=loc,
+        ip=ip,
+    )
