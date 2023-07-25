@@ -1,4 +1,6 @@
 import ast
+import logging
+
 import inspect
 import types
 from abc import ABC
@@ -11,6 +13,8 @@ from libcst.matchers import MatcherDecoratableTransformer
 from libcst.metadata import ParentNodeProvider
 
 from mlir_utils.ast.util import get_module_cst, copy_func
+
+logger = logging.getLogger(__name__)
 
 
 class FuncIdentTypeTable(cst.CSTVisitor):
@@ -36,12 +40,14 @@ class FuncIdentTypeTable(cst.CSTVisitor):
         return self.ident_type[ident]
 
 
-class StrictTransformer(MatcherDecoratableTransformer):
+class Transformer(MatcherDecoratableTransformer):
     def __init__(self, context, func_sym_table: FuncIdentTypeTable):
         super().__init__()
         self.context = context
         self.func_sym_table = func_sym_table
 
+
+class StrictTransformer(Transformer):
     def visit_FunctionDef(self, node: cst.FunctionDef):
         return False
 
@@ -58,6 +64,8 @@ def transform_cst(f, transformers: list[type(StrictTransformer)] = None):
         replace = transformer(context, func_sym_table)
         new_func = func_node._visit_and_replace_children(replace)
         module_cst = module_cst.deep_replace(func_node, new_func)
+
+    logger.debug("[transformed code]\n\n%s", module_cst.code)
 
     tree = ast.parse(module_cst.code, filename=inspect.getfile(f))
     tree = ast.increment_lineno(tree, f.__code__.co_firstlineno - 1)

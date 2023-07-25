@@ -2,7 +2,7 @@ import pytest
 
 from mlir_utils.dialects.ext.tensor import S, empty
 from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.dialects.util import register_value_caster
+from mlir_utils.util import register_value_caster
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext

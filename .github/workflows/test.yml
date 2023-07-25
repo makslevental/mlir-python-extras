@@ -47,9 +47,9 @@ jobs:
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest --ignore-glob=*test_smoke* -n 20 tests
+            pytest --ignore-glob=*test_smoke* tests
           else
-            pytest --ignore-glob=*test_smoke* --forked tests
+            pytest --ignore-glob=*test_smoke* tests
           fi
 
   test-against-torch-mlir-bindings:
@@ -86,9 +86,9 @@ jobs:
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -n 20 tests/test_smoke.py
+            pytest tests/test_smoke.py
           else
-            pytest --forked tests/test_smoke.py
+            pytest tests/test_smoke.py
           fi
 
 
@@ -126,7 +126,7 @@ jobs:
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -n 20 tests/test_smoke.py
+            pytest tests/test_smoke.py
           else
-            pytest --forked tests/test_smoke.py
+            pytest tests/test_smoke.py
           fi

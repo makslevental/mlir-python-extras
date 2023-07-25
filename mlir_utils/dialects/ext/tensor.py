@@ -6,7 +6,7 @@ from mlir.dialects.tensor import EmptyOp, GenerateOp
 from mlir.ir import Type, Value, RankedTensorType, DenseElementsAttr, ShapedType
 
 from mlir_utils.dialects.ext.arith import ArithValue
-from mlir_utils.dialects.util import register_value_caster
+from mlir_utils.util import register_value_caster
 
 try:
     from mlir_utils.dialects.tensor import *
@@ -17,8 +17,8 @@ S = ShapedType.get_dynamic_size()
 
 
 def empty(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
-    from mlir_utils.dialects.util import maybe_cast
-    from mlir_utils.dialects.util import get_result_or_results
+    from mlir_utils.util import maybe_cast
+    from mlir_utils.util import get_result_or_results
 
     return maybe_cast(
         get_result_or_results(EmptyOp(sizes, element_type, loc=loc, ip=ip))
