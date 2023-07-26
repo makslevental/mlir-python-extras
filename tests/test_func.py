@@ -2,6 +2,7 @@ import inspect
 from textwrap import dedent
 
 import pytest
+
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
 

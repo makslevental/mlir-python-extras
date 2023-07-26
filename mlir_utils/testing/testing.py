@@ -1,8 +1,8 @@
 import difflib
 import platform
 import shutil
-import tempfile
 import sys
+import tempfile
 from pathlib import Path
 from subprocess import Popen, PIPE
 from textwrap import dedent

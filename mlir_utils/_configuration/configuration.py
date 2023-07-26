@@ -5,8 +5,9 @@ import sys
 from base64 import urlsafe_b64encode
 from importlib.metadata import distribution, packages_distributions
 from importlib.resources import files
-from importlib.resources.readers import MultiplexedPath
 from pathlib import Path
+
+from importlib.resources.readers import MultiplexedPath
 
 from .module_alias_map import get_meta_path_insertion_index, AliasedModuleFinder
 

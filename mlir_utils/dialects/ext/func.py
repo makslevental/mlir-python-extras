@@ -1,5 +1,4 @@
 import inspect
-from functools import wraps, partial
 
 from mlir.dialects.func import FuncOp, ReturnOp, CallOp
 from mlir.ir import (

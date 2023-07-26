@@ -2,7 +2,7 @@ from textwrap import dedent
 
 import pytest
 
-from mlir_utils.ast.canonicalize import canonicalize
+from mlir_utils.ast.canonicalize import canonicalize, patch_bytecode
 from mlir_utils.dialects.ext.arith import constant, Scalar
 from mlir_utils.dialects.ext.scf import (
     for_,
@@ -10,6 +10,7 @@ from mlir_utils.dialects.ext.scf import (
     yield_,
     canonicalizer,
     stack_if,
+    RemoveJumpsAndInsertGlobals,
 )
 
 # noinspection PyUnresolvedReferences
@@ -115,7 +116,7 @@ def test_for_bare(ctx: MLIRContext):
 
 
 def test_scf_canonicalizer(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def foo():
         one = constant(1.0)
         two = constant(1.0)
@@ -153,7 +154,7 @@ def test_scf_canonicalizer(ctx: MLIRContext):
 
 
 def test_scf_canonicalizer_tuple(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def foo():
         one = constant(1.0)
         two = constant(1.0)
@@ -195,7 +196,7 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
 
 
 def test_if_replace_yield_2(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -222,7 +223,7 @@ def test_if_replace_yield_2(ctx: MLIRContext):
 
 
 def test_if_replace_yield_3(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -257,7 +258,7 @@ def test_if_replace_yield_3(ctx: MLIRContext):
 
 
 def test_if_replace_yield_4(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -292,7 +293,7 @@ def test_if_replace_yield_4(ctx: MLIRContext):
 
 
 def test_if_replace_yield_5(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -327,11 +328,10 @@ def test_if_replace_yield_5(ctx: MLIRContext):
 
 
 def test_if_replace_cond_2(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
         if res := one < two:
             three = constant(3.0)
             yield three
@@ -364,11 +364,10 @@ def test_if_replace_cond_2(ctx: MLIRContext):
 
 
 def test_if_replace_cond_3(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
             yield three, three
@@ -400,11 +399,10 @@ def test_if_replace_cond_3(ctx: MLIRContext):
 
 
 def test_if_replace_cond_4(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
             yield three, three, three
@@ -436,7 +434,7 @@ def test_if_replace_cond_4(ctx: MLIRContext):
 
 
 def test_if_nested_no_else_no_yield(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -468,7 +466,7 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
 
 
 def test_if_nested_with_else_no_yield(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -504,11 +502,10 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
 
 
 def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
         if res := one < two:
             three = constant(3.0)
             if two < three:
@@ -545,11 +542,10 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
 
 
 def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
             if two < three:
@@ -586,7 +582,7 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
 
 
 def test_if_with_else_else_with_yields(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -626,7 +622,7 @@ def test_if_with_else_else_with_yields(ctx: MLIRContext):
 
 
 def test_if_canonicalize_elif(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -670,7 +666,7 @@ def test_if_canonicalize_elif(ctx: MLIRContext):
 
 
 def test_if_canonicalize_elif_elif(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -718,7 +714,7 @@ def test_if_canonicalize_elif_elif(ctx: MLIRContext):
 
 
 def test_if_with_else_nested_elif(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -770,14 +766,12 @@ def test_if_with_else_nested_elif(ctx: MLIRContext):
 
 
 def test_if_with_elif_yields_results(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
         three = constant(3.0)
 
-        res: f64_t
-        res1: f64_t
         if res := one < two:
             four = constant(4.0)
             yield four
@@ -852,16 +846,13 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
 
 
 def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
         three = constant(3.0)
         four = constant(4.0)
 
-        res: (f64_t, f64_t)
-        res1: (f64_t, f64_t)
-        res2: (f64_t, f64_t)
         if res := one < two:
             five = constant(5.0)
             yield five, five
@@ -916,7 +907,7 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
 
 
 def test_if_with_elif_elif_explicit_yields_results(ctx: MLIRContext):
-    @canonicalize(with_=canonicalizer)
+    @canonicalize(using=canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -974,3 +965,20 @@ def test_if_with_elif_elif_explicit_yields_results(ctx: MLIRContext):
     """
     )
     filecheck(correct, ctx.module)
+
+
+def test_bytecode_patcher1(ctx: MLIRContext):
+    def foo(xx):
+        x, y, z = -1, -1, -1
+        if xx:
+            x = 1
+        elif xx:
+            y = 2
+        elif xx:
+            z = 3
+
+        return x, y, z
+
+    assert foo(5) == (1, -1, -1)
+    new_foo = patch_bytecode(foo, [RemoveJumpsAndInsertGlobals])
+    assert new_foo(5) == (1, 2, 3)

@@ -1,50 +1,25 @@
 import ast
-import logging
-
+import enum
 import inspect
+import logging
 import types
 from abc import ABC
+from opcode import opmap
 from types import CodeType
-from typing import Type, Optional
 
 import libcst as cst
 from bytecode import ConcreteBytecode
 from libcst.matchers import MatcherDecoratableTransformer
-from libcst.metadata import ParentNodeProvider
 
 from mlir_utils.ast.util import get_module_cst, copy_func
 
 logger = logging.getLogger(__name__)
 
 
-class FuncIdentTypeTable(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (ParentNodeProvider,)
-
-    def __init__(self, f):
-        super().__init__()
-        self.ident_type: dict[str, Type] = {}
-        module_cst = get_module_cst(f)
-        wrapper = cst.MetadataWrapper(module_cst)
-        wrapper.visit(self)
-
-    def visit_Annotation(self, node: cst.Annotation) -> Optional[bool]:
-        parent = self.get_metadata(ParentNodeProvider, node)
-        if isinstance(node.annotation, (cst.Tuple, cst.List)):
-            self.ident_type[parent.target.value] = [
-                e.value.value for e in node.annotation.elements
-            ]
-        else:
-            self.ident_type[parent.target.value] = [node.annotation.value]
-
-    def __getitem__(self, ident):
-        return self.ident_type[ident]
-
-
 class Transformer(MatcherDecoratableTransformer):
-    def __init__(self, context, func_sym_table: FuncIdentTypeTable):
+    def __init__(self, context):
         super().__init__()
         self.context = context
-        self.func_sym_table = func_sym_table
 
 
 class StrictTransformer(Transformer):
@@ -52,16 +27,17 @@ class StrictTransformer(Transformer):
         return False
 
 
-def transform_cst(f, transformers: list[type(StrictTransformer)] = None):
+def transform_cst(
+    f, transformers: list[type(Transformer) | type(StrictTransformer)] = None
+):
     if transformers is None:
         return f
 
     module_cst = get_module_cst(f)
-    func_sym_table = FuncIdentTypeTable(f)
     context = types.SimpleNamespace()
     for transformer in transformers:
         func_node = module_cst.body[0]
-        replace = transformer(context, func_sym_table)
+        replace = transformer(context)
         new_func = func_node._visit_and_replace_children(replace)
         module_cst = module_cst.deep_replace(func_node, new_func)
 
@@ -77,6 +53,23 @@ def transform_cst(f, transformers: list[type(StrictTransformer)] = None):
     )
 
     return copy_func(f, new_f_code_o)
+
+
+# this is like this because i couldn't figure out how to subclass
+# Enum and simultaneously pass in opmap
+OpCode = enum.Enum("OpCode", opmap)
+
+
+def to_int(self: OpCode):
+    return self.value
+
+
+def to_str(self: OpCode):
+    return self.name
+
+
+setattr(OpCode, "__int__", to_int)
+setattr(OpCode, "__str__", to_str)
 
 
 class BytecodePatcher(ABC):
@@ -109,10 +102,10 @@ class Canonicalizer(ABC):
         pass
 
 
-def canonicalize(*, with_: Canonicalizer):
+def canonicalize(*, using: Canonicalizer):
     def wrapper(f):
-        f = transform_cst(f, with_.cst_transformers)
-        f = patch_bytecode(f, with_.bytecode_patchers)
+        f = transform_cst(f, using.cst_transformers)
+        f = patch_bytecode(f, using.bytecode_patchers)
         return f
 
     return wrapper
