@@ -1,3 +1,4 @@
+import operator
 from copy import deepcopy
 from functools import partialmethod, cached_property
 from typing import Union, Optional
@@ -116,7 +117,7 @@ class ArithValueMeta(type(Value)):
     """
 
     def __call__(cls, *args, **kwargs):
-        """Orchestrate the Python object protocol for Indexing dialect extension
+        """Orchestrate the Python object protocol for mlir
         values in order to handle wrapper arbitrary Python objects.
 
         Args:
@@ -132,7 +133,7 @@ class ArithValueMeta(type(Value)):
         if len(args) != 1:
             raise ValueError("Only one non-kw arg supported.")
         arg = args[0]
-        arg_copy = None
+        fold = None
         if isinstance(arg, (OpView, Operation, Value)):
             # wrap an already created Value (or op the produces a Value)
             if isinstance(arg, (Operation, OpView)):
@@ -143,13 +144,15 @@ class ArithValueMeta(type(Value)):
             dtype = kwargs.get("dtype")
             if dtype is not None and not isinstance(dtype, Type):
                 raise ValueError(f"{dtype=} is expected to be an ir.Type.")
+            fold = kwargs.get("fold")
+            if fold is not None and not isinstance(fold, bool):
+                raise ValueError(f"{fold=} is expected to be a bool.")
             # If we're wrapping a numpy array (effectively a tensor literal),
             # then we want to make sure no one else has access to that memory.
             # Otherwise, the array will get funneled down to DenseElementsAttr.get,
             # which by default (through the Python buffer protocol) does not copy;
             # see mlir/lib/Bindings/Python/IRAttributes.cpp#L556
-            arg_copy = deepcopy(arg)
-            return constant(arg_copy, dtype)
+            val = constant(deepcopy(arg), dtype)
         else:
             raise NotImplementedError(f"{cls.__name__} doesn't support wrapping {arg}.")
 
@@ -161,7 +164,7 @@ class ArithValueMeta(type(Value)):
         # the Python object protocol; first an object is new'ed and then
         # it is init'ed. Note we pass arg_copy here in case a subclass wants to
         # inspect the literal.
-        cls.__init__(cls_obj, val)
+        cls.__init__(cls_obj, val, fold=fold)
         return cls_obj
 
 
@@ -252,14 +255,28 @@ def _binary_op(
     if lhs.type != rhs.type:
         raise ValueError(f"{lhs=} {rhs=} must have the same type.")
 
-    op = op.capitalize()
-    lhs, rhs = lhs, rhs
-    if _is_floating_point_type(lhs.dtype):
-        op = getattr(arith_dialect, f"{op}FOp")
-    elif _is_integer_like_type(lhs.dtype):
-        op = getattr(arith_dialect, f"{op}IOp")
+    if lhs.fold() and lhs.fold():
+        klass = lhs.__class__
+        # if both operands are constants (results of an arith.constant op)
+        # then both have a literal value (i.e. Python value).
+        lhs, rhs = lhs.literal_value, rhs.literal_value
+        # if we're folding constants (self._fold = True) then we just carry out
+        # the corresponding operation on the literal values; e.g., operator.add.
+        # note this is the same as op = operator.__dict__[op].
+        if predicate is not None:
+            op = predicate
+        op = operator.attrgetter(op)(operator)
+        return klass(op(lhs, rhs), fold=True)
     else:
-        raise NotImplementedError(f"Unsupported '{op}' operands: {lhs}, {rhs}")
+        op = op.capitalize()
+        lhs, rhs = lhs, rhs
+        if _is_floating_point_type(lhs.dtype):
+            op = getattr(arith_dialect, f"{op}FOp")
+        elif _is_integer_like_type(lhs.dtype):
+            op = getattr(arith_dialect, f"{op}IOp")
+        else:
+            raise NotImplementedError(f"Unsupported '{op}' operands: {lhs}, {rhs}")
+
     if predicate is not None:
         if _is_floating_point_type(lhs.dtype):
             # ordered comparison - see above
@@ -289,8 +306,17 @@ class ArithValue(Value, metaclass=ArithValueMeta):
                           Value.__init__
     """
 
-    def __init__(self, val):
+    def __init__(self, val, *, fold: Optional[bool] = None):
+        self._fold = fold if fold is not None else False
         super().__init__(val)
+
+    def is_constant(self) -> bool:
+        return isinstance(self.owner, Operation) and isinstance(
+            self.owner.opview, arith_dialect.ConstantOp
+        )
+
+    def fold(self) -> bool:
+        return self.is_constant() and self._fold
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.get_name()}, {self.type})"
@@ -306,8 +332,29 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __radd__ = partialmethod(_binary_op, op="add")
     __rsub__ = partialmethod(_binary_op, op="sub")
     __rmul__ = partialmethod(_binary_op, op="mul")
-    __eq__ = partialmethod(_binary_op, op="cmp", predicate="eq")
-    __ne__ = partialmethod(_binary_op, op="cmp", predicate="ne")
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            try:
+                other = self.__class__(other, dtype=self.type)
+            except NotImplementedError as e:
+                assert "doesn't support wrapping" in str(e)
+                return False
+        if self is other:
+            return True
+        return _binary_op(self, other, op="cmp", predicate="eq")
+
+    def __ne__(self, other):
+        if not isinstance(other, self.__class__):
+            try:
+                other = self.__class__(other, dtype=self.type)
+            except NotImplementedError as e:
+                assert "doesn't support wrapping" in str(e)
+                return True
+        if self is other:
+            return False
+        return _binary_op(self, other, op="cmp", predicate="ne")
+
     __le__ = partialmethod(_binary_op, op="cmp", predicate="le")
     __lt__ = partialmethod(_binary_op, op="cmp", predicate="lt")
     __ge__ = partialmethod(_binary_op, op="cmp", predicate="ge")
@@ -342,3 +389,15 @@ class Scalar(ArithValue):
             or _is_index_type(other.type)
             or _is_complex_type(other.type)
         )
+
+    @cached_property
+    def literal_value(self) -> Union[int, float, bool]:
+        if not self.is_constant():
+            raise ValueError("Can't build literal from non-constant Scalar")
+        return self.owner.opview.literal_value
+
+    def __int__(self):
+        return int(self.literal_value)
+
+    def __float__(self):
+        return float(self.literal_value)
