@@ -134,7 +134,8 @@ def region_op(op_constructor, terminator=None):
                         f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
                     )
 
-                op.regions[0].blocks.append(*types)
+                arg_locs = [get_user_code_loc()] * len(sig.parameters)
+                op.regions[0].blocks.append(*types, arg_locs=arg_locs)
             with InsertionPoint(op.regions[0].blocks[0]):
                 results = body_builder(
                     *[maybe_cast(a) for a in op.regions[0].blocks[0].arguments]
@@ -209,17 +210,9 @@ def get_user_code_loc():
     mlir_utis_root_path = Path(mlir_utils.__path__[0])
 
     prev_frame = inspect.currentframe().f_back
-    stack = traceback.StackSummary.extract(traceback.walk_stack(prev_frame))
-
-    user_frame = next(
-        (
-            fr
-            for fr in stack
-            if not Path(fr.filename).is_relative_to(mlir_utis_root_path)
-        ),
-        None,
+    while Path(prev_frame.f_code.co_filename).is_relative_to(mlir_utis_root_path):
+        prev_frame = prev_frame.f_back
+    frame_info = inspect.getframeinfo(prev_frame)
+    return Location.file(
+        frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
     )
-    if user_frame is None:
-        warnings.warn("couldn't find user code frame")
-        return
-    return Location.file(user_frame.filename, user_frame.lineno, user_frame.colno or 0)

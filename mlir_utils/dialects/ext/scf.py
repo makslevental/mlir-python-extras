@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 import libcst as cst
 import libcst.matchers as m
 from bytecode import ConcreteBytecode, ConcreteInstr
-from mlir.dialects import scf
+from mlir.dialects.scf import IfOp, ForOp
 from mlir.ir import InsertionPoint, Value, OpResultList, OpResult
 
 from mlir_utils.ast.canonicalize import (
@@ -24,6 +24,7 @@ from mlir_utils.util import (
     maybe_cast,
     _update_caller_vars,
     get_result_or_results,
+    get_user_code_loc,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,9 @@ def _for(
         stop = constant(stop, index=True)
     if isinstance(step, int):
         step = constant(step, index=True)
-    return scf.ForOp(start, stop, step, iter_args, loc=loc, ip=ip)
+    if loc is None:
+        loc = get_user_code_loc()
+    return ForOp(start, stop, step, iter_args, loc=loc, ip=ip)
 
 
 for_ = region_op(_for, terminator=yield__)
@@ -91,7 +94,9 @@ def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
         results_ = []
     if results_:
         has_else = True
-    return scf.IfOp(cond, results_, hasElse=has_else, loc=loc, ip=ip)
+    if loc is None:
+        loc = get_user_code_loc()
+    return IfOp(cond, results_, hasElse=has_else, loc=loc, ip=ip)
 
 
 if_ = region_op(_if, terminator=yield__)
@@ -100,7 +105,7 @@ _placeholder_opaque_t = opaque_t("scf", "placeholder")
 
 
 class IfStack:
-    __current_if_op: list[scf.IfOp] = []
+    __current_if_op: list[IfOp] = []
     __if_ip: list[InsertionPoint] = []
 
     @staticmethod
@@ -423,6 +428,7 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
         f.__globals__[end_if.__name__] = end_if
         f.__globals__[stack_if.__name__] = stack_if
         f.__globals__[stack_yield.__name__] = stack_yield
+        f.__globals__[yield_.__name__] = yield_
         f.__globals__["_placeholder_opaque_t"] = _placeholder_opaque_t
         return code
 
