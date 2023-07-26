@@ -1,5 +1,6 @@
 import ctypes
 import inspect
+import sys
 import warnings
 from collections import defaultdict
 from functools import wraps
@@ -68,15 +69,17 @@ __VALUE_CASTERS: defaultdict[
 ] = defaultdict(list)
 
 
-def register_value_caster(
-    typeid: TypeID, caster: Callable[[Value], Value], priority: int = None
-):
-    if not isinstance(typeid, TypeID):
-        raise ValueError(f"{typeid=} is not a TypeID")
-    if priority is None:
-        __VALUE_CASTERS[typeid].append(caster)
-    else:
-        __VALUE_CASTERS[typeid].insert(priority, caster)
+def register_value_caster(typeid: TypeID, priority: int = None):
+    def wrapper(caster: Callable[[Value], Value]):
+        if not isinstance(typeid, TypeID):
+            raise ValueError(f"{typeid=} is not a TypeID")
+        if priority is None:
+            __VALUE_CASTERS[typeid].append(caster)
+        else:
+            __VALUE_CASTERS[typeid].insert(priority, caster)
+        return caster
+
+    return wrapper
 
 
 def has_value_caster(typeid: TypeID):
@@ -225,11 +228,17 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
 
 def get_user_code_loc():
     import mlir_utils
+    import mlir
 
     mlir_utis_root_path = Path(mlir_utils.__path__[0])
+    mlir_root_path = Path(mlir.__path__[0])
 
-    prev_frame = inspect.currentframe().f_back
-    while Path(prev_frame.f_code.co_filename).is_relative_to(mlir_utis_root_path):
+    prev_frame = inspect.currentframe().f_back.f_back
+    while (
+        Path(prev_frame.f_code.co_filename).is_relative_to(mlir_utis_root_path)
+        or Path(prev_frame.f_code.co_filename).is_relative_to(mlir_root_path)
+        or Path(prev_frame.f_code.co_filename).is_relative_to(sys.prefix)
+    ):
         prev_frame = prev_frame.f_back
     frame_info = inspect.getframeinfo(prev_frame)
     return Location.file(

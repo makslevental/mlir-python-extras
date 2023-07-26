@@ -62,6 +62,8 @@ _np_dtype_to_mlir_type_ctor = {
     np.int8: _i8_t,
     np.int16: _i16_t,
     np.int32: _i32_t,
+    # windows
+    np.intc: _i32_t,
     np.int64: _i64_t,
     # is technically wrong i guess but numpy by default casts python scalars to this
     # so to support passing lists of ints we map to index type

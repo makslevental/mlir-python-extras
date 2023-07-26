@@ -21,11 +21,11 @@ def test_caster_registration(ctx: MLIRContext):
     def dummy_caster(val):
         return val
 
-    register_value_caster(RankedTensorType.static_typeid, dummy_caster)
+    register_value_caster(RankedTensorType.static_typeid)(dummy_caster)
     ten = empty(sizes, T.f64_t)
     assert repr(ten) == "Tensor(%1, tensor<?x3x?xf64>)"
 
-    register_value_caster(RankedTensorType.static_typeid, dummy_caster, 0)
+    register_value_caster(RankedTensorType.static_typeid, 0)(dummy_caster)
     ten = empty(sizes, T.f64_t)
     assert repr(ten) != "Tensor(%1, tensor<?x3x?xf64>)"
     assert isinstance(ten, OpResult)
