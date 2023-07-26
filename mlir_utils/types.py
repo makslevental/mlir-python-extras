@@ -35,6 +35,8 @@ NP_DTYPE_TO_MLIR_TYPE = lambda: {
     np.int8: i8_t,
     np.int16: i16_t,
     np.int32: i32_t,
+    # windows
+    np.intc: i32_t,
     np.int64: i64_t,
     # this is techincally wrong i guess but numpy by default casts python scalars to this
     # so to support passing lists of ints we map this to index type

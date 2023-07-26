@@ -4,7 +4,8 @@ import pytest
 
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
-from mlir_utils.dialects.ext.tensor import S, rank
+from mlir_utils.dialects.ext.tensor import S
+from mlir_utils.dialects.tensor import rank
 from mlir_utils.dialects.memref import alloca_scope, return_
 from mlir_utils.dialects.scf import execute_region, yield_ as scf_yield
 from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield

@@ -82,7 +82,9 @@ class FuncBase:
         func_op.regions[0].blocks.append(*input_types)
         with InsertionPoint(func_op.regions[0].blocks[0]):
             results = get_result_or_results(
-                self.body_builder(*func_op.regions[0].blocks[0].arguments)
+                self.body_builder(
+                    *[maybe_cast(a) for a in func_op.regions[0].blocks[0].arguments]
+                )
             )
             if results is not None:
                 if isinstance(results, (tuple, list)):

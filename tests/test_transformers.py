@@ -962,7 +962,6 @@ def test_if_with_elif_no_yields(ctx: MLIRContext):
         ReplaceSCFCond,
         InsertEndIfs,
     )
-    print(code)
     correct = dedent(
         """\
     def iffoo():
@@ -1149,6 +1148,37 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
                     stack_yield(eight, eight); end_if()
                 stack_yield(res2); end_if()
             stack_yield(res1); end_if()
+
+        return
+    """
+    )
+    filecheck(correct, code)
+
+
+def test_range_yield(ctx: MLIRContext):
+    def iffoo():
+        ten = empty((7, 22, 333, 4444), i32_t)
+        for i, r1 in range_(0, 10, iter_args=[ten]):
+            y = ten + ten
+            yield y
+
+        return
+
+    code = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
+    )
+    correct = dedent(
+        """\
+    def iffoo():
+        ten = empty((7, 22, 333, 4444), i32_t)
+        for i, r1 in range_(0, 10, iter_args=[ten]):
+            y = ten + ten
+            yield_(y)
 
         return
     """
