@@ -1,5 +1,5 @@
 from copy import deepcopy
-from functools import lru_cache, partialmethod, cached_property
+from functools import partialmethod, cached_property
 from typing import Union, Optional
 
 import numpy as np
@@ -143,7 +143,7 @@ class ArithValueMeta(type(Value)):
             # which by default (through the Python buffer protocol) does not copy;
             # see mlir/lib/Bindings/Python/IRAttributes.cpp#L556
             arg_copy = deepcopy(arg)
-            val = constant(arg, dtype).result
+            return constant(arg_copy, dtype)
         else:
             raise NotImplementedError(f"{cls.__name__} doesn't support wrapping {arg}.")
 
@@ -155,7 +155,7 @@ class ArithValueMeta(type(Value)):
         # the Python object protocol; first an object is new'ed and then
         # it is init'ed. Note we pass arg_copy here in case a subclass wants to
         # inspect the literal.
-        cls.__init__(cls_obj, val, arg_copy)
+        cls.__init__(cls_obj, val)
         return cls_obj
 
 
@@ -276,19 +276,12 @@ class ArithValue(Value, metaclass=ArithValueMeta):
                           Value.__init__
     """
 
-    def __init__(
-        self,
-        val,
-        arg: Optional[Union[int, float, bool, np.ndarray]] = None,
-    ):
-        self.__arg = arg
+    def __init__(self, val):
         super().__init__(val)
 
-    # @lru_cache(maxsize=1)
     def __str__(self):
         return f"{self.__class__.__name__}({self.get_name()}, {self.type})"
 
-    # @lru_cache(maxsize=1)
     def __repr__(self):
         return str(self)
 

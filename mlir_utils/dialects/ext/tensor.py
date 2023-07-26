@@ -1,9 +1,17 @@
-from functools import cached_property
+from functools import cached_property, lru_cache
 from typing import Union, Tuple, Sequence
 
 import numpy as np
-from mlir.dialects.tensor import EmptyOp, GenerateOp
-from mlir.ir import Type, Value, RankedTensorType, DenseElementsAttr, ShapedType
+from mlir.dialects.arith import ConstantOp
+from mlir.dialects.tensor import EmptyOp
+from mlir.ir import (
+    Type,
+    Value,
+    RankedTensorType,
+    DenseElementsAttr,
+    ShapedType,
+    Operation,
+)
 
 from mlir_utils.dialects.ext.arith import ArithValue
 from mlir_utils.util import register_value_caster
@@ -38,9 +46,15 @@ class Tensor(ArithValue):
     def isinstance(other: Value):
         return isinstance(other, Value) and RankedTensorType.isinstance(other.type)
 
+    @lru_cache(maxsize=1)
+    def is_constant(self) -> bool:
+        return isinstance(self.owner, Operation) and isinstance(
+            self.owner.opview, ConstantOp
+        )
+
     @cached_property
     def literal_value(self) -> np.ndarray:
-        if not self.is_constant():
+        if not self.is_constant:
             raise ValueError("Can't build literal from non-constant Tensor")
         return np.array(DenseElementsAttr(self.owner.opview.value), copy=False)
 
@@ -55,14 +69,6 @@ class Tensor(ArithValue):
     @cached_property
     def dtype(self) -> Type:
         return self._shaped_type.element_type
-
-    @classmethod
-    def empty(
-        cls,
-        shape: Union[list[Union[int, Value]], tuple[Union[int, Value], ...]],
-        el_type: Type,
-    ) -> "Tensor":
-        return cls(EmptyOp(shape, el_type).result)
 
 
 register_value_caster(RankedTensorType.static_typeid, Tensor)

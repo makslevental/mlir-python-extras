@@ -7,16 +7,18 @@ import libcst as cst
 import libcst.matchers as m
 from bytecode import ConcreteBytecode, ConcreteInstr
 from mlir.dialects import scf
-from mlir.ir import InsertionPoint, Value, OpResultList
+from mlir.ir import InsertionPoint, Value, OpResultList, OpResult
 
 from mlir_utils.ast.canonicalize import (
     StrictTransformer,
     Canonicalizer,
     BytecodePatcher,
+    OpCode,
 )
 from mlir_utils.ast.util import ast_call
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.scf import yield_ as yield__
+from mlir_utils.types import opaque_t
 from mlir_utils.util import (
     region_op,
     maybe_cast,
@@ -94,6 +96,8 @@ def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
 
 if_ = region_op(_if, terminator=yield__)
 
+_placeholder_opaque_t = opaque_t("scf", "placeholder")
+
 
 class IfStack:
     __current_if_op: list[scf.IfOp] = []
@@ -150,10 +154,35 @@ class IfStack:
             ip.__exit__(None, None, None)
         IfStack.__current_if_op.pop()
 
+    @staticmethod
+    def yield_(*args):
+        if_op = IfStack.__current_if_op[-1]
+        results = get_result_or_results(if_op)
+        assert isinstance(
+            results, (OpResult, OpResultList)
+        ), f"api has changed: {results=}"
+        if isinstance(results, OpResult):
+            results = [results]
+        unpacked_args = args
+        if any(isinstance(a, OpResultList) for a in unpacked_args):
+            assert len(unpacked_args) == 1
+            unpacked_args = list(unpacked_args[0])
 
-# forward here for readability
+        assert len(results) == len(unpacked_args), f"{results=}, {unpacked_args=}"
+        for i, r in enumerate(results):
+            if r.type == _placeholder_opaque_t:
+                r.set_type(unpacked_args[i].type)
+
+        yield_(*args)
+
+
+# forward here for readability (and easier ast manipulation below)
 def stack_if(*args, **kwargs):
     return IfStack.push(*args, **kwargs)
+
+
+def stack_yield(*args):
+    return IfStack.yield_(*args)
 
 
 def end_branch():
@@ -166,18 +195,6 @@ def else_():
 
 def end_if():
     IfStack.pop()
-
-
-class ReplaceSCFYield(StrictTransformer):
-    @m.leave(m.Yield(value=m.Tuple()))
-    def tuple_yield(self, original_node: cst.Yield, updated_node: cst.Yield):
-        args = [cst.Arg(e.value) for e in original_node.value.elements]
-        return ast_call(yield_.__name__, args)
-
-    @m.leave(m.Yield(value=~m.Tuple()))
-    def single_yield(self, original_node: cst.Yield, updated_node: cst.Yield):
-        args = [cst.Arg(original_node.value)] if original_node.value else []
-        return ast_call(yield_.__name__, args)
 
 
 def insert_body_maybe_semicolon(
@@ -212,7 +229,37 @@ def insert_body_maybe_semicolon(
     )
 
 
-class InsertSCFYield(StrictTransformer):
+class ReplaceYieldWithSCFYield(StrictTransformer):
+    @m.call_if_inside(m.If(test=m.NamedExpr(value=m.Comparison())))
+    @m.leave(m.Yield(value=m.Tuple()))
+    def tuple_yield_inside_conditional(
+        self, original_node: cst.Yield, updated_node: cst.Yield
+    ):
+        args = [cst.Arg(e.value) for e in original_node.value.elements]
+        return ast_call(stack_yield.__name__, args)
+
+    @m.call_if_inside(m.If(test=m.NamedExpr(value=m.Comparison())))
+    @m.leave(m.Yield(value=~m.Tuple()))
+    def single_yield_inside_conditional(
+        self, original_node: cst.Yield, updated_node: cst.Yield
+    ):
+        args = [cst.Arg(original_node.value)] if original_node.value else []
+        return ast_call(stack_yield.__name__, args)
+
+    @m.call_if_not_inside(m.If(test=m.NamedExpr(value=m.Comparison())))
+    @m.leave(m.Yield(value=m.Tuple()))
+    def tuple_yield(self, original_node: cst.Yield, updated_node: cst.Yield):
+        args = [cst.Arg(e.value) for e in original_node.value.elements]
+        return ast_call(yield_.__name__, args)
+
+    @m.call_if_not_inside(m.If(test=m.NamedExpr(value=m.Comparison())))
+    @m.leave(m.Yield(value=~m.Tuple()))
+    def single_yield(self, original_node: cst.Yield, updated_node: cst.Yield):
+        args = [cst.Arg(original_node.value)] if original_node.value else []
+        return ast_call(yield_.__name__, args)
+
+
+class InsertEmptySCFYield(StrictTransformer):
     @m.leave(m.If() | m.Else())
     def leave_(
         self, _original_node: cst.If | cst.Else, updated_node: cst.If | cst.Else
@@ -266,16 +313,28 @@ class ReplaceSCFCond(StrictTransformer):
     def insert_with_results(
         self, original_node: cst.If, updated_node: cst.If
     ) -> cst.If:
+        indented_block = updated_node.body
+        last_statement = indented_block.body[-1]
+        assert m.matches(
+            last_statement, m.SimpleStatementLine()
+        ), f"conditional with := must explicitly yield on last line"
+        yield_expr = last_statement.body[0]
+        if m.matches(yield_expr.value, m.Call(func=m.Name(stack_yield.__name__))):
+            results = [cst.Element(cst.Name("_placeholder_opaque_t"))] * len(
+                yield_expr.value.args
+            )
+        elif m.matches(yield_expr.value.value, m.Name()):
+            results = [cst.Element(cst.Name("_placeholder_opaque_t"))]
+        elif m.matches(yield_expr.value.value, m.Tuple()):
+            results = [cst.Element(cst.Name("_placeholder_opaque_t"))] * len(
+                yield_expr.value.value.elements
+            )
+        results = cst.Tuple(results)
+
         test = original_node.test
-        results = cst.Tuple(
-            [
-                cst.Element(cst.Name(n))
-                for n in self.func_sym_table[original_node.test.target.value]
-            ]
-        )
         compare = test.value
-        assert isinstance(
-            compare, cst.Comparison
+        assert m.matches(
+            compare, m.Comparison()
         ), f"expected cst.Compare from {compare=}"
         new_compare = ast_call(
             stack_if.__name__, args=[cst.Arg(compare), cst.Arg(results)]
@@ -322,48 +381,57 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
         src_lines = inspect.getsource(f).splitlines()
         early_returns = []
         for i, c in enumerate(code):
-            if c.name == "RETURN_VALUE":
+            c: ConcreteInstr
+            if c.opcode == int(OpCode.RETURN_VALUE):
                 early_returns.append(i)
 
-            if c.name in {
+            if c.opcode in {
                 # this is the first test condition jump from python <= 3.10
-                "POP_JUMP_IF_FALSE",
+                # "POP_JUMP_IF_FALSE",
                 # this is the test condition jump from python >= 3.11
-                "POP_JUMP_FORWARD_IF_FALSE",
+                int(OpCode.POP_JUMP_FORWARD_IF_FALSE),
             }:
-                code[i] = ConcreteInstr("POP_TOP", lineno=c.lineno, location=c.location)
+                code[i] = ConcreteInstr(
+                    str(OpCode.POP_TOP), lineno=c.lineno, location=c.location
+                )
 
-            if c.name in {
+            if c.opcode in {
                 # this is the jump after each arm in a conditional
-                "JUMP_FORWARD",
+                int(OpCode.JUMP_FORWARD),
                 # this is the jump at the end of a for loop
                 # "JUMP_BACKWARD",
                 # in principle this should be no-oped too but for whatever reason it leads to a stack-size
                 # miscalculation (inside bytecode). we don't really need it though because
                 # affine_range returns an iterator with length 1
             }:
-                # only remove the jump if generated by an if stmt (not a with stmt)
+                # only remove the jump if generated by an if stmt (not a `with` stmt)
                 if "with" not in src_lines[c.lineno - code.first_lineno]:
-                    code[i] = ConcreteInstr("NOP", lineno=c.lineno, location=c.location)
+                    code[i] = ConcreteInstr(
+                        str(OpCode.NOP), lineno=c.lineno, location=c.location
+                    )
 
         # early returns cause branches in conditionals to not be visited
         for idx in early_returns[:-1]:
             c = code[idx]
-            code[idx] = ConcreteInstr("NOP", lineno=c.lineno, location=c.location)
+            code[idx] = ConcreteInstr(
+                str(OpCode.NOP), lineno=c.lineno, location=c.location
+            )
 
         # TODO(max): this is bad
-        f.__globals__["stack_if"] = stack_if
-        f.__globals__["end_branch"] = end_branch
-        f.__globals__["end_if"] = end_if
-        f.__globals__["else_"] = else_
+        f.__globals__[else_.__name__] = else_
+        f.__globals__[end_branch.__name__] = end_branch
+        f.__globals__[end_if.__name__] = end_if
+        f.__globals__[stack_if.__name__] = stack_if
+        f.__globals__[stack_yield.__name__] = stack_yield
+        f.__globals__["_placeholder_opaque_t"] = _placeholder_opaque_t
         return code
 
 
 class SCFCanonicalizer(Canonicalizer):
     cst_transformers = [
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     ]

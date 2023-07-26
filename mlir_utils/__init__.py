@@ -1,5 +1,6 @@
-from ._configuration.configuration import alias_upstream_bindings
 import atexit
+
+from ._configuration.configuration import alias_upstream_bindings
 
 if alias_upstream_bindings():
     from mlir import ir

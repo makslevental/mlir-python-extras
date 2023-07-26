@@ -2,19 +2,18 @@ from textwrap import dedent
 
 import pytest
 
-from mlir_utils.ast.canonicalize import FuncIdentTypeTable, get_module_cst
+from mlir_utils.ast.canonicalize import get_module_cst
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.scf import (
-    ReplaceSCFYield,
+    ReplaceYieldWithSCFYield,
     ReplaceSCFCond,
     InsertEndIfs,
-    InsertSCFYield,
+    InsertEmptySCFYield,
     CanonicalizeElIfs,
 )
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import f64_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -22,10 +21,9 @@ pytest.mark.usefixtures("ctx")
 
 def transform_func(f, *transformer_ctors):
     module_cst = get_module_cst(f)
-    func_sym_table = FuncIdentTypeTable(f)
     for transformer_ctor in transformer_ctors:
         func_node = module_cst.body[0]
-        replace = transformer_ctor(context=None, func_sym_table=func_sym_table)
+        replace = transformer_ctor(context=None)
         new_func = func_node._visit_and_replace_children(replace)
         module_cst = module_cst.deep_replace(func_node, new_func)
 
@@ -41,7 +39,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             yield
         return
 
-    code = transform_func(iffoo, ReplaceSCFYield)
+    code = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -63,7 +61,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             three = constant(3.0)
         return
 
-    code = transform_func(iffoo, InsertSCFYield)
+    code = transform_func(iffoo, InsertEmptySCFYield)
 
     correct = dedent(
         """\
@@ -85,7 +83,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             yield three
         return
 
-    code = transform_func(iffoo, ReplaceSCFYield)
+    code = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -108,7 +106,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             yield three, three
         return
 
-    code = transform_func(iffoo, ReplaceSCFYield)
+    code = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -131,7 +129,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             yield three, three, three
         return
 
-    code = transform_func(iffoo, ReplaceSCFYield)
+    code = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -174,7 +172,6 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
         if res := one < two:
             three = constant(3.0)
             yield three
@@ -187,8 +184,7 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
-        if res := stack_if(one < two, (f64_t,)):
+        if res := stack_if(one < two, (_placeholder_opaque_t,)):
             three = constant(3.0)
             yield three
         return
@@ -199,7 +195,6 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
             yield three, three
@@ -212,8 +207,7 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t)):
             three = constant(3.0)
             yield three, three
         return
@@ -224,7 +218,6 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
             yield three, three, three
@@ -237,8 +230,7 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t, f64_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t, _placeholder_opaque_t)):
             three = constant(3.0)
             yield three, three, three
         return
@@ -274,7 +266,6 @@ def test_insert_end_ifs(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
         if res := one < two:
             three = constant(3.0)
             yield three
@@ -290,7 +281,6 @@ def test_insert_end_ifs(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
         if res := one < two:
             three = constant(3.0)
             yield three; end_branch()
@@ -315,7 +305,7 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
 
     iffoo()
 
-    code = transform_func(iffoo, InsertSCFYield)
+    code = transform_func(iffoo, InsertEmptySCFYield)
     correct = dedent(
         """\
     def iffoo():
@@ -346,7 +336,7 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
 
     iffoo()
 
-    code = transform_func(iffoo, InsertSCFYield)
+    code = transform_func(iffoo, InsertEmptySCFYield)
     correct = dedent(
         """\
     def iffoo():
@@ -400,7 +390,6 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
         if res := one < two:
             three = constant(3.0)
             if two < three:
@@ -412,22 +401,25 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
         return
 
     code = transform_func(
-        iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+        iffoo,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
     )
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: f64_t
-        if res := stack_if(one < two, (f64_t,)):
+        if res := stack_if(one < two, (_placeholder_opaque_t,)):
             three = constant(3.0)
             if stack_if(two < three):
                 four = constant(4.0); yield_(); end_if()
-            yield_(three); end_branch()
+            stack_yield(three); end_branch()
         else:
             else_(); five = constant(5.0)
-            yield_(five); end_if()
+            stack_yield(five); end_if()
         return
     """
     )
@@ -438,7 +430,6 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t)
         if res := one < two:
             three = constant(3.0)
             if two < three:
@@ -450,22 +441,25 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
         return
 
     code = transform_func(
-        iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+        iffoo,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
     )
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        res: (f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t)):
             three = constant(3.0)
             if stack_if(two < three):
                 four = constant(4.0); yield_(); end_if()
-            yield_(three, three); end_branch()
+            stack_yield(three, three); end_branch()
         else:
             else_(); five = constant(5.0)
-            yield_(five, five); end_if()
+            stack_yield(five, five); end_if()
         return
     """
     )
@@ -489,7 +483,11 @@ def test_if_nested_with_else_no_yield_insert_order(ctx: MLIRContext):
     iffoo()
 
     code = transform_func(
-        iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+        iffoo,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
     )
     correct = dedent(
         """\
@@ -527,7 +525,11 @@ def test_if_else_with_nested_no_yields_insert_order(ctx: MLIRContext):
 
     iffoo()
     code = transform_func(
-        iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+        iffoo,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
     )
     correct = dedent(
         """\
@@ -567,7 +569,11 @@ def test_if_nested_with_else_no_yields_insert_order(ctx: MLIRContext):
 
     iffoo()
     code = transform_func(
-        iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+        iffoo,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
     )
     correct = dedent(
         """\
@@ -610,7 +616,11 @@ def test_if_with_else_else_with_yields(ctx: MLIRContext):
         return
 
     code = transform_func(
-        iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+        iffoo,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceSCFCond,
+        InsertEndIfs,
     )
     correct = dedent(
         """\
@@ -751,8 +761,8 @@ def test_if_with_elif_with_yields(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -807,8 +817,8 @@ def test_if_with_elif_elif_with_yields(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -863,7 +873,11 @@ def test_if_with_elif_no_else(ctx: MLIRContext):
 
     try:
         code = transform_func(
-            iffoo, InsertSCFYield, ReplaceSCFYield, ReplaceSCFCond, InsertEndIfs
+            iffoo,
+            InsertEmptySCFYield,
+            ReplaceYieldWithSCFYield,
+            ReplaceSCFCond,
+            InsertEndIfs,
         )
     except Exception as e:
         assert str(e) == "conditional must have else branch"
@@ -891,8 +905,8 @@ def test_if_with_else_nested_elif(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -943,8 +957,8 @@ def test_if_with_elif_no_yields(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -993,8 +1007,8 @@ def test_if_with_elif_elif_no_yields(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -1033,7 +1047,6 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
         two = constant(2.0)
         three = constant(3.0)
 
-        res: f64_t
         if res := one < two:
             four = constant(4.0)
             yield four
@@ -1049,8 +1062,8 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -1061,19 +1074,18 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
         two = constant(2.0)
         three = constant(3.0)
 
-        res: f64_t
-        if res := stack_if(one < two, (f64_t,)):
+        if res := stack_if(one < two, (_placeholder_opaque_t,)):
             four = constant(4.0)
-            yield_(four); end_branch()
+            stack_yield(four); end_branch()
         else:
             else_()
-            if res := stack_if(two < three, (f64_t,)):
+            if res := stack_if(two < three, (_placeholder_opaque_t,)):
                 five = constant(5.0)
-                yield_(five); end_branch()
+                stack_yield(five); end_branch()
             else:
                 else_(); six = constant(6.0)
-                yield_(six); end_if()
-            yield_(res); end_if()
+                stack_yield(six); end_if()
+            stack_yield(res); end_if()
 
         return
     """
@@ -1088,9 +1100,6 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
         three = constant(3.0)
         four = constant(4.0)
 
-        res: (f64_t, f64_t)
-        res1: (f64_t, f64_t)
-        res2: (f64_t, f64_t)
         if res := one < two:
             five = constant(5.0)
             yield five, five
@@ -1109,8 +1118,8 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
     code = transform_func(
         iffoo,
         CanonicalizeElIfs,
-        InsertSCFYield,
-        ReplaceSCFYield,
+        InsertEmptySCFYield,
+        ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
         InsertEndIfs,
     )
@@ -1122,27 +1131,24 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
         three = constant(3.0)
         four = constant(4.0)
 
-        res: (f64_t, f64_t)
-        res1: (f64_t, f64_t)
-        res2: (f64_t, f64_t)
-        if res := stack_if(one < two, (f64_t, f64_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t)):
             five = constant(5.0)
-            yield_(five, five); end_branch()
+            stack_yield(five, five); end_branch()
         else:
             else_()
-            if res1 := stack_if(two < three, (f64_t, f64_t)):
+            if res1 := stack_if(two < three, (_placeholder_opaque_t, _placeholder_opaque_t)):
                 six = constant(6.0)
-                yield_(six, six); end_branch()
+                stack_yield(six, six); end_branch()
             else:
                 else_()
-                if res2 := stack_if(three < four, (f64_t, f64_t)):
+                if res2 := stack_if(three < four, (_placeholder_opaque_t, _placeholder_opaque_t)):
                     seven = constant(7.0)
-                    yield_(seven, seven); end_branch()
+                    stack_yield(seven, seven); end_branch()
                 else:
                     else_(); eight = constant(8.0)
-                    yield_(eight, eight); end_if()
-                yield_(res2); end_if()
-            yield_(res1); end_if()
+                    stack_yield(eight, eight); end_if()
+                stack_yield(res2); end_if()
+            stack_yield(res1); end_if()
 
         return
     """

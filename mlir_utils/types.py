@@ -16,6 +16,7 @@ from mlir.ir import (
     UnrankedTensorType,
     VectorType,
     BF16Type,
+    OpaqueType,
 )
 
 index_t = IndexType.get()
@@ -28,6 +29,7 @@ f16_t = F16Type.get()
 f32_t = F32Type.get()
 f64_t = F64Type.get()
 bf16_t = BF16Type.get()
+opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
 NP_DTYPE_TO_MLIR_TYPE = lambda: {
     np.int8: i8_t,

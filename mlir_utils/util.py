@@ -1,6 +1,5 @@
 import ctypes
 import inspect
-import sys
 import traceback
 import warnings
 from collections import defaultdict
@@ -10,7 +9,15 @@ from typing import Callable, Sequence
 
 import mlir
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from mlir.ir import InsertionPoint, Value, Type, OpResultList, Location
+from mlir.ir import (
+    InsertionPoint,
+    Value,
+    Type,
+    OpResultList,
+    Location,
+    OpResult,
+    OpView,
+)
 
 try:
     from mlir.ir import TypeID
@@ -21,7 +28,9 @@ except ImportError:
     TypeID = object
 
 
-def get_result_or_results(op):
+def get_result_or_results(
+    op: None | OpView | Value,
+) -> None | Value | OpResultList | OpResult | OpView:
     if op is None:
         return
     if isinstance(op, Value):
