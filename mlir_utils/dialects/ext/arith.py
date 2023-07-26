@@ -13,21 +13,22 @@ from mlir.dialects.linalg.opdsl.lang.emitter import (
     _is_index_type,
 )
 from mlir.ir import (
-    OpView,
-    Operation,
-    Type,
-    Value,
+    Attribute,
+    Context,
+    DenseElementsAttr,
     IndexType,
-    RankedTensorType,
     IntegerAttr,
     IntegerType,
-    DenseElementsAttr,
+    Location,
+    OpView,
+    Operation,
+    RankedTensorType,
+    Type,
+    Value,
     register_attribute_builder,
-    Context,
-    Attribute,
 )
 
-from mlir_utils.util import get_result_or_results, maybe_cast
+from mlir_utils.util import get_result_or_results, maybe_cast, get_user_code_loc
 
 try:
     from mlir_utils.dialects.arith import *
@@ -41,6 +42,8 @@ def constant(
     value: Union[int, float, bool, np.ndarray],
     type: Optional[Type] = None,
     index: Optional[bool] = None,
+    *,
+    loc: Location = None,
 ) -> arith_dialect.ConstantOp:
     """Instantiate arith.constant with value `value`.
 
@@ -56,6 +59,8 @@ def constant(
     Returns:
       ir.OpView instance that corresponds to instantiated arith.constant op.
     """
+    if loc is None:
+        loc = get_user_code_loc()
     if index is not None and index:
         type = IndexType.get()
     if type is None:
@@ -73,8 +78,9 @@ def constant(
             value,
             type=type,
         )
-
-    return maybe_cast(get_result_or_results(arith_dialect.ConstantOp(type, value)))
+    return maybe_cast(
+        get_result_or_results(arith_dialect.ConstantOp(type, value, loc=loc))
+    )
 
 
 class ArithValueMeta(type(Value)):
@@ -217,7 +223,12 @@ def _arith_CmpFPredicateAttr(predicate: str | Attribute, context: Context):
 
 
 def _binary_op(
-    lhs: "ArithValue", rhs: "ArithValue", op: str, predicate: str = None
+    lhs: "ArithValue",
+    rhs: "ArithValue",
+    op: str,
+    predicate: str = None,
+    *,
+    loc: Location = None,
 ) -> "ArithValue":
     """Generic for handling infix binary operator dispatch.
 
@@ -230,6 +241,8 @@ def _binary_op(
     Returns:
       Result of binary operation. This will be a handle to an arith(add|sub|mul) op.
     """
+    if loc is None:
+        loc = get_user_code_loc()
     if not isinstance(rhs, lhs.__class__):
         rhs = lhs.__class__(rhs, dtype=lhs.type)
 
@@ -258,9 +271,9 @@ def _binary_op(
                     predicate = "s" + predicate
                 else:
                     predicate = "u" + predicate
-        return lhs.__class__(op(predicate, lhs, rhs), dtype=lhs.dtype)
+        return lhs.__class__(op(predicate, lhs, rhs, loc=loc), dtype=lhs.dtype)
     else:
-        return lhs.__class__(op(lhs, rhs), dtype=lhs.dtype)
+        return lhs.__class__(op(lhs, rhs, loc=loc), dtype=lhs.dtype)
 
 
 class ArithValue(Value, metaclass=ArithValueMeta):

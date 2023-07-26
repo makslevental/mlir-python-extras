@@ -8,6 +8,7 @@ from mlir.ir import (
     TypeAttr,
     FlatSymbolRefAttr,
     Type,
+    Location,
 )
 
 from mlir_utils.util import (
@@ -103,13 +104,16 @@ class FuncBase:
         # this is the func op itself (funcs never have a resulting ssa value)
         return maybe_cast(get_result_or_results(func_op))
 
-    def __call__(self, *call_args):
+    def __call__(self, *call_args, loc: Location = None):
+        if loc is None:
+            loc = get_user_code_loc()
         if not self.emitted:
             self.emit()
         call_op = self.call_op_ctor(
             [r.type for r in self.results],
             FlatSymbolRefAttr.get(self.func_name),
             call_args,
+            loc=loc,
         )
         return maybe_cast(get_result_or_results(call_op))
 
