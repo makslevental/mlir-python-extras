@@ -144,3 +144,45 @@ def func(
         loc=loc,
         ip=ip,
     )
+
+
+def call(symbol_name, call_args, return_types, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    return maybe_cast(
+        get_result_or_results(
+            CallOp.__base__(
+                return_types,
+                FlatSymbolRefAttr.get(symbol_name),
+                call_args,
+                loc=loc,
+                ip=ip,
+            )
+        )
+    )
+
+
+def declare(
+    symbol_name,
+    input_types: list,
+    result_types=None,
+    func_op_ctor=FuncOp,
+):
+    if result_types is None:
+        result_types = []
+    assert all(
+        isinstance(a, Type) for a in input_types
+    ), f"wrong func args {input_types}"
+    assert all(
+        isinstance(a, Type) for a in result_types
+    ), f"wrong func results {result_types}"
+
+    function_type = FunctionType.get(inputs=input_types, results=result_types)
+    sym_name = func_op_ctor(
+        name=symbol_name, type=function_type, visibility="private"
+    ).sym_name
+
+    def callable(*call_args):
+        return call(sym_name.value, call_args, result_types)
+
+    return callable

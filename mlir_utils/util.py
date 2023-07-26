@@ -1,5 +1,7 @@
+import contextlib
 import ctypes
 import inspect
+import platform
 import sys
 import warnings
 from collections import defaultdict
@@ -8,6 +10,7 @@ from pathlib import Path
 from typing import Callable, Sequence, Optional
 
 import mlir
+from mlir import ir
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
 from mlir.ir import (
     InsertionPoint,
@@ -224,3 +227,62 @@ def get_user_code_loc(user_base: Optional[Path] = None):
     return Location.file(
         frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
     )
+
+
+@contextlib.contextmanager
+def enable_multithreading(context=None):
+    from . import DefaultContext
+
+    if context is None:
+        context = DefaultContext
+    context.enable_multithreading(True)
+    yield
+    context.enable_multithreading(False)
+
+
+@contextlib.contextmanager
+def disable_multithreading(context=None):
+    from . import DefaultContext
+
+    if context is None:
+        context = DefaultContext
+
+    context.enable_multithreading(False)
+    yield
+    context.enable_multithreading(True)
+
+
+@contextlib.contextmanager
+def enable_debug():
+    ir._GlobalDebug.flag = True
+    yield
+    ir._GlobalDebug.flag = False
+
+
+def shlib_ext():
+    if platform.system() == "Darwin":
+        shlib_ext = "dylib"
+    elif platform.system() == "Linux":
+        shlib_ext = "so"
+    elif platform.system() == "Windows":
+        shlib_ext = "lib"
+    else:
+        raise NotImplementedError(f"unknown platform {platform.system()}")
+
+    return shlib_ext
+
+
+def find_ops(op, pred: Callable[[OpView], bool]):
+    matching = []
+
+    def find(op):
+        for r in op.regions:
+            for b in r.blocks:
+                for o in b.operations:
+                    if pred(o):
+                        matching.append(o)
+                    find(o)
+
+    find(op)
+
+    return matching

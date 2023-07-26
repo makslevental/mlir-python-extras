@@ -38,11 +38,18 @@ def bind(func, instance, as_name=None):
 def copy_func(f, new_code):
     """Based on http://stackoverflow.com/a/6528148/190597 (Glenn Maynard)"""
     g = types.FunctionType(
-        new_code,
-        f.__globals__,
+        code=new_code,
+        globals={
+            **f.__globals__,
+            **{
+                fr: f.__closure__[i].cell_contents
+                for i, fr in enumerate(f.__code__.co_freevars)
+            },
+        },
         name=f.__name__,
         argdefs=f.__defaults__,
-        closure=f.__closure__,
+        # TODO(max): ValueError: foo requires closure of length 0, not 1
+        # closure=f.__closure__,
     )
     g.__kwdefaults__ = f.__kwdefaults__
     g.__dict__.update(f.__dict__)
