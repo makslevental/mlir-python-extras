@@ -18,7 +18,7 @@ dependencies = [
 test = ["pytest", "mlir-native-tools"]
 torch-mlir = ["torch-mlir-core"]
 jax = ["jax[cpu]", ]
-mlir = ["mlir-python-bindings==17.0.0.2023.7.26.12+25b8433"]
+mlir = ["mlir-python-bindings==17.0.0.2023.7.27.14+70aca7b1"]
 
 [project.scripts]
 configure-mlir-python-utils = "mlir_utils:_configuration.configuration.configure_host_bindings"

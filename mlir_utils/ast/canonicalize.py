@@ -3,7 +3,7 @@ import enum
 import inspect
 import logging
 import types
-from abc import ABC
+from abc import ABC, abstractmethod
 from opcode import opmap
 from types import CodeType
 
@@ -76,7 +76,7 @@ class BytecodePatcher(ABC):
     def __init__(self, context=None):
         self.context = context
 
-    @property
+    @abstractmethod
     def patch_bytecode(self, code: ConcreteBytecode, original_f) -> ConcreteBytecode:
         pass
 
@@ -94,10 +94,12 @@ def patch_bytecode(f, patchers: list[type(BytecodePatcher)] = None):
 
 class Canonicalizer(ABC):
     @property
+    @abstractmethod
     def cst_transformers(self) -> list[StrictTransformer]:
         pass
 
     @property
+    @abstractmethod
     def bytecode_patchers(self) -> list[BytecodePatcher]:
         pass
 

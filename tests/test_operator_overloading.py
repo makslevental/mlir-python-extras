@@ -13,6 +13,51 @@ from mlir_utils.types import f64_t
 pytest.mark.usefixtures("ctx")
 
 
+def test_arithmetic(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+    one + two
+    one - two
+    one / two
+    one // two
+    one % two
+
+    one = constant(1.0)
+    two = constant(2.0)
+    one + two
+    one - two
+    one / two
+    try:
+        one // two
+    except ValueError as e:
+        assert str(e) == "floordiv not supported for lhs=Scalar(%cst, f64)"
+    one % two
+
+    ctx.module.operation.verify()
+    filecheck(
+        dedent(
+            """\
+    module {
+      %c1_i64 = arith.constant 1 : i64
+      %c2_i64 = arith.constant 2 : i64
+      %0 = arith.addi %c1_i64, %c2_i64 : i64
+      %1 = arith.subi %c1_i64, %c2_i64 : i64
+      %2 = arith.divsi %c1_i64, %c2_i64 : i64
+      %3 = arith.floordivsi %c1_i64, %c2_i64 : i64
+      %4 = arith.remsi %c1_i64, %c2_i64 : i64
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_0 = arith.constant 2.000000e+00 : f64
+      %5 = arith.addf %cst, %cst_0 : f64
+      %6 = arith.subf %cst, %cst_0 : f64
+      %7 = arith.divf %cst, %cst_0 : f64
+      %8 = arith.remf %cst, %cst_0 : f64
+    }
+    """
+        ),
+        ctx.module,
+    )
+
+
 def test_tensor_arithmetic(ctx: MLIRContext):
     one = constant(1)
     assert isinstance(one, Scalar)
@@ -117,3 +162,47 @@ def test_arith_cmp(ctx: MLIRContext):
         ),
         ctx.module,
     )
+
+
+def test_scalar_promotion(ctx: MLIRContext):
+    one = constant(1)
+    one + 2
+    one - 2
+    one / 2
+    one // 2
+    one % 2
+
+    one = constant(1.0)
+    one + 2.0
+    one - 2.0
+    one / 2.0
+    one % 2.0
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %c1_i64 = arith.constant 1 : i64
+      %c2_i64 = arith.constant 2 : i64
+      %0 = arith.addi %c1_i64, %c2_i64 : i64
+      %c2_i64_0 = arith.constant 2 : i64
+      %1 = arith.subi %c1_i64, %c2_i64_0 : i64
+      %c2_i64_1 = arith.constant 2 : i64
+      %2 = arith.divsi %c1_i64, %c2_i64_1 : i64
+      %c2_i64_2 = arith.constant 2 : i64
+      %3 = arith.floordivsi %c1_i64, %c2_i64_2 : i64
+      %c2_i64_3 = arith.constant 2 : i64
+      %4 = arith.remsi %c1_i64, %c2_i64_3 : i64
+      %cst = arith.constant 1.000000e+00 : f64
+      %cst_4 = arith.constant 2.000000e+00 : f64
+      %5 = arith.addf %cst, %cst_4 : f64
+      %cst_5 = arith.constant 2.000000e+00 : f64
+      %6 = arith.subf %cst, %cst_5 : f64
+      %cst_6 = arith.constant 2.000000e+00 : f64
+      %7 = arith.divf %cst, %cst_6 : f64
+      %cst_7 = arith.constant 2.000000e+00 : f64
+      %8 = arith.remf %cst, %cst_7 : f64
+    }
+    """
+    )
+    filecheck(correct, ctx.module)

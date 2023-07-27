@@ -1,4 +1,5 @@
 import operator
+from abc import abstractmethod
 from copy import deepcopy
 from functools import partialmethod, cached_property
 from typing import Union, Optional
@@ -184,7 +185,7 @@ def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
     }
     if isinstance(predicate, Attribute):
         return predicate
-    assert predicate in predicates, f"predicate {predicate} not in predicates"
+    assert predicate in predicates, f"{predicate=} not in predicates"
     return IntegerAttr.get(
         IntegerType.get_signless(64, context=context), predicates[predicate]
     )
@@ -219,7 +220,7 @@ def _arith_CmpFPredicateAttr(predicate: str | Attribute, context: Context):
     }
     if isinstance(predicate, Attribute):
         return predicate
-    assert predicate in predicates, f"predicate {predicate} not in predicates"
+    assert predicate in predicates, f"{predicate=} not in predicates"
     return IntegerAttr.get(
         IntegerType.get_signless(64, context=context), predicates[predicate]
     )
@@ -247,13 +248,14 @@ def _binary_op(
     if loc is None:
         loc = get_user_code_loc()
     if not isinstance(rhs, lhs.__class__):
-        rhs = lhs.__class__(rhs, dtype=lhs.type)
-
-    assert op in {"add", "sub", "mul", "cmp"}
-    if op == "cmp":
-        assert predicate is not None
+        lhs, rhs = lhs.coerce(rhs)
     if lhs.type != rhs.type:
         raise ValueError(f"{lhs=} {rhs=} must have the same type.")
+
+    assert op in {"add", "sub", "mul", "cmp", "truediv", "floordiv", "mod"}
+
+    if op == "cmp":
+        assert predicate is not None
 
     if lhs.fold() and lhs.fold():
         klass = lhs.__class__
@@ -267,15 +269,30 @@ def _binary_op(
             op = predicate
         op = operator.attrgetter(op)(operator)
         return klass(op(lhs, rhs), fold=True)
+
+    if op == "truediv":
+        op = "div"
+    if op == "mod":
+        op = "rem"
+
+    op = op.capitalize()
+    if _is_floating_point_type(lhs.dtype):
+        if op == "Floordiv":
+            raise ValueError(f"floordiv not supported for {lhs=}")
+        op += "F"
+    elif _is_integer_like_type(lhs.dtype):
+        # TODO(max): this needs to all be regularized
+        if "div" in op.lower() or "rem" in op.lower():
+            if not lhs.dtype.is_signless:
+                raise ValueError(f"{op.lower()}i not supported for {lhs=}")
+            if op == "Floordiv":
+                op = "FloorDiv"
+            op += "S"
+        op += "I"
     else:
-        op = op.capitalize()
-        lhs, rhs = lhs, rhs
-        if _is_floating_point_type(lhs.dtype):
-            op = getattr(arith_dialect, f"{op}FOp")
-        elif _is_integer_like_type(lhs.dtype):
-            op = getattr(arith_dialect, f"{op}IOp")
-        else:
-            raise NotImplementedError(f"Unsupported '{op}' operands: {lhs}, {rhs}")
+        raise NotImplementedError(f"Unsupported '{op}' operands: {lhs}, {rhs}")
+
+    op = getattr(arith_dialect, f"{op}Op")
 
     if predicate is not None:
         if _is_floating_point_type(lhs.dtype):
@@ -315,6 +332,15 @@ class ArithValue(Value, metaclass=ArithValueMeta):
             self.owner.opview, arith_dialect.ConstantOp
         )
 
+    @property
+    @abstractmethod
+    def literal_value(self):
+        pass
+
+    @abstractmethod
+    def coerce(self, other) -> tuple["ArithValue", "ArithValue"]:
+        pass
+
     def fold(self) -> bool:
         return self.is_constant() and self._fold
 
@@ -329,6 +355,10 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __add__ = partialmethod(_binary_op, op="add")
     __sub__ = partialmethod(_binary_op, op="sub")
     __mul__ = partialmethod(_binary_op, op="mul")
+    __truediv__ = partialmethod(_binary_op, op="truediv")
+    __floordiv__ = partialmethod(_binary_op, op="floordiv")
+    __mod__ = partialmethod(_binary_op, op="mod")
+
     __radd__ = partialmethod(_binary_op, op="add")
     __rsub__ = partialmethod(_binary_op, op="sub")
     __rmul__ = partialmethod(_binary_op, op="mul")
@@ -401,3 +431,10 @@ class Scalar(ArithValue):
 
     def __float__(self):
         return float(self.literal_value)
+
+    def coerce(self, other) -> tuple["Scalar", "Scalar"]:
+        if isinstance(other, (int, float, bool)):
+            other = Scalar(other, dtype=self.dtype)
+        else:
+            raise ValueError(f"can't coerce {other=} to Scalar")
+        return self, other

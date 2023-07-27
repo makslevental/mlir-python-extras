@@ -21,14 +21,27 @@ from mlir.ir import (
 
 index_t = IndexType.get()
 bool_t = IntegerType.get_signless(1)
+
 i8_t = IntegerType.get_signless(8)
 i16_t = IntegerType.get_signless(16)
 i32_t = IntegerType.get_signless(32)
 i64_t = IntegerType.get_signless(64)
+
+si8_t = IntegerType.get_signed(8)
+si16_t = IntegerType.get_signed(16)
+si32_t = IntegerType.get_signed(32)
+si64_t = IntegerType.get_signed(64)
+
+ui8_t = IntegerType.get_unsigned(8)
+ui16_t = IntegerType.get_unsigned(16)
+ui32_t = IntegerType.get_unsigned(32)
+ui64_t = IntegerType.get_unsigned(64)
+
 f16_t = F16Type.get()
 f32_t = F32Type.get()
 f64_t = F64Type.get()
 bf16_t = BF16Type.get()
+
 opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
 NP_DTYPE_TO_MLIR_TYPE = lambda: {
