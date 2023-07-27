@@ -27,6 +27,7 @@ from mlir.runtime import (
     get_ranked_memref_descriptor,
 )
 
+from mlir_utils.runtime.passes import Pipeline
 from mlir_utils.util import disable_multithreading, shlib_ext, find_ops
 
 logger = logging.getLogger(__name__)
@@ -266,10 +267,12 @@ class LLVMJITBackend:
     def compile(
         self,
         module: Module,
-        pipeline: str,
+        pipeline: str | Pipeline,
         kernel_name="main",
         enable_ir_printing=False,
     ):
+        pipeline = str(pipeline)
+
         def cb(op):
             try:
                 return kernel_name == op.sym_name.value
