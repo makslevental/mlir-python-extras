@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from mlir_utils.ast.canonicalize import canonicalize
 
-from mlir_utils.dialects.ext.arith import Scalar
+from mlir_utils.dialects.ext.arith import Scalar, constant
 from mlir_utils.dialects.ext.scf import (
     range_,
     yield_,
@@ -396,3 +396,113 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
     )
 
     filecheck(correct, ctx.module)
+
+
+def test_promotion_int_arr(ctx: MLIRContext):
+    ten_arr = np.random.randint(0, 10, (10, 10)).astype(np.int32)
+    ten = Tensor(ten_arr)
+    other = np.random.randint(0, 10, (10, 10)).astype(np.int32)
+
+    x = ten + other
+    y = ten - other
+    z = ten / other
+    w = ten // other
+    v = ten % other
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        f"""\
+    module {{
+      %cst = arith.constant dense<{ten_arr.tolist()}> : tensor<10x10xi32>
+      %cst_0 = arith.constant dense<{other.tolist()}> : tensor<10x10xi32>
+      %0 = arith.addi %cst, %cst_0 : tensor<10x10xi32>
+      %cst_1 = arith.constant dense<{Tensor(y.owner.operands[1]).literal_value.tolist()}> : tensor<10x10xi32>
+      %1 = arith.subi %cst, %cst_1 : tensor<10x10xi32>
+      %cst_2 = arith.constant dense<{Tensor(z.owner.operands[1]).literal_value.tolist()}> : tensor<10x10xi32>
+      %2 = arith.divsi %cst, %cst_2 : tensor<10x10xi32>
+      %cst_3 = arith.constant dense<{Tensor(w.owner.operands[1]).literal_value.tolist()}> : tensor<10x10xi32>
+      %3 = arith.floordivsi %cst, %cst_3 : tensor<10x10xi32>
+      %cst_4 = arith.constant dense<{Tensor(v.owner.operands[1]).literal_value.tolist()}> : tensor<10x10xi32>
+      %4 = arith.remsi %cst, %cst_4 : tensor<10x10xi32>
+    }}
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_promotion_python_constant(ctx: MLIRContext):
+    ten_arr_int = np.random.randint(0, 10, (10, 10)).astype(int)
+    ten = Tensor(ten_arr_int)
+
+    x = ten + 1
+    y = ten - 1
+    z = ten / 1
+    w = ten // 1
+    v = ten % 1
+
+    ten_arr_float = np.random.randint(0, 10, (10, 10)).astype(float)
+    ten = Tensor(ten_arr_float)
+    xx = ten + 1.0
+    yy = ten - 1.0
+    zz = ten / 1.0
+    vv = ten % 1.0
+
+    ctx.module.operation.verify()
+    # windows in CI...
+    bits = np.dtype(int).itemsize * 8
+    correct = dedent(
+        f"""\
+    module {{
+      %cst = arith.constant dense<{ten_arr_int.tolist()}> : tensor<10x10xi{bits}>
+      %cst_0 = arith.constant dense<1> : tensor<10x10xi{bits}>
+      %0 = arith.addi %cst, %cst_0 : tensor<10x10xi{bits}>
+      %cst_1 = arith.constant dense<1> : tensor<10x10xi{bits}>
+      %1 = arith.subi %cst, %cst_1 : tensor<10x10xi{bits}>
+      %cst_2 = arith.constant dense<1> : tensor<10x10xi{bits}>
+      %2 = arith.divsi %cst, %cst_2 : tensor<10x10xi{bits}>
+      %cst_3 = arith.constant dense<1> : tensor<10x10xi{bits}>
+      %3 = arith.floordivsi %cst, %cst_3 : tensor<10x10xi{bits}>
+      %cst_4 = arith.constant dense<1> : tensor<10x10xi{bits}>
+      %4 = arith.remsi %cst, %cst_4 : tensor<10x10xi{bits}>
+      %cst_5 = arith.constant dense<{ten_arr_float.tolist()}> : tensor<10x10xf64>
+      %cst_6 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %5 = arith.addf %cst_5, %cst_6 : tensor<10x10xf64>
+      %cst_7 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %6 = arith.subf %cst_5, %cst_7 : tensor<10x10xf64>
+      %cst_8 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %7 = arith.divf %cst_5, %cst_8 : tensor<10x10xf64>
+      %cst_9 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %8 = arith.remf %cst_5, %cst_9 : tensor<10x10xf64>
+    }}
+    """
+    )
+    filecheck(correct, str(ctx.module).replace("00000e+00", ""))
+
+
+def test_promotion_arith(ctx: MLIRContext):
+    ten_arr_int = np.random.randint(0, 10, (2, 2)).astype(np.int32)
+    ten = Tensor(ten_arr_int)
+    one = constant(1, type=T.i32_t)
+    x = ten + one
+
+    ten_arr_float = np.random.randint(0, 10, (3, 3)).astype(np.float32)
+    ten = Tensor(ten_arr_float)
+    one = constant(1.0, type=T.f32_t)
+    x = ten + one
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        f"""\
+    module {{
+      %cst = arith.constant dense<{ten_arr_int.tolist()}> : tensor<2x2xi32>
+      %c1_i32 = arith.constant 1 : i32
+      %splat = tensor.splat %c1_i32 : tensor<2x2xi32>
+      %0 = arith.addi %cst, %splat : tensor<2x2xi32>
+      %cst_0 = arith.constant dense<{ten_arr_float.tolist()}> : tensor<3x3xf32>
+      %cst_1 = arith.constant 1.0 : f32
+      %splat_2 = tensor.splat %cst_1 : tensor<3x3xf32>
+      %1 = arith.addf %cst_0, %splat_2 : tensor<3x3xf32>
+    }}
+    """
+    )
+    filecheck(correct, str(ctx.module).replace("00000e+00", ""))

@@ -5,7 +5,7 @@ import warnings
 from collections import defaultdict
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Sequence, Optional
 
 import mlir
 from mlir.dialects._ods_common import get_op_result_or_value, get_op_results_or_values
@@ -226,18 +226,22 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
             )
 
 
-def get_user_code_loc():
+def get_user_code_loc(user_base: Optional[Path] = None):
     import mlir_utils
     import mlir
 
     mlir_utis_root_path = Path(mlir_utils.__path__[0])
     mlir_root_path = Path(mlir.__path__[0])
 
-    prev_frame = inspect.currentframe().f_back.f_back
+    prev_frame = inspect.currentframe().f_back
+    if user_base is None:
+        user_base = Path(prev_frame.f_code.co_filename)
+
     while (
         Path(prev_frame.f_code.co_filename).is_relative_to(mlir_utis_root_path)
         or Path(prev_frame.f_code.co_filename).is_relative_to(mlir_root_path)
         or Path(prev_frame.f_code.co_filename).is_relative_to(sys.prefix)
+        or Path(prev_frame.f_code.co_filename).is_relative_to(user_base)
     ):
         prev_frame = prev_frame.f_back
     frame_info = inspect.getframeinfo(prev_frame)

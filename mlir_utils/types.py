@@ -22,14 +22,27 @@ from mlir.ir import (
 
 _index_t = lambda: IndexType.get()
 _bool_t = lambda: IntegerType.get_signless(1)
+
 _i8_t = lambda: IntegerType.get_signless(8)
 _i16_t = lambda: IntegerType.get_signless(16)
 _i32_t = lambda: IntegerType.get_signless(32)
 _i64_t = lambda: IntegerType.get_signless(64)
+
+_si8_t = lambda: IntegerType.get_signed(8)
+_si16_t = lambda: IntegerType.get_signed(16)
+_si32_t = lambda: IntegerType.get_signed(32)
+_si64_t = lambda: IntegerType.get_signed(64)
+
+_ui8_t = lambda: IntegerType.get_unsigned(8)
+_ui16_t = lambda: IntegerType.get_unsigned(16)
+_ui32_t = lambda: IntegerType.get_unsigned(32)
+_ui64_t = lambda: IntegerType.get_unsigned(64)
+
 _f16_t = lambda: F16Type.get()
 _f32_t = lambda: F32Type.get()
 _f64_t = lambda: F64Type.get()
 _bf16_t = lambda: BF16Type.get()
+
 opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
 
@@ -40,10 +53,22 @@ def _placeholder_opaque_t():
 _name_to_type = {
     "index_t": _index_t,
     "bool_t": _bool_t,
+
     "i8_t": _i8_t,
     "i16_t": _i16_t,
     "i32_t": _i32_t,
     "i64_t": _i64_t,
+
+    "si8_t": _si8_t,
+    "si16_t": _si16_t,
+    "si32_t": _si32_t,
+    "si64_t": _si64_t,
+
+    "ui8_t": _ui8_t,
+    "ui16_t": _ui16_t,
+    "ui32_t": _ui32_t,
+    "ui64_t": _ui64_t,
+
     "f16_t": _f16_t,
     "f32_t": _f32_t,
     "f64_t": _f64_t,

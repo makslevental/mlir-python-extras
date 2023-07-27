@@ -79,7 +79,8 @@ class FuncBase:
             loc=self.loc,
             ip=self.ip,
         )
-        func_op.regions[0].blocks.append(*input_types)
+        arg_locs = [get_user_code_loc()] * len(sig.parameters)
+        func_op.regions[0].blocks.append(*input_types, arg_locs=arg_locs)
         with InsertionPoint(func_op.regions[0].blocks[0]):
             results = get_result_or_results(
                 self.body_builder(
