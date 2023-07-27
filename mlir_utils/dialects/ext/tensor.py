@@ -186,6 +186,24 @@ class Tensor(ArithValue):
         previous_frame = inspect.currentframe().f_back
         _update_caller_vars(previous_frame, [self], [res])
 
+    def coerce(self, other) -> tuple["Tensor", "Tensor"]:
+        if isinstance(other, np.ndarray):
+            other = Tensor(other)
+            return self, other
+        elif _is_scalar(other):
+            if not self.has_static_shape():
+                raise ValueError(
+                    f"can't coerce {other=} because {self=} doesn't have static shape"
+                )
+            if isinstance(other, (int, float)):
+                other = Tensor(np.full(self.shape, other), dtype=self.dtype)
+                return self, other
+            elif _is_scalar(other):
+                other = tensor.splat(self.type, other)
+                return self, other
+
+        raise ValueError(f"can't coerce unknown {other=}")
+
 
 @dataclass(frozen=True)
 class _Indexer:
