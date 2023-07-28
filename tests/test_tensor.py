@@ -2,8 +2,8 @@ from textwrap import dedent
 
 import numpy as np
 import pytest
-from mlir_utils.ast.canonicalize import canonicalize
 
+from mlir_utils.ast.canonicalize import canonicalize
 from mlir_utils.dialects.ext.arith import Scalar, constant
 from mlir_utils.dialects.ext.scf import (
     range_,

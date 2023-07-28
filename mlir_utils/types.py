@@ -1,3 +1,5 @@
+import sys
+import ctypes
 from functools import partial
 from typing import Union
 
@@ -131,6 +133,20 @@ def mlir_type_to_np_dtype(mlir_type):
     return _mlir_type_to_np_dtype.get(mlir_type)
 
 
+_mlir_type_to_ctype = {
+    _bool: ctypes.c_bool,
+    _i8: ctypes.c_byte,
+    _i64: ctypes.c_int,
+    _f32: ctypes.c_float,
+    _f64: ctypes.c_double,
+}
+
+
+def mlir_type_to_ctype(mlir_type):
+    __mlir_type_to_ctype = {k(): v for k, v in _mlir_type_to_ctype.items()}
+    return _mlir_type_to_ctype.get(mlir_type)
+
+
 def infer_mlir_type(
     py_val: Union[int, float, bool, np.ndarray]
 ) -> Union[IntegerType, F32Type, F64Type, RankedTensorType]:
@@ -228,3 +244,16 @@ def memref(*args, element_type: Type = None, memory_space: int = None):
             element_type=element_type,
             type_constructor=partial(MemRefType.get, memory_space=memory_space),
         )
+
+
+def memref_type_to_np_dtype(memref_type):
+    _memref_type_to_np_dtype = {
+        memref(element_type=_f16()): np.float16,
+        memref(element_type=_f32()): np.float32,
+        memref(_f64()): np.float64,
+        memref(element_type=_bool()): np.bool_,
+        memref(_i8()): np.int8,
+        memref(_i32()): np.int32,
+        memref(_i64()): np.int64,
+    }
+    return _memref_type_to_np_dtype.get(memref_type)
