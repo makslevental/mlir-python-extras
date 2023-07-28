@@ -84,6 +84,14 @@ MLIR_TYPE_TO_CTYPE = {
     f64_t: ctypes.c_double,
 }
 
+MLIR_TYPE_TO_CTYPE = {
+    bool_t: ctypes.c_bool,
+    i8_t: ctypes.c_byte,
+    i64_t: ctypes.c_int,
+    f32_t: ctypes.c_float,
+    f64_t: ctypes.c_double,
+}
+
 
 def infer_mlir_type(
     py_val: Union[int, float, bool, np.ndarray]
