@@ -1,3 +1,4 @@
+import ctypes
 from functools import partial
 from typing import Union
 
@@ -74,6 +75,14 @@ NP_DTYPE_TO_MLIR_TYPE = lambda: {
 }
 
 MLIR_TYPE_TO_NP_DTYPE = lambda: {v: k for k, v in NP_DTYPE_TO_MLIR_TYPE().items()}
+
+MLIR_TYPE_TO_CTYPE = {
+    bool_t: ctypes.c_bool,
+    i8_t: ctypes.c_byte,
+    i64_t: ctypes.c_int,
+    f32_t: ctypes.c_float,
+    f64_t: ctypes.c_double,
+}
 
 
 def infer_mlir_type(
@@ -173,3 +182,14 @@ def memref_t(*args, element_type: Type = None, memory_space: int = None):
             element_type=element_type,
             type_constructor=partial(MemRefType.get, memory_space=memory_space),
         )
+
+
+MEMREF_TYPE_TO_NP_DTYPE = {
+    memref_t(element_type=f16_t): np.float16,
+    memref_t(element_type=f32_t): np.float32,
+    memref_t(f64_t): np.float64,
+    memref_t(element_type=bool_t): np.bool_,
+    memref_t(i8_t): np.int8,
+    memref_t(i32_t): np.int32,
+    memref_t(i64_t): np.int64,
+}

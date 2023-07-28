@@ -1,10 +1,3 @@
-# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
-# See https://llvm.org/LICENSE.txt for license information.
-# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
-# Also available under a BSD-style license. See LICENSE.
-
-from __future__ import annotations
-
 import ctypes
 import logging
 import os
@@ -14,20 +7,22 @@ import warnings
 from contextlib import ExitStack
 from io import StringIO
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional
 
 import numpy as np
 from mlir import _mlir_libs
-from mlir.passmanager import PassManager
 from mlir.execution_engine import ExecutionEngine
 from mlir.ir import StringAttr, UnitAttr, Module
+from mlir.passmanager import PassManager
 from mlir.runtime import (
     UnrankedMemRefDescriptor,
     get_unranked_memref_descriptor,
     get_ranked_memref_descriptor,
+    unranked_memref_to_numpy,
 )
 
 from mlir_utils.runtime.passes import Pipeline
+from mlir_utils.types import MEMREF_TYPE_TO_NP_DTYPE, MLIR_TYPE_TO_CTYPE
 from mlir_utils.util import disable_multithreading, shlib_ext, find_ops
 
 logger = logging.getLogger(__name__)
@@ -52,33 +47,8 @@ def assert_arg_type_is_supported(ty):
     ), f"Only numpy arrays with dtypes in {SUPPORTED} are supported, but got {ty}"
 
 
-memref_type_to_np_dtype = {
-    "mrf16": np.float16,
-    "mrf32": np.float32,
-    "mrf64": np.float64,
-    "mri1": np.bool_,
-    "mri8": np.int8,
-    "mri32": np.int32,
-    "mri64": np.int64,
-}
-elemental_type_to_ctype = {
-    "i1": ctypes.c_bool,
-    "i8": ctypes.c_byte,
-    "i64": ctypes.c_int,
-    "f32": ctypes.c_float,
-    "f64": ctypes.c_double,
-}
-
-CONSUME_RETURN_FUNC_PREFIX = "refbackend_consume_func_return_"
-
-
 class MlirCompilerError(Exception):
-    def __init__(self, value: str):
-        super().__init__()
-        self.value = value
-
-    def __str__(self) -> str:
-        return self.value
+    pass
 
 
 def get_module_name_for_debug_dump(module):
@@ -120,7 +90,6 @@ def run_pipeline(
         with open(filename, "w") as f:
             f.write(asm_for_error_report)
         debug_options = "-mlir-print-ir-after-all -mlir-disable-threading"
-        # Put something descriptive here even if description is empty.
         description = description or f"{module_name} compile"
 
         message = f"""\
@@ -134,39 +103,47 @@ def run_pipeline(
             $ mlir-opt {debug_options} -pass-pipeline='{pipeline}' {filename}
             """
         trimmed_message = "\n".join([m.lstrip() for m in message.split("\n")])
-        raise MlirCompilerError(trimmed_message) from None
+        raise MlirCompilerError(trimmed_message)
     finally:
         sys.stderr = original_stderr
 
     return module
 
 
-def get_return_funcs(module):
-    return_prefix_len = len(CONSUME_RETURN_FUNC_PREFIX)
-    return_funcs = []
+CONSUME_RETURN_CALLBACK_ATTR = "refbackend_consume_return_callback"
+refback_cb_attr = CONSUME_RETURN_CALLBACK_ATTR
+
+
+def get_return_func(module):
     with module.context:
         for func in module.body:
-            # Returns strings of the form `"refbackend.."` so `"` is deleted.
-            func_name = str(func.attributes["sym_name"]).replace('"', "")
-            if func_name[:return_prefix_len] == CONSUME_RETURN_FUNC_PREFIX:
-                return_funcs.append(func_name)
-
-    return return_funcs
+            if CONSUME_RETURN_CALLBACK_ATTR in func.attributes:
+                return func.operation
 
 
-def get_ctype_func(func_name):
-    return_prefix_len = len(CONSUME_RETURN_FUNC_PREFIX)
-    ret_types = func_name[return_prefix_len:].split("_")
+def get_ctype_func(ret_types):
     ctypes_arg = [None]
+    legal_ret_types = []
     for type in ret_types:
-        if type in elemental_type_to_ctype:
-            ctypes_arg.append(elemental_type_to_ctype[type])
-        elif type in memref_type_to_np_dtype:
+        if type in MLIR_TYPE_TO_CTYPE:
+            ctypes_arg.append(MLIR_TYPE_TO_CTYPE[type])
+            legal_ret_types.append(type)
+        elif type in MEMREF_TYPE_TO_NP_DTYPE:
             ctypes_arg.append(ctypes.POINTER(UnrankedMemRefDescriptor))
+            legal_ret_types.append(type)
         else:
-            assert False, f"Not supported type: {type}"
+            warnings.warn(f"Not supported type for callback return: {type=}")
 
-    return ctypes.CFUNCTYPE(*ctypes_arg), ret_types
+    return ctypes.CFUNCTYPE(*ctypes_arg), legal_ret_types
+
+
+def convert_returns(args, mlir_types):
+    return tuple(
+        arg
+        if type in MLIR_TYPE_TO_CTYPE
+        else unranked_memref_to_numpy(arg, MEMREF_TYPE_TO_NP_DTYPE[type])
+        for arg, type in zip(args, mlir_types)
+    )
 
 
 # https://stackoverflow.com/a/68198336/9045206
@@ -174,24 +151,38 @@ CData = ctypes._SimpleCData.__mro__[-2]
 
 
 class LLVMJITBackendInvoker:
-    return_func: Optional[Callable] = None
+    return_func: bool
 
     def __init__(
-        self, module, consume_return_func=None, opt_level=2, shared_lib_paths=None
+        self,
+        module,
+        opt_level=2,
+        shared_lib_paths=None,
+        return_func_types=None,
+        return_func_name=None,
+        consume_return_callback=None,
     ):
         if shared_lib_paths is None:
             shared_lib_paths = []
         self.ee = ExecutionEngine(
             module, opt_level=opt_level, shared_libs=shared_lib_paths
         )
-        if consume_return_func is not None:
-            return_funcs = get_return_funcs(module)
-            assert len(return_funcs) == 1, f"multiple return funcs not supported"
-            self.return_func = return_funcs[0]
-            ctype_wrapper, ret_types = get_ctype_func(self.return_func)
+        self.results = None
+        if return_func_types is not None:
+            assert (
+                return_func_name is not None
+            ), f"must provide return func name when providing return func types"
+            ctype_wrapper, ret_types = get_ctype_func(return_func_types)
             self.ret_types = ret_types
+            self.return_func = True
+            if consume_return_callback is None:
+
+                def consume_return_callback(*args):
+                    self.results = convert_returns(args, self.ret_types)
+
             self.ee.register_runtime(
-                self.return_func, ctype_wrapper(consume_return_func)
+                return_func_name,
+                ctype_wrapper(consume_return_callback),
             )
 
     def __getattr__(self, function_name: str):
@@ -210,12 +201,13 @@ class LLVMJITBackendInvoker:
                             # in principle this has nothing to do with anything
                             # refbackend related
                             ctypes.pointer(get_unranked_memref_descriptor(arg))
-                            if _get("return_func") is not None
+                            if _get("return_func")
                             else ctypes.pointer(get_ranked_memref_descriptor(arg))
                         )
                     )
 
             self.ee.invoke(function_name, *ffi_args)
+            return self.results
 
         return invoke
 
@@ -263,6 +255,8 @@ class LLVMJITBackend:
         if shared_lib_paths is None:
             shared_lib_paths = []
         self.shared_lib_paths = shared_lib_paths
+        self.return_func_types = None
+        self.return_func_name = None
 
     def compile(
         self,
@@ -286,6 +280,14 @@ class LLVMJITBackend:
             assert len(kernel_func) == 1, f"kernel func {kernel_name} not found"
             kernel_func[0].attributes["llvm.emit_c_interface"] = UnitAttr.get()
 
+        return_func = get_return_func(module)
+        if return_func:
+            self.return_func_name = return_func.attributes["sym_name"].value
+            # this is confusing but it's because the callback takes as operands the return values it's going to consume
+            self.return_func_types = [
+                i for i in return_func.attributes["function_type"].value.inputs
+            ]
+
         return run_pipeline(
             module,
             pipeline=pipeline,
@@ -294,11 +296,13 @@ class LLVMJITBackend:
         )
 
     def load(
-        self, module, consume_return_func=None, opt_level=2
+        self, module, consume_return_callback=None, opt_level=2
     ) -> LLVMJITBackendInvoker:
         return LLVMJITBackendInvoker(
             module,
             opt_level=opt_level,
             shared_lib_paths=[str(p.absolute()) for p in self.shared_lib_paths],
-            consume_return_func=consume_return_func,
+            return_func_types=self.return_func_types,
+            return_func_name=self.return_func_name,
+            consume_return_callback=consume_return_callback,
         )
