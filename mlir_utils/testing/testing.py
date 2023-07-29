@@ -11,6 +11,7 @@ import pytest
 
 from mlir_utils.context import MLIRContext, mlir_mod_ctx
 from .generate_test_checks import main
+from ..runtime.refbackend import LLVMJITBackend
 
 
 def filecheck(correct: str, module):
@@ -54,3 +55,8 @@ def filecheck(correct: str, module):
 def mlir_ctx() -> MLIRContext:
     with mlir_mod_ctx(allow_unregistered_dialects=True) as ctx:
         yield ctx
+
+
+@pytest.fixture
+def backend() -> LLVMJITBackend:
+    return LLVMJITBackend()
