@@ -292,10 +292,23 @@ def shlib_ext():
     return shlib_ext
 
 
-def find_ops(op, pred: Callable[[OpView], bool]):
+def shlib_prefix():
+    if platform.system() in {"Darwin", "Linux"}:
+        shlib_pref = "lib"
+    elif platform.system() == "Windows":
+        shlib_pref = ""
+    else:
+        raise NotImplementedError(f"unknown platform {platform.system()}")
+
+    return shlib_pref
+
+
+def find_ops(op, pred: Callable[[OpView], bool], single=False):
     matching = []
 
     def find(op):
+        if single and len(matching):
+            return
         for r in op.regions:
             for b in r.blocks:
                 for o in b.operations:
@@ -304,5 +317,6 @@ def find_ops(op, pred: Callable[[OpView], bool]):
                     find(o)
 
     find(op)
-
+    if single:
+        matching = matching[0]
     return matching
