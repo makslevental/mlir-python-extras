@@ -58,7 +58,7 @@ cmp64_t = ComplexType.get(f64_t)
 opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 none_t = NoneType.get()
 
-NP_DTYPE_TO_MLIR_TYPE = lambda: {
+NP_DTYPE_TO_MLIR_TYPE = {
     np.int8: i8_t,
     np.int16: i16_t,
     np.int32: i32_t,
@@ -74,7 +74,7 @@ NP_DTYPE_TO_MLIR_TYPE = lambda: {
     np.float64: f64_t,
 }
 
-MLIR_TYPE_TO_NP_DTYPE = lambda: {v: k for k, v in NP_DTYPE_TO_MLIR_TYPE().items()}
+MLIR_TYPE_TO_NP_DTYPE = lambda: {v: k for k, v in NP_DTYPE_TO_MLIR_TYPE.items()}
 
 MLIR_TYPE_TO_CTYPE = {
     bool_t: ctypes.c_bool,
@@ -122,7 +122,7 @@ def infer_mlir_type(
         else:
             return f64_t
     elif isinstance(py_val, np.ndarray):
-        dtype = NP_DTYPE_TO_MLIR_TYPE()[py_val.dtype.type]
+        dtype = NP_DTYPE_TO_MLIR_TYPE[py_val.dtype.type]
         return RankedTensorType.get(py_val.shape, dtype)
     else:
         raise NotImplementedError(

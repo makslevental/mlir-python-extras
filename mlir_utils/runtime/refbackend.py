@@ -1,130 +1,75 @@
 import ctypes
 import logging
 import os
-import sys
-import tempfile
 import warnings
-from contextlib import ExitStack
-from io import StringIO
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from mlir import _mlir_libs
+from mlir.dialects.func import FuncOp, CallOp
 from mlir.execution_engine import ExecutionEngine
-from mlir.ir import StringAttr, UnitAttr, Module
-from mlir.passmanager import PassManager
+from mlir.ir import UnitAttr, Module, MemRefType
 from mlir.runtime import (
     UnrankedMemRefDescriptor,
-    get_unranked_memref_descriptor,
     get_ranked_memref_descriptor,
     unranked_memref_to_numpy,
+    get_unranked_memref_descriptor,
 )
 
-from mlir_utils.runtime.passes import Pipeline
-from mlir_utils.types import MEMREF_TYPE_TO_NP_DTYPE, MLIR_TYPE_TO_CTYPE
-from mlir_utils.util import disable_multithreading, shlib_ext, find_ops
+from mlir_utils.dialects.memref import cast
+from mlir_utils.runtime.passes import Pipeline, run_pipeline
+from mlir_utils.types import (
+    MEMREF_TYPE_TO_NP_DTYPE,
+    MLIR_TYPE_TO_CTYPE,
+    memref_t,
+    NP_DTYPE_TO_MLIR_TYPE,
+)
+from mlir_utils.util import shlib_ext, find_ops, shlib_prefix
 
 logger = logging.getLogger(__name__)
 
-
 # adapted from https://github.com/llvm/torch-mlir/blob/main/python/torch_mlir_e2e_test/linalg_on_tensors_backends/refbackend.py
-
-
-def assert_arg_type_is_supported(ty):
-    SUPPORTED = [
-        np.float16,
-        np.float32,
-        np.float64,
-        np.uint8,
-        np.int8,
-        np.int32,
-        np.int64,
-        np.bool_,
-    ]
-    assert (
-        ty in SUPPORTED
-    ), f"Only numpy arrays with dtypes in {SUPPORTED} are supported, but got {ty}"
-
-
-class MlirCompilerError(Exception):
-    pass
-
-
-def get_module_name_for_debug_dump(module):
-    if "debug_module_name" not in module.operation.attributes:
-        return "UnnammedModule"
-    return StringAttr(module.operation.attributes["debug_module_name"]).value
-
-
-def run_pipeline(
-    module,
-    pipeline: str,
-    description: Optional[str] = None,
-    enable_ir_printing=False,
-    print_pipeline=False,
-):
-    """Runs `pipeline` on `module`, with a nice repro report if it fails."""
-    module_name = get_module_name_for_debug_dump(module)
-    try:
-        original_stderr = sys.stderr
-        sys.stderr = StringIO()
-        # Lower module in place to make it ready for compiler backends.
-        with ExitStack() as stack:
-            stack.enter_context(module.context)
-            asm_for_error_report = module.operation.get_asm(
-                large_elements_limit=10,
-                enable_debug_info=True,
-            )
-            pm = PassManager.parse(pipeline)
-            if print_pipeline:
-                print(pm)
-            if enable_ir_printing:
-                stack.enter_context(disable_multithreading())
-                pm.enable_ir_printing()
-
-            pm.run(module.operation)
-    except Exception as e:
-        print(e, file=sys.stderr)
-        filename = os.path.join(tempfile.gettempdir(), module_name + ".mlir")
-        with open(filename, "w") as f:
-            f.write(asm_for_error_report)
-        debug_options = "-mlir-print-ir-after-all -mlir-disable-threading"
-        description = description or f"{module_name} compile"
-
-        message = f"""\
-            {description} failed with the following diagnostics:
-
-            {'*' * 80}
-            {sys.stderr.getvalue().strip()}
-            {'*' * 80}
-
-            For developers, the error can be reproduced with:
-            $ mlir-opt {debug_options} -pass-pipeline='{pipeline}' {filename}
-            """
-        trimmed_message = "\n".join([m.lstrip() for m in message.split("\n")])
-        raise MlirCompilerError(trimmed_message)
-    finally:
-        sys.stderr = original_stderr
-
-    return module
 
 
 CONSUME_RETURN_CALLBACK_ATTR = "refbackend_consume_return_callback"
 refback_cb_attr = CONSUME_RETURN_CALLBACK_ATTR
 
+if ASYNC_RUNTIME_LIB_PATH := os.getenv("ASYNC_RUNTIME_LIB_PATH"):
+    ASYNC_RUNTIME_LIB_PATH = Path(ASYNC_RUNTIME_LIB_PATH)
+else:
+    ASYNC_RUNTIME_LIB_PATH = (
+        Path(_mlir_libs.__file__).parent
+        / f"{shlib_prefix()}mlir_async_runtime.{shlib_ext()}"
+    )
+if not ASYNC_RUNTIME_LIB_PATH.exists():
+    warnings.warn(f"{ASYNC_RUNTIME_LIB_PATH=} doesn't exist")
 
-def get_return_func(module):
-    with module.context:
-        for func in module.body:
-            if CONSUME_RETURN_CALLBACK_ATTR in func.attributes:
-                return func.operation
+if C_RUNNER_UTILS_LIB_PATH := os.getenv("C_RUNNER_UTILS_LIB_PATH"):
+    C_RUNNER_UTILS_LIB_PATH = Path(C_RUNNER_UTILS_LIB_PATH)
+else:
+    C_RUNNER_UTILS_LIB_PATH = (
+        Path(_mlir_libs.__file__).parent
+        / f"{shlib_prefix()}mlir_c_runner_utils.{shlib_ext()}"
+    )
+
+if not C_RUNNER_UTILS_LIB_PATH.exists():
+    warnings.warn(f"{C_RUNNER_UTILS_LIB_PATH=} doesn't exist")
+
+if RUNNER_UTILS_LIB_PATH := os.getenv("RUNNER_UTILS_LIB_PATH"):
+    RUNNER_UTILS_LIB_PATH = Path(RUNNER_UTILS_LIB_PATH)
+else:
+    RUNNER_UTILS_LIB_PATH = (
+        Path(_mlir_libs.__file__).parent
+        / f"{shlib_prefix()}mlir_runner_utils.{shlib_ext()}"
+    )
+if not RUNNER_UTILS_LIB_PATH.exists():
+    warnings.warn(f"{RUNNER_UTILS_LIB_PATH=} doesn't exist")
 
 
-def get_ctype_func(ret_types):
+def get_ctype_func(mlir_ret_types):
     ctypes_arg = [None]
     legal_ret_types = []
-    for type in ret_types:
+    for type in mlir_ret_types:
         if type in MLIR_TYPE_TO_CTYPE:
             ctypes_arg.append(MLIR_TYPE_TO_CTYPE[type])
             legal_ret_types.append(type)
@@ -132,12 +77,33 @@ def get_ctype_func(ret_types):
             ctypes_arg.append(ctypes.POINTER(UnrankedMemRefDescriptor))
             legal_ret_types.append(type)
         else:
-            warnings.warn(f"Not supported type for callback return: {type=}")
+            raise ValueError(f"Not supported type for callback return: {type=}")
 
     return ctypes.CFUNCTYPE(*ctypes_arg), legal_ret_types
 
 
-def convert_returns(args, mlir_types):
+# https://stackoverflow.com/a/68198336/9045206
+CData = ctypes._SimpleCData.__mro__[-2]
+
+
+def convert_arg_to_ctype(arg, unranked=True):
+    if isinstance(arg, CData) or isinstance(arg, (int, float, bool)):
+        return arg
+    elif isinstance(arg, np.ndarray):
+        assert (
+            arg.dtype.type in NP_DTYPE_TO_MLIR_TYPE
+        ), f"unsupported numpy array type {arg.dtype}"
+        if unranked:
+            return ctypes.pointer(ctypes.pointer(get_unranked_memref_descriptor(arg)))
+        else:
+            return ctypes.pointer(
+                # TODO(max): sometimes these need to be unranked memref descriptors
+                ctypes.pointer(get_ranked_memref_descriptor(arg))
+            )
+    raise ValueError(f"unsupported {arg=} for conversion to ctype")
+
+
+def convert_returns_from_ctype(args, mlir_types):
     return tuple(
         arg
         if type in MLIR_TYPE_TO_CTYPE
@@ -146,13 +112,7 @@ def convert_returns(args, mlir_types):
     )
 
 
-# https://stackoverflow.com/a/68198336/9045206
-CData = ctypes._SimpleCData.__mro__[-2]
-
-
 class LLVMJITBackendInvoker:
-    return_func: bool
-
     def __init__(
         self,
         module,
@@ -174,11 +134,10 @@ class LLVMJITBackendInvoker:
             ), f"must provide return func name when providing return func types"
             ctype_wrapper, ret_types = get_ctype_func(return_func_types)
             self.ret_types = ret_types
-            self.return_func = True
             if consume_return_callback is None:
 
                 def consume_return_callback(*args):
-                    self.results = convert_returns(args, self.ret_types)
+                    self.results = convert_returns_from_ctype(args, self.ret_types)
 
             self.ee.register_runtime(
                 return_func_name,
@@ -186,59 +145,51 @@ class LLVMJITBackendInvoker:
             )
 
     def __getattr__(self, function_name: str):
-        _get = super().__getattribute__
-
         def invoke(*args):
-            ffi_args = []
-            for arg in args:
-                if isinstance(arg, CData):
-                    ffi_args.append(arg)
-                else:
-                    assert_arg_type_is_supported(arg.dtype)
-                    ffi_args.append(
-                        ctypes.pointer(
-                            # TODO(max): this is a hack to handle refbackend
-                            # in principle this has nothing to do with anything
-                            # refbackend related
-                            ctypes.pointer(get_unranked_memref_descriptor(arg))
-                            if _get("return_func")
-                            else ctypes.pointer(get_ranked_memref_descriptor(arg))
-                        )
-                    )
-
-            self.ee.invoke(function_name, *ffi_args)
+            self.ee.invoke(
+                function_name, *[convert_arg_to_ctype(a, unranked=False) for a in args]
+            )
             return self.results
 
         return invoke
 
 
-if ASYNC_RUNTIME_LIB_PATH := os.getenv("ASYNC_RUNTIME_LIB_PATH"):
-    ASYNC_RUNTIME_LIB_PATH = Path(ASYNC_RUNTIME_LIB_PATH)
-else:
-    ASYNC_RUNTIME_LIB_PATH = (
-        Path(_mlir_libs.__file__).parent / f"libmlir_async_runtime.{shlib_ext()}"
+def make_return_consumer(kernel_func):
+    c_api_compatible_types = [
+        memref_t(element_type=t.element_type) if MemRefType.isinstance(t) else t
+        for t in kernel_func.function_type.value.results
+    ]
+    cb = FuncOp(
+        f"{kernel_func.name.value}_return_consumer",
+        (c_api_compatible_types, []),
+        visibility="private",
     )
-if not ASYNC_RUNTIME_LIB_PATH.exists():
-    warnings.warn(f"{ASYNC_RUNTIME_LIB_PATH=} doesn't exist")
+    cb.attributes["llvm.emit_c_interface"] = UnitAttr.get()
+    cb.attributes[refback_cb_attr] = UnitAttr.get()
+    return cb
 
-if C_RUNNER_UTILS_LIB_PATH := os.getenv("C_RUNNER_UTILS_LIB_PATH"):
-    C_RUNNER_UTILS_LIB_PATH = Path(C_RUNNER_UTILS_LIB_PATH)
-else:
-    C_RUNNER_UTILS_LIB_PATH = (
-        Path(_mlir_libs.__file__).parent / f"libmlir_c_runner_utils.{shlib_ext()}"
-    )
 
-if not C_RUNNER_UTILS_LIB_PATH.exists():
-    warnings.warn(f"{C_RUNNER_UTILS_LIB_PATH=} doesn't exist")
+def make_kernel_wrapper(kernel_func, return_consumer=None):
+    c_api_compatible_types = [
+        memref_t(element_type=t.element_type) if MemRefType.isinstance(t) else t
+        for t in kernel_func.function_type.value.results
+    ]
 
-if RUNNER_UTILS_LIB_PATH := os.getenv("RUNNER_UTILS_LIB_PATH"):
-    RUNNER_UTILS_LIB_PATH = Path(RUNNER_UTILS_LIB_PATH)
-else:
-    RUNNER_UTILS_LIB_PATH = (
-        Path(_mlir_libs.__file__).parent / f"libmlir_runner_utils.{shlib_ext()}"
-    )
-if not RUNNER_UTILS_LIB_PATH.exists():
-    warnings.warn(f"{RUNNER_UTILS_LIB_PATH=} doesn't exist")
+    input_types = kernel_func.function_type.value.inputs
+
+    @FuncOp.from_py_func(*input_types, name=f"{kernel_func.name.value}_capi_wrapper")
+    def wrapper(*args, **_kwargs):
+        results = CallOp(kernel_func, list(args)).results
+        c_api_compatible_results = []
+        for i, a in enumerate(results):
+            if MemRefType.isinstance(a.type):
+                a = cast(c_api_compatible_types[i], a)
+            c_api_compatible_results.append(a)
+        if return_consumer is not None:
+            CallOp(return_consumer, c_api_compatible_results)
+
+    wrapper_func_op = wrapper.func_op
+    wrapper_func_op.attributes["llvm.emit_c_interface"] = UnitAttr.get()
 
 
 class LLVMJITBackend:
@@ -258,35 +209,57 @@ class LLVMJITBackend:
         self.return_func_types = None
         self.return_func_name = None
 
-    def compile(
+    def generate_c_api(
         self,
-        module: Module,
-        pipeline: str | Pipeline,
+        module,
         kernel_name="main",
-        enable_ir_printing=False,
+        generate_kernel_wrapper=True,
+        generate_return_consumer=True,
     ):
-        pipeline = str(pipeline)
-
         def cb(op):
             try:
                 return kernel_name == op.sym_name.value
             except:
                 return False
 
-        needs_cface = "to-llvm" in pipeline
+        kernel_func = find_ops(module.operation, cb, single=True)
 
-        if needs_cface:
-            kernel_func = find_ops(module.operation, cb)
-            assert len(kernel_func) == 1, f"kernel func {kernel_name} not found"
-            kernel_func[0].attributes["llvm.emit_c_interface"] = UnitAttr.get()
+        if generate_return_consumer:
+            return_consumer = make_return_consumer(kernel_func)
+        else:
 
-        return_func = get_return_func(module)
-        if return_func:
-            self.return_func_name = return_func.attributes["sym_name"].value
-            # this is confusing but it's because the callback takes as operands the return values it's going to consume
+            def find_return_consumer(module):
+                for func in module.body:
+                    if CONSUME_RETURN_CALLBACK_ATTR in func.attributes:
+                        return func.operation
+
+            return_consumer = find_return_consumer(module)
+
+        kernel_func.attributes["llvm.emit_c_interface"] = UnitAttr.get()
+        if generate_kernel_wrapper:
+            make_kernel_wrapper(kernel_func, return_consumer)
+
+        if return_consumer:
+            self.return_func_name = return_consumer.attributes["sym_name"].value
+            # this is confusing, but it's because the callback takes as operands the return values it's going to consume
             self.return_func_types = [
-                i for i in return_func.attributes["function_type"].value.inputs
+                i for i in return_consumer.attributes["function_type"].value.inputs
             ]
+
+    def compile(
+        self,
+        module: Module,
+        pipeline: str | Pipeline,
+        kernel_name="main",
+        enable_ir_printing=False,
+        generate_kernel_wrapper=True,
+        generate_return_consumer=True,
+    ):
+        pipeline = str(pipeline)
+        if "to-llvm" in pipeline or generate_kernel_wrapper:
+            self.generate_c_api(
+                module, kernel_name, generate_kernel_wrapper, generate_return_consumer
+            )
 
         return run_pipeline(
             module,

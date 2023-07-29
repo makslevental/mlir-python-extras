@@ -135,12 +135,15 @@ class Tensor(ArithValue):
         if not self.has_rank():
             raise ValueError("only ranked tensor slicing/indexing supported")
 
+        if idx is None:
+            return expand_dims(self, (0,))
         if idx == Ellipsis or idx == slice(None):
             return self
         if isinstance(idx, tuple) and all(i == slice(None) for i in idx):
             return self
-        if idx is None:
-            return expand_dims(self, (0,))
+        if isinstance(idx, tuple) and all(i == slice(None) or i is None for i in idx):
+            nones = [i for i, n in enumerate(idx) if n is None]
+            return expand_dims(self, nones)
 
         idx = list((idx,) if isinstance(idx, int) else idx)
         for i, d in enumerate(idx):
@@ -215,6 +218,13 @@ class _Indexer:
 
     def is_constant(self):
         return all(_is_constant_index(i) for i in self.indices)
+
+    def is_full(self):
+        return all(
+            isinstance(idx, slice)
+            and len(range(*idx.indices(self.in_shape[i]))) == self.in_shape[i]
+            for i, idx in enumerate(self.indices)
+        )
 
     # waiting on hashable slices in 3.12 https://stackoverflow.com/a/76562346
     # @lru_cache(maxsize=1)
@@ -505,7 +515,9 @@ def _extract_slice(
     indexer = _indices_to_indexer(idx, ten.shape)
     out = ten
 
-    if indexer.is_constant():
+    if indexer.is_full():
+        out = out
+    elif indexer.is_constant():
         out = extract_slice(
             out,
             static_offsets=indexer.static_offsets(),

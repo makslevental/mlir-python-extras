@@ -1,8 +1,80 @@
-from __future__ import annotations
-
 import logging
+import os
+import sys
+import tempfile
+from contextlib import ExitStack
+from io import StringIO
+from typing import Optional
+
+from mlir.ir import StringAttr
+from mlir.passmanager import PassManager
+
+from mlir_utils.util import disable_multithreading
 
 logger = logging.getLogger(__name__)
+
+
+class MlirCompilerError(Exception):
+    pass
+
+
+def get_module_name_for_debug_dump(module):
+    if "debug_module_name" not in module.operation.attributes:
+        return "UnnammedModule"
+    return StringAttr(module.operation.attributes["debug_module_name"]).value
+
+
+def run_pipeline(
+    module,
+    pipeline: str,
+    description: Optional[str] = None,
+    enable_ir_printing=False,
+    print_pipeline=False,
+):
+    """Runs `pipeline` on `module`, with a nice repro report if it fails."""
+    module_name = get_module_name_for_debug_dump(module)
+    try:
+        original_stderr = sys.stderr
+        sys.stderr = StringIO()
+        # Lower module in place to make it ready for compiler backends.
+        with ExitStack() as stack:
+            stack.enter_context(module.context)
+            asm_for_error_report = module.operation.get_asm(
+                large_elements_limit=10,
+                enable_debug_info=True,
+            )
+            pm = PassManager.parse(pipeline)
+            if print_pipeline:
+                print(pm)
+            if enable_ir_printing:
+                stack.enter_context(disable_multithreading())
+                pm.enable_ir_printing()
+
+            pm.run(module.operation)
+    except Exception as e:
+        print(e, file=sys.stderr)
+        filename = os.path.join(tempfile.gettempdir(), module_name + ".mlir")
+        with open(filename, "w") as f:
+            f.write(asm_for_error_report)
+        debug_options = "-mlir-print-ir-after-all -mlir-disable-threading"
+        description = description or f"{module_name} compile"
+
+        message = f"""\
+            {description} failed with the following diagnostics:
+
+            {'*' * 80}
+            {sys.stderr.getvalue().strip()}
+            {'*' * 80}
+
+            For developers, the error can be reproduced with:
+            $ mlir-opt {debug_options} -pass-pipeline='{pipeline}' {filename}
+            """
+        trimmed_message = "\n".join([m.lstrip() for m in message.split("\n")])
+        raise MlirCompilerError(trimmed_message)
+    finally:
+        sys.stderr = original_stderr
+
+    return module
 
 
 class Pipeline:
@@ -13,17 +85,17 @@ class Pipeline:
             pipeline = []
         self._pipeline = pipeline
 
-    def Func(self, p: Pipeline):
+    def Func(self, p: "Pipeline"):
         assert isinstance(p, Pipeline)
         self._pipeline.append(f"func.func({p.materialize(module=False)})")
         return self
 
-    def Spirv(self, p: Pipeline):
+    def Spirv(self, p: "Pipeline"):
         assert isinstance(p, Pipeline)
         self._pipeline.append(f"spirv.module({p.materialize(module=False)})")
         return self
 
-    def Gpu(self, p: Pipeline):
+    def Gpu(self, p: "Pipeline"):
         assert isinstance(p, Pipeline)
         self._pipeline.append(f"gpu.module({p.materialize(module=False)})")
         return self
@@ -38,13 +110,6 @@ class Pipeline:
     def __str__(self):
         return self.materialize()
 
-    def __add__(self, other: Pipeline):
-        return Pipeline(self._pipeline + other._pipeline)
-
-    def __iadd__(self, other: Pipeline):
-        self._pipeline += other._pipeline
-        return self
-
     def add_pass(self, pass_name, **kwargs):
         kwargs = {
             k.replace("_", "-"): int(v) if isinstance(v, bool) else v
@@ -57,6 +122,7 @@ class Pipeline:
         else:
             pass_str = f"{pass_name}"
         self._pipeline.append(pass_str)
+        return self
 
     def lower_to_llvm_(self):
         return any(["to-llvm" in p for p in self._pipeline])

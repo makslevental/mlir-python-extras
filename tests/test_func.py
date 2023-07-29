@@ -8,7 +8,7 @@ from mlir_utils.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import i64_t
+from mlir_utils.types import i32_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -45,19 +45,19 @@ def test_declare_byte_rep(ctx: MLIRContext):
 
 def test_declare(ctx: MLIRContext):
     @func
-    def demo_fun1() -> i64_t:
+    def demo_fun1() -> i32_t:
         ...
 
     @func
-    def demo_fun2() -> (i64_t, i64_t):
+    def demo_fun2() -> (i32_t, i32_t):
         ...
 
     @func
-    def demo_fun3(x: i64_t) -> (i64_t, i64_t):
+    def demo_fun3(x: i32_t) -> (i32_t, i32_t):
         ...
 
     @func
-    def demo_fun4(x: i64_t, y: i64_t) -> (i64_t, i64_t):
+    def demo_fun4(x: i32_t, y: i32_t) -> (i32_t, i32_t):
         ...
 
     demo_fun1()
@@ -70,15 +70,15 @@ def test_declare(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      func.func private @demo_fun1() -> i64
-      func.func private @demo_fun2() -> (i64, i64)
-      func.func private @demo_fun3(i64) -> (i64, i64)
-      func.func private @demo_fun4(i64, i64) -> (i64, i64)
-      %0 = func.call @demo_fun1() : () -> i64
-      %1:2 = func.call @demo_fun2() : () -> (i64, i64)
-      %c1_i64 = arith.constant 1 : i64
-      %2:2 = func.call @demo_fun3(%c1_i64) : (i64) -> (i64, i64)
-      %3:2 = func.call @demo_fun4(%c1_i64, %c1_i64) : (i64, i64) -> (i64, i64)
+      func.func private @demo_fun1() -> i32
+      func.func private @demo_fun2() -> (i32, i32)
+      func.func private @demo_fun3(i32) -> (i32, i32)
+      func.func private @demo_fun4(i32, i32) -> (i32, i32)
+      %0 = func.call @demo_fun1() : () -> i32
+      %1:2 = func.call @demo_fun2() : () -> (i32, i32)
+      %c1_i32 = arith.constant 1 : i32
+      %2:2 = func.call @demo_fun3(%c1_i32) : (i32) -> (i32, i32)
+      %3:2 = func.call @demo_fun4(%c1_i32, %c1_i32) : (i32, i32) -> (i32, i32)
     }
     """
     )

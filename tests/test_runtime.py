@@ -5,7 +5,7 @@ from textwrap import dedent
 import numpy as np
 import pytest
 from mlir.ir import UnitAttr
-from mlir.runtime import get_unranked_memref_descriptor
+from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
 from mlir_utils.ast.canonicalize import canonicalize
 from mlir_utils.dialects.ext.arith import constant
@@ -18,21 +18,17 @@ from mlir_utils.dialects.memref import cast
 from mlir_utils.runtime.passes import Pipeline
 from mlir_utils.runtime.refbackend import (
     LLVMJITBackend,
-    convert_returns,
+    convert_returns_from_ctype,
     refback_cb_attr,
 )
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext, backend
 from mlir_utils.types import memref_t, f32_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
-
-
-@pytest.fixture
-def backend() -> LLVMJITBackend:
-    return LLVMJITBackend()
+pytest.mark.usefixtures("backend")
 
 
 def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
@@ -55,6 +51,8 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
         ctx.module,
         kernel_name="foo",
         pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=False,
+        generate_return_consumer=False,
     )
     correct = dedent(
         """\
@@ -133,9 +131,6 @@ def test_munge_calling_conventions(ctx: MLIRContext, backend: LLVMJITBackend, ca
     """
     )
     filecheck(correct, ctx.module)
-    # memory leak because the callbacks are being held by the execution engine
-    # manifests as "cannot create detached operation that already exists"
-    ctx.context._clear_live_operations()
 
 
 def test_munge_calling_conventions_setup(
@@ -175,7 +170,7 @@ def test_munge_calling_conventions_setup(
         if not len(args):
             print("FAIL")
             return
-        results = convert_returns(args, invoker.ret_types)
+        results = convert_returns_from_ctype(args, invoker.ret_types)
         if not np.array_equal(results[0], A):
             print("FAIL")
         else:
@@ -185,15 +180,13 @@ def test_munge_calling_conventions_setup(
         ctx.module,
         kernel_name="foo_wrapper",
         pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=False,
+        generate_return_consumer=False,
     )
     invoker = backend.load(module, consume_return_callback=callback)
     invoker.foo_wrapper(AA)
     out, err = capfd.readouterr()
     assert out.strip() == "SUCCESS"
-
-    # memory leak because the callbacks are being held by the execution engine
-    # manifests as "cannot create detached operation that already exists"
-    ctx.context._clear_live_operations()
 
 
 def test_munge_calling_conventions_setup_mutate(
@@ -263,7 +256,7 @@ def test_munge_calling_conventions_setup_mutate(
         if not len(args):
             print("FAIL")
             return
-        results = convert_returns(args, invoker.ret_types)
+        results = convert_returns_from_ctype(args, invoker.ret_types)
         A[0, 0] = 2
         if not np.array_equal(results[0], A):
             print("FAIL")
@@ -274,12 +267,11 @@ def test_munge_calling_conventions_setup_mutate(
         ctx.module,
         kernel_name="foo_wrapper",
         pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=False,
+        generate_return_consumer=False,
     )
     invoker = backend.load(module, consume_return_callback=callback)
     invoker.foo_wrapper(AA)
-    # memory leak because the callbacks are being held by the execution engine
-    # manifests as "cannot create detached operation that already exists"
-    ctx.context._clear_live_operations()
 
 
 def test_munge_calling_conventions_setup_auto_cb(
@@ -349,12 +341,136 @@ def test_munge_calling_conventions_setup_auto_cb(
         ctx.module,
         kernel_name="foo_wrapper",
         pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=False,
+        generate_return_consumer=False,
     )
     invoker = backend.load(module)
     results = invoker.foo_wrapper(AA)
     A[0, 0] = 2
     assert np.array_equal(results[0], A)
 
-    # memory leak because the callbacks are being held by the execution engine
-    # manifests as "cannot create detached operation that already exists"
-    ctx.context._clear_live_operations()
+
+def test_munge_calling_conventions_setup_auto_cb_auto_wrapper(
+    ctx: MLIRContext, backend: LLVMJITBackend, capfd
+):
+    ranked_memref_4x4_f32_t = memref_t(4, 4, f32_t)
+
+    @func
+    def foo(x: ranked_memref_4x4_f32_t):
+        el = load(x, (0, 0))
+        el = el * constant(2.0, f32_t)
+        store(el, x, (0, 0))
+        return x
+
+    foo.emit()
+
+    module = backend.compile(
+        ctx.module,
+        kernel_name="foo",
+        pipeline=Pipeline(),
+        generate_kernel_wrapper=True,
+        generate_return_consumer=True,
+    )
+    module.operation.verify()
+
+    correct = dedent(
+        """\
+    module {
+      func.func @foo(%arg0: memref<4x4xf32>) -> memref<4x4xf32> attributes {llvm.emit_c_interface} {
+        %c0 = arith.constant 0 : index
+        %c0_0 = arith.constant 0 : index
+        %0 = memref.load %arg0[%c0, %c0_0] : memref<4x4xf32>
+        %cst = arith.constant 2.000000e+00 : f32
+        %1 = arith.mulf %0, %cst : f32
+        %c0_1 = arith.constant 0 : index
+        %c0_2 = arith.constant 0 : index
+        memref.store %1, %arg0[%c0_1, %c0_2] : memref<4x4xf32>
+        return %arg0 : memref<4x4xf32>
+      }
+      func.func private @foo_return_consumer(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
+      func.func @foo_capi_wrapper(%arg0: memref<4x4xf32>) attributes {llvm.emit_c_interface} {
+        %0 = call @foo(%arg0) : (memref<4x4xf32>) -> memref<4x4xf32>
+        %cast_0 = memref.cast %0 : memref<4x4xf32> to memref<*xf32>
+        call @foo_return_consumer(%cast_0) : (memref<*xf32>) -> ()
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, module)
+
+
+def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run(
+    ctx: MLIRContext, backend: LLVMJITBackend, capfd
+):
+    ranked_memref_4x4_f32_t = memref_t(4, 4, f32_t)
+
+    @func
+    def foo(x: ranked_memref_4x4_f32_t):
+        el = load(x, (0, 0))
+        el = el * constant(2.0, f32_t)
+        store(el, x, (0, 0))
+        return x
+
+    foo.emit()
+
+    module = backend.compile(
+        ctx.module,
+        kernel_name="foo",
+        pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=True,
+        generate_return_consumer=True,
+    )
+    invoker = backend.load(module)
+    A = np.ones((4, 4)).astype(np.float32)
+    AA = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(A)))
+
+    results = invoker.foo_capi_wrapper(AA)
+    A[0, 0] = 2
+    assert np.array_equal(results[0], A)
+
+
+def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run_cast_np_array(
+    ctx: MLIRContext, backend: LLVMJITBackend, capfd
+):
+    ranked_memref_4x4_f32_t = memref_t(4, 4, f32_t)
+    unranked_memref_f32_t = memref_t(element_type=f32_t)
+
+    @func
+    def printMemrefF32(x: unranked_memref_f32_t):
+        ...
+
+    @func
+    def foo(x: ranked_memref_4x4_f32_t):
+        el = load(x, (0, 0))
+        el = el * constant(2.0, f32_t)
+        store(el, x, (0, 0))
+        y = cast(unranked_memref_f32_t, x)
+        printMemrefF32(y)
+        return
+
+    foo.emit()
+
+    module = backend.compile(
+        ctx.module,
+        kernel_name="foo",
+        pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=False,
+        generate_return_consumer=False,
+    )
+    print(module)
+    invoker = backend.load(module)
+    A = np.ones((4, 4)).astype(np.float32)
+    invoker.foo(A)
+
+    correct = dedent(
+        """\
+    Unranked Memref base@ =  rank = 2 offset = 0 sizes = [4, 4] strides = [4, 1] data = 
+    [[2,   1,   1,   1], 
+     [1,   1,   1,   1], 
+     [1,   1,   1,   1], 
+     [1,   1,   1,   1]]
+    """
+    )
+    out, err = capfd.readouterr()
+    filecheck(correct, re.sub(r"0x\w+", "", out))

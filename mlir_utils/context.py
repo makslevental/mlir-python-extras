@@ -39,3 +39,4 @@ def mlir_mod_ctx(
         ip = mlir.ir.InsertionPoint(module.body)
         stack.enter_context(ip)
         yield MLIRContext(context, module)
+    context._clear_live_operations()
