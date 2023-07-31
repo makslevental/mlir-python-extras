@@ -13,6 +13,7 @@ from mlir_utils.dialects.ext.func import func
 from mlir_utils.dialects.ext.memref import load, store
 from mlir_utils.dialects.ext.scf import (
     canonicalizer,
+    range_,
 )
 from mlir_utils.dialects.memref import cast
 from mlir_utils.runtime.passes import Pipeline
@@ -458,7 +459,6 @@ def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run_cast_np_array(
         generate_kernel_wrapper=False,
         generate_return_consumer=False,
     )
-    print(module)
     invoker = backend.load(module)
     A = np.ones((4, 4)).astype(np.float32)
     invoker.foo(A)
@@ -474,3 +474,70 @@ def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run_cast_np_array(
     )
     out, err = capfd.readouterr()
     filecheck(correct, re.sub(r"0x\w+", "", out))
+
+
+def test_matmul(ctx: MLIRContext, backend: LLVMJITBackend):
+    M, N, K = 4, 16, 8
+
+    @func
+    @canonicalize(using=canonicalizer)
+    def matmul(
+        A: memref_t(M, N, f32_t),
+        B: memref_t(N, K, f32_t),
+        C: memref_t(M, K, f32_t),
+    ):
+        for i in range_(0, M):
+            for j in range_(0, N):
+                for k in range_(0, K):
+                    C[i, k] += A[i, j] * B[j, k]
+                    yield
+                yield
+            yield
+
+    matmul.emit()
+
+    correct = dedent(
+        """\
+    module {
+      func.func @matmul(%arg0: memref<4x16xf32>, %arg1: memref<16x8xf32>, %arg2: memref<4x8xf32>) {
+        %c0 = arith.constant 0 : index
+        %c4 = arith.constant 4 : index
+        %c1 = arith.constant 1 : index
+        scf.for %arg3 = %c0 to %c4 step %c1 {
+          %c0_0 = arith.constant 0 : index
+          %c16 = arith.constant 16 : index
+          %c1_1 = arith.constant 1 : index
+          scf.for %arg4 = %c0_0 to %c16 step %c1_1 {
+            %c0_2 = arith.constant 0 : index
+            %c8 = arith.constant 8 : index
+            %c1_3 = arith.constant 1 : index
+            scf.for %arg5 = %c0_2 to %c8 step %c1_3 {
+              %0 = memref.load %arg2[%arg3, %arg5] : memref<4x8xf32>
+              %1 = memref.load %arg0[%arg3, %arg4] : memref<4x16xf32>
+              %2 = memref.load %arg1[%arg4, %arg5] : memref<16x8xf32>
+              %3 = arith.mulf %1, %2 : f32
+              %4 = arith.addf %0, %3 : f32
+              memref.store %4, %arg2[%arg3, %arg5] : memref<4x8xf32>
+            }
+          }
+        }
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    module = backend.compile(
+        ctx.module,
+        kernel_name="matmul",
+        pipeline=Pipeline().bufferize().lower_to_llvm(),
+        generate_kernel_wrapper=False,
+        generate_return_consumer=False,
+    )
+
+    A = np.random.randn(M, N).astype(np.float32)
+    B = np.random.randn(N, K).astype(np.float32)
+    C = np.zeros((M, K)).astype(np.float32)
+    backend.load(module).matmul(A, B, C)
+    assert np.allclose(A @ B, C)
