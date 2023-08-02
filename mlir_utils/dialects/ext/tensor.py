@@ -140,7 +140,7 @@ class Tensor(ArithValue):
         if isinstance(idx, tuple) and all(i == slice(None) for i in idx):
             return self
         if idx is None:
-            return _expand_dims(self, (0,))
+            return expand_dims(self, (0,))
 
         idx = list((idx,) if isinstance(idx, int) else idx)
         for i, d in enumerate(idx):
@@ -198,8 +198,10 @@ class Tensor(ArithValue):
             if isinstance(other, (int, float)):
                 other = Tensor(np.full(self.shape, other), dtype=self.dtype)
                 return self, other
-            elif _is_scalar(other):
-                other = tensor.splat(self.type, other)
+            elif isinstance(other, Scalar):
+                other = tensor.splat(
+                    RankedTensorType.get(self.shape, other.dtype), other
+                )
                 return self, other
 
         raise ValueError(f"can't coerce unknown {other=}")
@@ -256,7 +258,7 @@ class _Indexer:
         return tuple(strides)
 
 
-def _expand_dims(inp, newaxis_dims) -> Tensor:
+def expand_dims(inp, newaxis_dims) -> Tensor:
     """Expand the shape of a tensor.
 
     Insert a new axis that will appear at the `axis` position in the expanded
@@ -514,7 +516,7 @@ def _extract_slice(
         raise ValueError(f"non-constant indices not supported {indexer}")
 
     # This adds newaxis/None dimensions.
-    return _expand_dims(out, indexer.newaxis_dims)
+    return expand_dims(out, indexer.newaxis_dims)
 
 
 def _insert_slice(
@@ -523,7 +525,7 @@ def _insert_slice(
     idx,
 ):
     if isinstance(source, Scalar):
-        source = _expand_dims(source, (0,))
+        source = expand_dims(source, (0,))
 
     indexer = _indices_to_indexer(idx, dest.shape)
 

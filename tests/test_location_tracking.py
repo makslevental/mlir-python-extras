@@ -29,13 +29,13 @@ def get_asm(operation):
 def test_if_replace_yield_5(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
+        one = constant(1.0, T.f32_t)
+        two = constant(2.0, T.f32_t)
         if one < two:
-            three = constant(3.0)
+            three = constant(3.0, T.f32_t)
             res1, res2, res3 = yield three, three, three
         else:
-            four = constant(4.0)
+            four = constant(4.0, T.f32_t)
             res1, res2, res3 = yield four, four, four
         return
 
@@ -44,15 +44,15 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     correct = dedent(
         r"""
 module {
-  %cst = arith.constant 1.000000e+00 : f64 THIS_DIR/test_location_tracking.py:32:10
-  %cst_0 = arith.constant 2.000000e+00 : f64 THIS_DIR/test_location_tracking.py:33:10
-  %0 = arith.cmpf olt, %cst, %cst_0 : f64 THIS_DIR/test_location_tracking.py:34:7
-  %1:3 = scf.if %0 -> (f64, f64, f64) {
-    %cst_1 = arith.constant 3.000000e+00 : f64 THIS_DIR/test_location_tracking.py:35:16
-    scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64 THIS_DIR/test_location_tracking.py:36:27
+  %cst = arith.constant 1.000000e+00 : f32 THIS_DIR/test_location_tracking.py:32:10
+  %cst_0 = arith.constant 2.000000e+00 : f32 THIS_DIR/test_location_tracking.py:33:10
+  %0 = arith.cmpf olt, %cst, %cst_0 : f32 THIS_DIR/test_location_tracking.py:34:7
+  %1:3 = scf.if %0 -> (f32, f32, f32) {
+    %cst_1 = arith.constant 3.000000e+00 : f32 THIS_DIR/test_location_tracking.py:35:16
+    scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:36:27
   } else {
-    %cst_1 = arith.constant 4.000000e+00 : f64 THIS_DIR/test_location_tracking.py:38:15
-    scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64 THIS_DIR/test_location_tracking.py:39:27
+    %cst_1 = arith.constant 4.000000e+00 : f32 THIS_DIR/test_location_tracking.py:38:15
+    scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:39:27
   } THIS_DIR/test_location_tracking.py:34:4
 } [unknown]
 #loc = [unknown]
@@ -74,7 +74,7 @@ def test_block_args(ctx: MLIRContext):
     one = constant(1, T.index_t)
     two = constant(2, T.index_t)
 
-    @generate(T.tensor_t(S, 3, S, T.f64_t), dynamic_extents=[one, two])
+    @generate(T.tensor_t(S, 3, S, T.f32_t), dynamic_extents=[one, two])
     def demo_fun1(i: T.index_t, j: T.index_t, k: T.index_t):
         one = constant(1.0)
         tensor_yield(one)
@@ -91,10 +91,10 @@ module {
   %c2 = arith.constant 2 : index THIS_DIR/test_location_tracking.py:75:10
   %generated = tensor.generate %c1, %c2 {
   ^bb0(%arg0: index THIS_DIR/test_location_tracking.py:77:5, %arg1: index THIS_DIR/test_location_tracking.py:77:5, %arg2: index THIS_DIR/test_location_tracking.py:77:5):
-    %cst = arith.constant 1.000000e+00 : f64 THIS_DIR/test_location_tracking.py:79:14
-    tensor.yield %cst : f64 THIS_DIR/test_location_tracking.py:80:8
-  } : tensor<?x3x?xf64> THIS_DIR/test_location_tracking.py:77:5
-  %rank = tensor.rank %generated : tensor<?x3x?xf64> THIS_DIR/test_location_tracking.py:82:8
+    %cst = arith.constant 1.000000e+00 : f32 THIS_DIR/test_location_tracking.py:79:14
+    tensor.yield %cst : f32 THIS_DIR/test_location_tracking.py:80:8
+  } : tensor<?x3x?xf32> THIS_DIR/test_location_tracking.py:77:5
+  %rank = tensor.rank %generated : tensor<?x3x?xf32> THIS_DIR/test_location_tracking.py:82:8
 } [unknown]
 #loc = [unknown]
 #loc1 = THIS_DIR/test_location_tracking.py:74:10
