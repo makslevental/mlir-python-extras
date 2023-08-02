@@ -6,6 +6,7 @@ from typing import Optional, Sequence
 import libcst as cst
 import libcst.matchers as m
 from bytecode import ConcreteBytecode, ConcreteInstr
+from mlir.dialects.linalg.opdsl.lang.emitter import _is_index_type
 from mlir.dialects.scf import IfOp, ForOp
 from mlir.ir import InsertionPoint, Value, OpResultList, OpResult
 
@@ -16,7 +17,7 @@ from mlir_utils.ast.canonicalize import (
     OpCode,
 )
 from mlir_utils.ast.util import ast_call
-from mlir_utils.dialects.ext.arith import constant
+from mlir_utils.dialects.ext.arith import constant, index_cast
 from mlir_utils.dialects.scf import yield_ as yield__
 from mlir_utils.types import opaque_t
 from mlir_utils.util import (
@@ -44,15 +45,17 @@ def _for(
     if stop is None:
         stop = start
         start = 0
-    if isinstance(start, int):
-        start = constant(start, index=True)
-    if isinstance(stop, int):
-        stop = constant(stop, index=True)
-    if isinstance(step, int):
-        step = constant(step, index=True)
+    params = [start, stop, step]
+    for i, p in enumerate(params):
+        if isinstance(p, int):
+            p = constant(p, index=True)
+        if not _is_index_type(p.type):
+            p = index_cast(p)
+        params[i] = p
+
     if loc is None:
         loc = get_user_code_loc()
-    return ForOp(start, stop, step, iter_args, loc=loc, ip=ip)
+    return ForOp(*params, iter_args, loc=loc, ip=ip)
 
 
 for_ = region_op(_for, terminator=yield__)

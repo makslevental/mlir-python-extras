@@ -4,19 +4,24 @@ from typing import Union
 import numpy as np
 from mlir.ir import (
     Attribute,
+    BF16Type,
+    ComplexType,
     F16Type,
     F32Type,
     F64Type,
+    Float8E5M2Type,
+    Float8E4M3FNType,
+    Float8E4M3B11FNUZType,
     IndexType,
     IntegerType,
     MemRefType,
+    NoneType,
+    OpaqueType,
     RankedTensorType,
     Type,
     UnrankedMemRefType,
     UnrankedTensorType,
     VectorType,
-    BF16Type,
-    OpaqueType,
 )
 
 index_t = IndexType.get()
@@ -41,8 +46,16 @@ f16_t = F16Type.get()
 f32_t = F32Type.get()
 f64_t = F64Type.get()
 bf16_t = BF16Type.get()
+f8e5m2_t = Float8E5M2Type.get()
+f8e4m3_t = Float8E4M3FNType.get()
+f8e4m3b11fnuz_t = Float8E4M3B11FNUZType.get()
+
+cmp16_t = ComplexType.get(f16_t)
+cmp32_t = ComplexType.get(f32_t)
+cmp64_t = ComplexType.get(f64_t)
 
 opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
+none_t = NoneType.get()
 
 NP_DTYPE_TO_MLIR_TYPE = lambda: {
     np.int8: i8_t,
@@ -65,7 +78,7 @@ MLIR_TYPE_TO_NP_DTYPE = lambda: {v: k for k, v in NP_DTYPE_TO_MLIR_TYPE().items(
 
 def infer_mlir_type(
     py_val: Union[int, float, bool, np.ndarray]
-) -> Union[IntegerType, F64Type, RankedTensorType]:
+) -> Union[IntegerType, F32Type, F64Type, RankedTensorType]:
     """Infer MLIR type (`ir.Type`) from supported python values.
 
     Note ints and floats are mapped to 64-bit types.
@@ -79,9 +92,26 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return bool_t
     elif isinstance(py_val, int):
-        return i64_t
+        if -(2 ** 31) <= py_val < 2 ** 31:
+            return i32_t
+        elif 2 ** 31 <= py_val < 2 ** 32:
+            return ui32_t
+        elif -(2 ** 63) <= py_val < 2 ** 63:
+            return i64_t
+        elif 2 ** 63 <= py_val < 2 ** 64:
+            return ui64_t
+        else:
+            raise RuntimeError(f"Nonrepresentable integer {py_val}.")
     elif isinstance(py_val, float):
-        return f64_t
+        if (
+            abs(py_val) == float("inf")
+            or abs(py_val) == 0.0
+            or py_val != py_val  # NaN
+            or np.finfo(np.float32).min <= abs(py_val) <= np.finfo(np.float32).max
+        ):
+            return f32_t
+        else:
+            return f64_t
     elif isinstance(py_val, np.ndarray):
         dtype = NP_DTYPE_TO_MLIR_TYPE()[py_val.dtype.type]
         return RankedTensorType.get(py_val.shape, dtype)

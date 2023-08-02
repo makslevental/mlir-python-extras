@@ -102,8 +102,6 @@ def maybe_cast(val: Value):
     Args:
       val: The ir.Value to maybe cast.
     """
-    from mlir_utils.dialects.ext.arith import Scalar
-
     if not isinstance(val, Value):
         return val
 
@@ -111,9 +109,7 @@ def maybe_cast(val: Value):
         for caster in get_value_caster(val.type.typeid):
             if casted := caster(val):
                 return casted
-        raise ValueError(f"no successful casts for {val=}")
-    if Scalar.isinstance(val):
-        return Scalar(val)
+        warnings.warn(f"no successful casts for {val=}")
     return val
 
 
