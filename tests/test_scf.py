@@ -38,7 +38,7 @@ def test_for_simple(ctx: MLIRContext):
       %c2 = arith.constant 2 : index
       %c3 = arith.constant 3 : index
       scf.for %arg0 = %c1 to %c2 step %c3 {
-        %cst = arith.constant 1.000000e+00 : f64
+        %cst = arith.constant 1.000000e+00 : f32
       }
     }
     """
@@ -55,24 +55,24 @@ def test_for_iter_args(ctx: MLIRContext):
         assert isinstance(i, Scalar)
         assert repr(i) == "Scalar(%arg0, index)"
         assert len(iter_args) == 2 and all(isinstance(i, Scalar) for i in iter_args)
-        assert repr(iter_args) == "(Scalar(%arg1, f64), Scalar(%arg2, f64))"
+        assert repr(iter_args) == "(Scalar(%arg1, f32), Scalar(%arg2, f32))"
         one = constant(1.0)
         return one, one
 
     assert len(forfoo) == 2 and all(isinstance(i, Scalar) for i in forfoo)
-    assert repr(forfoo) == "[Scalar(%0#0, f64), Scalar(%0#1, f64)]"
+    assert repr(forfoo) == "(Scalar(%0#0, f32), Scalar(%0#1, f32))"
     ctx.module.operation.verify()
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 1.000000e+00 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 1.000000e+00 : f32
       %c1 = arith.constant 1 : index
       %c2 = arith.constant 2 : index
       %c3 = arith.constant 3 : index
-      %0:2 = scf.for %arg0 = %c1 to %c2 step %c3 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f64, f64) {
-        %cst_1 = arith.constant 1.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+      %0:2 = scf.for %arg0 = %c1 to %c2 step %c3 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f32, f32) {
+        %cst_1 = arith.constant 1.000000e+00 : f32
+        scf.yield %cst_1, %cst_1 : f32, f32
       }
     }
     """
@@ -93,11 +93,11 @@ def test_if_region_op_no_results_single_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 1.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 1.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       }
     }
     """
@@ -121,13 +121,13 @@ def test_if_region_op_no_results_else_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
       }
     }
     """
@@ -143,29 +143,29 @@ def test_for_bare(ctx: MLIRContext):
     for i, (i1, i2) in range_(0, 10, iter_args=[one, two]):
         _i += 1
         assert isinstance(i, Scalar) and repr(i) == "Scalar(%arg0, index)"
-        assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f64)"
-        assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f64)"
+        assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f32)"
+        assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f32)"
         three = constant(3.0)
         four = constant(4.0)
         res1, res2 = yield_(three, four)
     assert _i == 1
 
-    assert isinstance(res1, Scalar) and repr(res1) == "Scalar(%0#0, f64)"
-    assert isinstance(res2, Scalar) and repr(res2) == "Scalar(%0#1, f64)"
+    assert isinstance(res1, Scalar) and repr(res1) == "Scalar(%0#0, f32)"
+    assert isinstance(res2, Scalar) and repr(res2) == "Scalar(%0#1, f32)"
 
     ctx.module.operation.verify()
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 1.000000e+00 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 1.000000e+00 : f32
       %c0 = arith.constant 0 : index
       %c10 = arith.constant 10 : index
       %c1 = arith.constant 1 : index
-      %0:2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %cst_2 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1, %cst_2 : f64, f64
+      %0:2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        %cst_2 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1, %cst_2 : f32, f32
       }
     }
     """
@@ -193,7 +193,7 @@ def test_scf_canonicalizer_with_implicit_yield(ctx: MLIRContext):
       %c10 = arith.constant 10 : index
       %c1 = arith.constant 1 : index
       scf.for %arg0 = %c0 to %c10 step %c1 {
-        %cst = arith.constant 3.000000e+00 : f64
+        %cst = arith.constant 3.000000e+00 : f32
       }
     }
     """
@@ -211,12 +211,12 @@ def test_scf_canonicalizer_with_explicit_yield(ctx: MLIRContext):
         for i, i1 in range_(0, 10, iter_args=[one]):
             _i += 1
             assert isinstance(i, Scalar) and repr(i) == "Scalar(%arg0, index)"
-            assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f64)"
+            assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f32)"
             three = constant(3.0)
             res = yield three
         assert _i == 1
 
-        assert isinstance(res, Scalar) and repr(res) == "Scalar(%0, f64)"
+        assert isinstance(res, Scalar) and repr(res) == "Scalar(%0, f32)"
 
     foo()
 
@@ -224,14 +224,14 @@ def test_scf_canonicalizer_with_explicit_yield(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 1.000000e+00 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 1.000000e+00 : f32
       %c0 = arith.constant 0 : index
       %c10 = arith.constant 10 : index
       %c1 = arith.constant 1 : index
-      %0 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst) -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1 : f64
+      %0 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst) -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1 : f32
       }
     }
     """
@@ -249,15 +249,15 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
         for i, (i1, i2) in range_(0, 10, iter_args=[one, two]):
             _i += 1
             assert isinstance(i, Scalar) and repr(i) == "Scalar(%arg0, index)"
-            assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f64)"
-            assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f64)"
+            assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f32)"
+            assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f32)"
             three = constant(3.0)
             four = constant(4.0)
             res1, res2 = yield three, four
         assert _i == 1
 
-        assert isinstance(res1, Scalar) and repr(res1) == "Scalar(%0#0, f64)"
-        assert isinstance(res2, Scalar) and repr(res2) == "Scalar(%0#1, f64)"
+        assert isinstance(res1, Scalar) and repr(res1) == "Scalar(%0#0, f32)"
+        assert isinstance(res2, Scalar) and repr(res2) == "Scalar(%0#1, f32)"
 
     foo()
 
@@ -265,15 +265,15 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 1.000000e+00 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 1.000000e+00 : f32
       %c0 = arith.constant 0 : index
       %c10 = arith.constant 10 : index
       %c1 = arith.constant 1 : index
-      %0:2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %cst_2 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1, %cst_2 : f64, f64
+      %0:2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst, %arg2 = %cst_0) -> (f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        %cst_2 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1, %cst_2 : f32, f32
       }
     }
     """
@@ -303,22 +303,22 @@ def test_if_ctx_manager(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1 : f32
       } else {
-        %2 = arith.cmpf olt, %cst, %cst_0 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_1 = arith.constant 4.000000e+00 : f64
-          scf.yield %cst_1 : f64
+        %2 = arith.cmpf olt, %cst, %cst_0 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_1 = arith.constant 4.000000e+00 : f32
+          scf.yield %cst_1 : f32
         } else {
-          %cst_1 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_1 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
+          scf.yield %cst_1 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -341,11 +341,11 @@ def test_if_replace_yield_2(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       }
     }
     """
@@ -372,17 +372,17 @@ def test_if_explicit_yield_with_for(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          %cst_3 = arith.constant 5.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          %cst_3 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -410,18 +410,18 @@ def test_if_explicit_yield_with_for_in_else(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       } else {
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 4.000000e+00 : f64
-          %cst_2 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 4.000000e+00 : f32
+          %cst_2 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -452,25 +452,25 @@ def test_if_explicit_yield_with_for_in_both(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          %cst_3 = arith.constant 5.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          %cst_3 = arith.constant 5.000000e+00 : f32
         }
       } else {
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 6.000000e+00 : f64
-          %cst_2 = arith.constant 7.000000e+00 : f64
+          %cst_1 = arith.constant 6.000000e+00 : f32
+          %cst_2 = arith.constant 7.000000e+00 : f32
         }
       }
     }
@@ -498,15 +498,15 @@ def test_if_replace_yield_3(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1 : f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1 : f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1 : f32
       }
     }
     """
@@ -533,15 +533,15 @@ def test_if_replace_yield_4(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:2 = scf.if %0 -> (f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:2 = scf.if %0 -> (f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1, %cst_1 : f32, f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1, %cst_1 : f32, f32
       }
     }
     """
@@ -568,15 +568,15 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:3 = scf.if %0 -> (f64, f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:3 = scf.if %0 -> (f32, f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32
       }
     }
     """
@@ -605,15 +605,15 @@ def test_if_replace_cond_2(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1 : f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1 : f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1 : f32
       }
     }
     """
@@ -640,15 +640,15 @@ def test_if_replace_cond_3(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:2 = scf.if %0 -> (f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:2 = scf.if %0 -> (f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1, %cst_1 : f32, f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1, %cst_1 : f32, f32
       }
     }
     """
@@ -675,15 +675,15 @@ def test_if_replace_cond_4(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:3 = scf.if %0 -> (f64, f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:3 = scf.if %0 -> (f32, f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32
       }
     }
     """
@@ -707,14 +707,14 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        %1 = arith.cmpf olt, %cst, %cst_0 : f32
         scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
         }
       }
     }
@@ -741,16 +741,16 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        %1 = arith.cmpf olt, %cst, %cst_0 : f32
         scf.if %1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
         } else {
-          %cst_2 = arith.constant 5.000000e+00 : f64
+          %cst_2 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -779,19 +779,19 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
         scf.if %2 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
         }
-        scf.yield %cst_1 : f64
+        scf.yield %cst_1 : f32
       } else {
-        %cst_1 = arith.constant 5.000000e+00 : f64
-        scf.yield %cst_1 : f64
+        %cst_1 = arith.constant 5.000000e+00 : f32
+        scf.yield %cst_1 : f32
       }
     }
     """
@@ -819,19 +819,19 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:2 = scf.if %0 -> (f64, f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:2 = scf.if %0 -> (f32, f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
         scf.if %2 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
         }
-        scf.yield %cst_1, %cst_1 : f64, f64
+        scf.yield %cst_1, %cst_1 : f32, f32
       } else {
-        %cst_1 = arith.constant 5.000000e+00 : f64
-        scf.yield %cst_1, %cst_1 : f64, f64
+        %cst_1 = arith.constant 5.000000e+00 : f32
+        scf.yield %cst_1, %cst_1 : f32, f32
       }
     }
     """
@@ -860,17 +860,17 @@ def test_if_with_else_else_with_yields_explicit2(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       } else {
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
+        %1 = arith.cmpf olt, %cst, %cst_0 : f32
         scf.if %1 {
-          %cst_1 = arith.constant 4.000000e+00 : f64
+          %cst_1 = arith.constant 4.000000e+00 : f32
         } else {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -900,18 +900,18 @@ def test_if_with_else_else_with_yields_explicit2_first_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
+        %1 = arith.cmpf olt, %cst, %cst_0 : f32
         scf.if %1 {
-          %cst_1 = arith.constant 4.000000e+00 : f64
+          %cst_1 = arith.constant 4.000000e+00 : f32
         } else {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       } else {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       }
     }
     """
@@ -939,17 +939,17 @@ def test_if_with_else_else_with_no_yields(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       } else {
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
+        %1 = arith.cmpf olt, %cst, %cst_0 : f32
         scf.if %1 {
-          %cst_1 = arith.constant 4.000000e+00 : f64
+          %cst_1 = arith.constant 4.000000e+00 : f32
         } else {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -981,18 +981,18 @@ def test_if_canonicalize_elif(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_2 = arith.constant 4.000000e+00 : f64
+        %cst_2 = arith.constant 4.000000e+00 : f32
       } else {
-        %1 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %1 = arith.cmpf olt, %cst_0, %cst_1 : f32
         scf.if %1 {
-          %cst_2 = arith.constant 5.000000e+00 : f64
+          %cst_2 = arith.constant 5.000000e+00 : f32
         } else {
-          %cst_2 = arith.constant 6.000000e+00 : f64
+          %cst_2 = arith.constant 6.000000e+00 : f32
         }
       }
     }
@@ -1026,22 +1026,22 @@ def test_if_canonicalize_elif_elif(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_2 = arith.constant 4.000000e+00 : f64
+        %cst_2 = arith.constant 4.000000e+00 : f32
       } else {
-        %1 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %1 = arith.cmpf olt, %cst_0, %cst_1 : f32
         scf.if %1 {
-          %cst_2 = arith.constant 5.000000e+00 : f64
+          %cst_2 = arith.constant 5.000000e+00 : f32
         } else {
-          %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
+          %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
           scf.if %2 {
-            %cst_2 = arith.constant 6.000000e+00 : f64
+            %cst_2 = arith.constant 6.000000e+00 : f32
           } else {
-            %cst_2 = arith.constant 7.000000e+00 : f64
+            %cst_2 = arith.constant 7.000000e+00 : f32
           }
         }
       }
@@ -1077,25 +1077,25 @@ def test_if_with_else_nested_elif_first_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %1 = arith.cmpf olt, %cst_0, %cst_1 : f64
+        %1 = arith.cmpf olt, %cst_0, %cst_1 : f32
         scf.if %1 {
-          %cst_3 = arith.constant 6.000000e+00 : f64
+          %cst_3 = arith.constant 6.000000e+00 : f32
         } else {
-          %2 = arith.cmpf olt, %cst_1, %cst_2 : f64
+          %2 = arith.cmpf olt, %cst_1, %cst_2 : f32
           scf.if %2 {
-            %cst_3 = arith.constant 7.000000e+00 : f64
+            %cst_3 = arith.constant 7.000000e+00 : f32
           } else {
-            %cst_3 = arith.constant 8.000000e+00 : f64
+            %cst_3 = arith.constant 8.000000e+00 : f32
           }
         }
       } else {
-        %cst_3 = arith.constant 5.000000e+00 : f64
+        %cst_3 = arith.constant 5.000000e+00 : f32
       }
     }
     """
@@ -1149,51 +1149,51 @@ def test_if_with_results_long(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_2 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_2 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_2 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_2 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_2 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_2 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_2 = arith.constant 5.000000e+00 : f32
+          scf.yield %cst_2 : f32
         } else {
-          %4 = arith.cmpf olt, %cst_0, %cst_1 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_2 = arith.constant 6.000000e+00 : f64
-            scf.yield %cst_2 : f64
+          %4 = arith.cmpf olt, %cst_0, %cst_1 : f32
+          %5 = scf.if %4 -> (f32) {
+            %cst_2 = arith.constant 6.000000e+00 : f32
+            scf.yield %cst_2 : f32
           } else {
-            %6 = arith.cmpf olt, %cst_0, %cst_1 : f64
-            %7 = scf.if %6 -> (f64) {
-              %cst_2 = arith.constant 7.000000e+00 : f64
-              scf.yield %cst_2 : f64
+            %6 = arith.cmpf olt, %cst_0, %cst_1 : f32
+            %7 = scf.if %6 -> (f32) {
+              %cst_2 = arith.constant 7.000000e+00 : f32
+              scf.yield %cst_2 : f32
             } else {
-              %8 = arith.cmpf olt, %cst_0, %cst_1 : f64
-              %9 = scf.if %8 -> (f64) {
-                %cst_2 = arith.constant 8.000000e+00 : f64
-                scf.yield %cst_2 : f64
+              %8 = arith.cmpf olt, %cst_0, %cst_1 : f32
+              %9 = scf.if %8 -> (f32) {
+                %cst_2 = arith.constant 8.000000e+00 : f32
+                scf.yield %cst_2 : f32
               } else {
-                %10 = arith.cmpf olt, %cst_0, %cst_1 : f64
-                %11 = scf.if %10 -> (f64) {
-                  %cst_2 = arith.constant 9.000000e+00 : f64
-                  scf.yield %cst_2 : f64
+                %10 = arith.cmpf olt, %cst_0, %cst_1 : f32
+                %11 = scf.if %10 -> (f32) {
+                  %cst_2 = arith.constant 9.000000e+00 : f32
+                  scf.yield %cst_2 : f32
                 } else {
-                  %cst_2 = arith.constant 1.000000e+01 : f64
-                  scf.yield %cst_2 : f64
+                  %cst_2 = arith.constant 1.000000e+01 : f32
+                  scf.yield %cst_2 : f32
                 }
-                scf.yield %11 : f64
+                scf.yield %11 : f32
               }
-              scf.yield %9 : f64
+              scf.yield %9 : f32
             }
-            scf.yield %7 : f64
+            scf.yield %7 : f32
           }
-          scf.yield %5 : f64
+          scf.yield %5 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -1228,23 +1228,23 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_2 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_2 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_2 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_2 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_2 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_2 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_2 = arith.constant 5.000000e+00 : f32
+          scf.yield %cst_2 : f32
         } else {
-          %cst_2 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_2 : f64
+          %cst_2 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_2 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -1285,31 +1285,31 @@ def test_if_with_elif_yields_results_nested(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_3 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_3 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_3 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_3 : f32
         } else {
-          %cst_3 = arith.constant 8.000000e+00 : f64
-          scf.yield %cst_3 : f64
+          %cst_3 = arith.constant 8.000000e+00 : f32
+          scf.yield %cst_3 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_3 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_3 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_3 = arith.constant 5.000000e+00 : f32
+          scf.yield %cst_3 : f32
         } else {
-          %cst_3 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_3 : f64
+          %cst_3 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_3 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -1350,31 +1350,31 @@ def test_if_with_elif_yields_results_nested_second(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_3 = arith.constant 5.000000e+00 : f64
-        scf.yield %cst_3 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_3 = arith.constant 5.000000e+00 : f32
+        scf.yield %cst_3 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %4 = arith.cmpf olt, %cst_0, %cst_1 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_3 = arith.constant 6.000000e+00 : f64
-            scf.yield %cst_3 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %4 = arith.cmpf olt, %cst_0, %cst_1 : f32
+          %5 = scf.if %4 -> (f32) {
+            %cst_3 = arith.constant 6.000000e+00 : f32
+            scf.yield %cst_3 : f32
           } else {
-            %cst_3 = arith.constant 8.000000e+00 : f64
-            scf.yield %cst_3 : f64
+            %cst_3 = arith.constant 8.000000e+00 : f32
+            scf.yield %cst_3 : f32
           }
-          scf.yield %5 : f64
+          scf.yield %5 : f32
         } else {
-          %cst_3 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_3 : f64
+          %cst_3 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_3 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -1415,31 +1415,31 @@ def test_if_with_elif_yields_results_nested_last(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_3 = arith.constant 5.000000e+00 : f64
-        scf.yield %cst_3 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_3 = arith.constant 5.000000e+00 : f32
+        scf.yield %cst_3 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_3 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_3 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_3 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_3 : f32
         } else {
-          %4 = arith.cmpf olt, %cst_0, %cst_1 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_3 = arith.constant 6.000000e+00 : f64
-            scf.yield %cst_3 : f64
+          %4 = arith.cmpf olt, %cst_0, %cst_1 : f32
+          %5 = scf.if %4 -> (f32) {
+            %cst_3 = arith.constant 6.000000e+00 : f32
+            scf.yield %cst_3 : f32
           } else {
-            %cst_3 = arith.constant 8.000000e+00 : f64
-            scf.yield %cst_3 : f64
+            %cst_3 = arith.constant 8.000000e+00 : f32
+            scf.yield %cst_3 : f32
           }
-          scf.yield %5 : f64
+          scf.yield %5 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -1480,31 +1480,31 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:2 = scf.if %0 -> (f64, f64) {
-        %cst_3 = arith.constant 5.000000e+00 : f64
-        scf.yield %cst_3, %cst_3 : f64, f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:2 = scf.if %0 -> (f32, f32) {
+        %cst_3 = arith.constant 5.000000e+00 : f32
+        scf.yield %cst_3, %cst_3 : f32, f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3:2 = scf.if %2 -> (f64, f64) {
-          %cst_3 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_3, %cst_3 : f64, f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3:2 = scf.if %2 -> (f32, f32) {
+          %cst_3 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_3, %cst_3 : f32, f32
         } else {
-          %4 = arith.cmpf olt, %cst_1, %cst_2 : f64
-          %5:2 = scf.if %4 -> (f64, f64) {
-            %cst_3 = arith.constant 7.000000e+00 : f64
-            scf.yield %cst_3, %cst_3 : f64, f64
+          %4 = arith.cmpf olt, %cst_1, %cst_2 : f32
+          %5:2 = scf.if %4 -> (f32, f32) {
+            %cst_3 = arith.constant 7.000000e+00 : f32
+            scf.yield %cst_3, %cst_3 : f32, f32
           } else {
-            %cst_3 = arith.constant 8.000000e+00 : f64
-            scf.yield %cst_3, %cst_3 : f64, f64
+            %cst_3 = arith.constant 8.000000e+00 : f32
+            scf.yield %cst_3, %cst_3 : f32, f32
           }
-          scf.yield %5#0, %5#1 : f64, f64
+          scf.yield %5#0, %5#1 : f32, f32
         }
-        scf.yield %3#0, %3#1 : f64, f64
+        scf.yield %3#0, %3#1 : f32, f32
       }
     }
     """
@@ -1530,16 +1530,16 @@ def test_with_for_if_replace_yield_2_first_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
         }
       }
     }
@@ -1566,17 +1566,17 @@ def test_with_for_if_replace_yield_2_second_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
       } else {
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 4.000000e+00 : f64
+          %cst_1 = arith.constant 4.000000e+00 : f32
         }
       }
     }
@@ -1605,23 +1605,23 @@ def test_with_for_if_replace_yield_2_both_branches(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
         }
       } else {
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -1652,19 +1652,19 @@ def test_with_for_if_replace_yield_2_both_branches_one_nested_if(ctx: MLIRContex
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          %1 = arith.cmpf olt, %cst, %cst_0 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          %1 = arith.cmpf olt, %cst, %cst_0 : f32
           scf.if %1 {
-            %cst_3 = arith.constant 5.000000e+00 : f64
+            %cst_3 = arith.constant 5.000000e+00 : f32
           }
         }
       } else {
@@ -1672,7 +1672,7 @@ def test_with_for_if_replace_yield_2_both_branches_one_nested_if(ctx: MLIRContex
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -1705,23 +1705,23 @@ def test_with_for_if_replace_yield_2_both_branches_two_nested_if(ctx: MLIRContex
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          %1 = arith.cmpf olt, %cst, %cst_0 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          %1 = arith.cmpf olt, %cst, %cst_0 : f32
           scf.if %1 {
-            %cst_3 = arith.constant 5.000000e+00 : f64
+            %cst_3 = arith.constant 5.000000e+00 : f32
           }
-          %2 = arith.cmpf olt, %cst, %cst_0 : f64
+          %2 = arith.cmpf olt, %cst, %cst_0 : f32
           scf.if %2 {
-            %cst_3 = arith.constant 5.000000e+00 : f64
+            %cst_3 = arith.constant 5.000000e+00 : f32
           }
         }
       } else {
@@ -1729,7 +1729,7 @@ def test_with_for_if_replace_yield_2_both_branches_two_nested_if(ctx: MLIRContex
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -1762,21 +1762,21 @@ def test_with_for_if_replace_yield_2_both_branches_nested_else_if(ctx: MLIRConte
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
       scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          %1 = arith.cmpf olt, %cst, %cst_0 : f64
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          %1 = arith.cmpf olt, %cst, %cst_0 : f32
           scf.if %1 {
-            %cst_3 = arith.constant 5.000000e+00 : f64
+            %cst_3 = arith.constant 5.000000e+00 : f32
           } else {
-            %cst_3 = arith.constant 6.000000e+00 : f64
+            %cst_3 = arith.constant 6.000000e+00 : f32
           }
         }
       } else {
@@ -1784,7 +1784,7 @@ def test_with_for_if_replace_yield_2_both_branches_nested_else_if(ctx: MLIRConte
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
         scf.for %arg0 = %c0 to %c10 step %c1 {
-          %cst_1 = arith.constant 5.000000e+00 : f64
+          %cst_1 = arith.constant 5.000000e+00 : f32
         }
       }
     }
@@ -1817,22 +1817,22 @@ def test_with_for_if_replace_yield_2_first_branch_with_yield(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
-        %2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst_1) -> (f64) {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          scf.yield %cst_2 : f64
+        %2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst_1) -> (f32) {
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          scf.yield %cst_2 : f32
         }
-        scf.yield %2 : f64
+        scf.yield %2 : f32
       } else {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1 : f64
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1 : f32
       }
     }
     """
@@ -1872,36 +1872,36 @@ def test_with_for_if_replace_yield_2_both_branches_one_nested_if_with_yield(
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 3.000000e+00 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 3.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
-        %2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst_1) -> (f64) {
-          %cst_2 = arith.constant 4.000000e+00 : f64
-          %3 = arith.cmpf olt, %cst, %cst_0 : f64
-          %4 = scf.if %3 -> (f64) {
-            %cst_3 = arith.constant 5.000000e+00 : f64
-            scf.yield %cst_3 : f64
+        %2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst_1) -> (f32) {
+          %cst_2 = arith.constant 4.000000e+00 : f32
+          %3 = arith.cmpf olt, %cst, %cst_0 : f32
+          %4 = scf.if %3 -> (f32) {
+            %cst_3 = arith.constant 5.000000e+00 : f32
+            scf.yield %cst_3 : f32
           } else {
-            %cst_3 = arith.constant 6.000000e+00 : f64
-            scf.yield %cst_3 : f64
+            %cst_3 = arith.constant 6.000000e+00 : f32
+            scf.yield %cst_3 : f32
           }
-          scf.yield %4 : f64
+          scf.yield %4 : f32
         }
-        scf.yield %2 : f64
+        scf.yield %2 : f32
       } else {
-        %cst_1 = arith.constant 7.000000e+00 : f64
+        %cst_1 = arith.constant 7.000000e+00 : f32
         %c0 = arith.constant 0 : index
         %c10 = arith.constant 10 : index
         %c1 = arith.constant 1 : index
-        %2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst_1) -> (f64) {
-          scf.yield %arg1 : f64
+        %2 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %cst_1) -> (f32) {
+          scf.yield %arg1 : f32
         }
-        scf.yield %2 : f64
+        scf.yield %2 : f32
       }
     }
     """
@@ -1935,18 +1935,18 @@ def test_if_with_nested_region(
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %2 = memref.alloca_scope  -> (f64) {
-          %cst_2 = arith.constant 1.000000e+00 : f64
-          memref.alloca_scope.return %cst_2 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %2 = memref.alloca_scope  -> (f32) {
+          %cst_2 = arith.constant 1.000000e+00 : f32
+          memref.alloca_scope.return %cst_2 : f32
         }
-        scf.yield %2 : f64
+        scf.yield %2 : f32
       } else {
-        %cst_1 = arith.constant 7.000000e+00 : f64
-        scf.yield %cst_1 : f64
+        %cst_1 = arith.constant 7.000000e+00 : f32
+        scf.yield %cst_1 : f32
       }
     }
     """
@@ -1978,22 +1978,22 @@ def test_elif_1(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_1 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_1 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_1 = arith.constant 4.000000e+00 : f32
+        scf.yield %cst_1 : f32
       } else {
-        %2 = arith.cmpf olt, %cst, %cst_0 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_1 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_1 : f64
+        %2 = arith.cmpf olt, %cst, %cst_0 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_1 = arith.constant 5.000000e+00 : f32
+          scf.yield %cst_1 : f32
         } else {
-          %cst_1 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_1 : f64
+          %cst_1 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_1 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -2035,39 +2035,39 @@ def test_elif_nested_first_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %cst_3 = arith.constant 5.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %2 = arith.cmpf olt, %cst_1, %cst_2 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_4 = arith.constant 7.000000e+00 : f64
-          scf.yield %cst_4 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %cst_3 = arith.constant 5.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %2 = arith.cmpf olt, %cst_1, %cst_2 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_4 = arith.constant 7.000000e+00 : f32
+          scf.yield %cst_4 : f32
         } else {
-          %4 = arith.cmpf olt, %cst_2, %cst_3 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_4 = arith.constant 8.000000e+00 : f64
-            scf.yield %cst_4 : f64
+          %4 = arith.cmpf olt, %cst_2, %cst_3 : f32
+          %5 = scf.if %4 -> (f32) {
+            %cst_4 = arith.constant 8.000000e+00 : f32
+            scf.yield %cst_4 : f32
           } else {
-            %cst_4 = arith.constant 9.000000e+00 : f64
-            scf.yield %cst_4 : f64
+            %cst_4 = arith.constant 9.000000e+00 : f32
+            scf.yield %cst_4 : f32
           }
-          scf.yield %5 : f64
+          scf.yield %5 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_4 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_4 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_4 = arith.constant 6.000000e+00 : f32
+          scf.yield %cst_4 : f32
         } else {
-          %cst_4 = arith.constant 1.000000e+01 : f64
-          scf.yield %cst_4 : f64
+          %cst_4 = arith.constant 1.000000e+01 : f32
+          scf.yield %cst_4 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -2109,39 +2109,39 @@ def test_elif_nested_second_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %cst_3 = arith.constant 5.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_4 = arith.constant 6.000000e+00 : f64
-        scf.yield %cst_4 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %cst_3 = arith.constant 5.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_4 = arith.constant 6.000000e+00 : f32
+        scf.yield %cst_4 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %4 = arith.cmpf olt, %cst_1, %cst_2 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_4 = arith.constant 7.000000e+00 : f64
-            scf.yield %cst_4 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %4 = arith.cmpf olt, %cst_1, %cst_2 : f32
+          %5 = scf.if %4 -> (f32) {
+            %cst_4 = arith.constant 7.000000e+00 : f32
+            scf.yield %cst_4 : f32
           } else {
-            %6 = arith.cmpf olt, %cst_2, %cst_3 : f64
-            %7 = scf.if %6 -> (f64) {
-              %cst_4 = arith.constant 8.000000e+00 : f64
-              scf.yield %cst_4 : f64
+            %6 = arith.cmpf olt, %cst_2, %cst_3 : f32
+            %7 = scf.if %6 -> (f32) {
+              %cst_4 = arith.constant 8.000000e+00 : f32
+              scf.yield %cst_4 : f32
             } else {
-              %cst_4 = arith.constant 9.000000e+00 : f64
-              scf.yield %cst_4 : f64
+              %cst_4 = arith.constant 9.000000e+00 : f32
+              scf.yield %cst_4 : f32
             }
-            scf.yield %7 : f64
+            scf.yield %7 : f32
           }
-          scf.yield %5 : f64
+          scf.yield %5 : f32
         } else {
-          %cst_4 = arith.constant 1.000000e+01 : f64
-          scf.yield %cst_4 : f64
+          %cst_4 = arith.constant 1.000000e+01 : f32
+          scf.yield %cst_4 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -2183,39 +2183,39 @@ def test_elif_nested_else_branch(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %cst_3 = arith.constant 5.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_4 = arith.constant 6.000000e+00 : f64
-        scf.yield %cst_4 : f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %cst_3 = arith.constant 5.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1 = scf.if %0 -> (f32) {
+        %cst_4 = arith.constant 6.000000e+00 : f32
+        scf.yield %cst_4 : f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_4 = arith.constant 1.000000e+01 : f64
-          scf.yield %cst_4 : f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3 = scf.if %2 -> (f32) {
+          %cst_4 = arith.constant 1.000000e+01 : f32
+          scf.yield %cst_4 : f32
         } else {
-          %4 = arith.cmpf olt, %cst_1, %cst_2 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_4 = arith.constant 7.000000e+00 : f64
-            scf.yield %cst_4 : f64
+          %4 = arith.cmpf olt, %cst_1, %cst_2 : f32
+          %5 = scf.if %4 -> (f32) {
+            %cst_4 = arith.constant 7.000000e+00 : f32
+            scf.yield %cst_4 : f32
           } else {
-            %6 = arith.cmpf olt, %cst_2, %cst_3 : f64
-            %7 = scf.if %6 -> (f64) {
-              %cst_4 = arith.constant 8.000000e+00 : f64
-              scf.yield %cst_4 : f64
+            %6 = arith.cmpf olt, %cst_2, %cst_3 : f32
+            %7 = scf.if %6 -> (f32) {
+              %cst_4 = arith.constant 8.000000e+00 : f32
+              scf.yield %cst_4 : f32
             } else {
-              %cst_4 = arith.constant 9.000000e+00 : f64
-              scf.yield %cst_4 : f64
+              %cst_4 = arith.constant 9.000000e+00 : f32
+              scf.yield %cst_4 : f32
             }
-            scf.yield %7 : f64
+            scf.yield %7 : f32
           }
-          scf.yield %5 : f64
+          scf.yield %5 : f32
         }
-        scf.yield %3 : f64
+        scf.yield %3 : f32
       }
     }
     """
@@ -2257,39 +2257,39 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %cst_2 = arith.constant 4.000000e+00 : f64
-      %cst_3 = arith.constant 5.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1:2 = scf.if %0 -> (f64, f64) {
-        %cst_4 = arith.constant 6.000000e+00 : f64
-        scf.yield %cst_4, %cst_4 : f64, f64
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %cst_1 = arith.constant 3.000000e+00 : f32
+      %cst_2 = arith.constant 4.000000e+00 : f32
+      %cst_3 = arith.constant 5.000000e+00 : f32
+      %0 = arith.cmpf olt, %cst, %cst_0 : f32
+      %1:2 = scf.if %0 -> (f32, f32) {
+        %cst_4 = arith.constant 6.000000e+00 : f32
+        scf.yield %cst_4, %cst_4 : f32, f32
       } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3:2 = scf.if %2 -> (f64, f64) {
-          %cst_4 = arith.constant 1.000000e+01 : f64
-          scf.yield %cst_4, %cst_4 : f64, f64
+        %2 = arith.cmpf olt, %cst_0, %cst_1 : f32
+        %3:2 = scf.if %2 -> (f32, f32) {
+          %cst_4 = arith.constant 1.000000e+01 : f32
+          scf.yield %cst_4, %cst_4 : f32, f32
         } else {
-          %4 = arith.cmpf olt, %cst_1, %cst_2 : f64
-          %5:2 = scf.if %4 -> (f64, f64) {
-            %cst_4 = arith.constant 7.000000e+00 : f64
-            scf.yield %cst_4, %cst_4 : f64, f64
+          %4 = arith.cmpf olt, %cst_1, %cst_2 : f32
+          %5:2 = scf.if %4 -> (f32, f32) {
+            %cst_4 = arith.constant 7.000000e+00 : f32
+            scf.yield %cst_4, %cst_4 : f32, f32
           } else {
-            %6 = arith.cmpf olt, %cst_2, %cst_3 : f64
-            %7:2 = scf.if %6 -> (f64, f64) {
-              %cst_4 = arith.constant 8.000000e+00 : f64
-              scf.yield %cst_4, %cst_4 : f64, f64
+            %6 = arith.cmpf olt, %cst_2, %cst_3 : f32
+            %7:2 = scf.if %6 -> (f32, f32) {
+              %cst_4 = arith.constant 8.000000e+00 : f32
+              scf.yield %cst_4, %cst_4 : f32, f32
             } else {
-              %cst_4 = arith.constant 9.000000e+00 : f64
-              scf.yield %cst_4, %cst_4 : f64, f64
+              %cst_4 = arith.constant 9.000000e+00 : f32
+              scf.yield %cst_4, %cst_4 : f32, f32
             }
-            scf.yield %7#0, %7#1 : f64, f64
+            scf.yield %7#0, %7#1 : f32, f32
           }
-          scf.yield %5#0, %5#1 : f64, f64
+          scf.yield %5#0, %5#1 : f32, f32
         }
-        scf.yield %3#0, %3#1 : f64, f64
+        scf.yield %3#0, %3#1 : f32, f32
       }
     }
     """

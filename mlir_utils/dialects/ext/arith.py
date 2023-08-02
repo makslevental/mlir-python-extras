@@ -6,6 +6,7 @@ from typing import Union, Optional
 
 import numpy as np
 from mlir.dialects import arith as arith_dialect
+from mlir.dialects import complex as complex_dialect
 from mlir.dialects._arith_ops_ext import _is_integer_like_type
 from mlir.dialects._ods_common import get_op_result_or_value
 from mlir.dialects.linalg.opdsl.lang.emitter import (
@@ -19,6 +20,7 @@ from mlir.ir import (
     Context,
     DenseElementsAttr,
     IndexType,
+    InsertionPoint,
     IntegerAttr,
     IntegerType,
     Location,
@@ -28,9 +30,20 @@ from mlir.ir import (
     Type,
     Value,
     register_attribute_builder,
+    ComplexType,
+    BF16Type,
+    F16Type,
+    F32Type,
+    F64Type,
+    FloatAttr,
 )
 
-from mlir_utils.util import get_result_or_results, maybe_cast, get_user_code_loc
+from mlir_utils.util import (
+    get_result_or_results,
+    maybe_cast,
+    get_user_code_loc,
+    register_value_caster,
+)
 
 try:
     from mlir_utils.dialects.arith import *
@@ -46,7 +59,8 @@ def constant(
     index: Optional[bool] = None,
     *,
     loc: Location = None,
-) -> arith_dialect.ConstantOp:
+    ip: InsertionPoint = None,
+) -> Value:
     """Instantiate arith.constant with value `value`.
 
     Args:
@@ -67,21 +81,62 @@ def constant(
         type = IndexType.get()
     if type is None:
         type = infer_mlir_type(value)
-    elif RankedTensorType.isinstance(type) and isinstance(value, (int, float, bool)):
+
+    assert type is not None
+
+    if _is_complex_type(type):
+        value = complex(value)
+        return maybe_cast(
+            get_result_or_results(
+                complex_dialect.ConstantOp(
+                    type,
+                    list(
+                        map(
+                            lambda x: FloatAttr.get(type.element_type, x),
+                            [value.real, value.imag],
+                        )
+                    ),
+                    loc=loc,
+                    ip=ip,
+                )
+            )
+        )
+
+    if _is_floating_point_type(type) and not isinstance(value, np.ndarray):
+        value = float(value)
+
+    if RankedTensorType.isinstance(type) and isinstance(value, (int, float, bool)):
         ranked_tensor_type = RankedTensorType(type)
-        value = np.ones(
+        value = np.full(
             ranked_tensor_type.shape,
+            value,
             dtype=mlir_type_to_np_dtype(ranked_tensor_type.element_type),
         )
-    assert type is not None
 
     if isinstance(value, np.ndarray):
         value = DenseElementsAttr.get(
             value,
             type=type,
         )
+
     return maybe_cast(
-        get_result_or_results(arith_dialect.ConstantOp(type, value, loc=loc))
+        get_result_or_results(arith_dialect.ConstantOp(type, value, loc=loc, ip=ip))
+    )
+
+
+def index_cast(
+    value: Value,
+    *,
+    to: Type = None,
+    loc: Location = None,
+    ip: InsertionPoint = None,
+) -> Value:
+    if loc is None:
+        loc = get_user_code_loc()
+    if to is None:
+        to = IndexType.get()
+    return maybe_cast(
+        get_result_or_results(arith_dialect.IndexCastOp(to, value, loc=loc, ip=ip))
     )
 
 
@@ -231,6 +286,7 @@ def _binary_op(
     rhs: "ArithValue",
     op: str,
     predicate: str = None,
+    signedness: str = None,
     *,
     loc: Location = None,
 ) -> "ArithValue":
@@ -247,12 +303,15 @@ def _binary_op(
     """
     if loc is None:
         loc = get_user_code_loc()
-    if not isinstance(rhs, lhs.__class__):
+    if (
+        isinstance(rhs, Value)
+        and lhs.type != rhs.type
+        or isinstance(rhs, (float, int, bool, np.ndarray))
+    ):
         lhs, rhs = lhs.coerce(rhs)
-    if lhs.type != rhs.type:
-        raise ValueError(f"{lhs=} {rhs=} must have the same type.")
+    assert lhs.type == rhs.type, f"{lhs=} {rhs=} must have the same type."
 
-    assert op in {"add", "sub", "mul", "cmp", "truediv", "floordiv", "mod"}
+    assert op in {"add", "and", "or", "sub", "mul", "cmp", "truediv", "floordiv", "mod"}
 
     if op == "cmp":
         assert predicate is not None
@@ -301,15 +360,20 @@ def _binary_op(
         elif _is_integer_like_type(lhs.dtype):
             # eq, ne signs don't matter
             if predicate not in {"eq", "ne"}:
-                if lhs.dtype.is_signed:
-                    predicate = "s" + predicate
+                if signedness is not None:
+                    predicate = signedness + predicate
                 else:
-                    predicate = "u" + predicate
+                    if lhs.dtype.is_signed:
+                        predicate = "s" + predicate
+                    else:
+                        predicate = "u" + predicate
         return lhs.__class__(op(predicate, lhs, rhs, loc=loc), dtype=lhs.dtype)
     else:
         return lhs.__class__(op(lhs, rhs, loc=loc), dtype=lhs.dtype)
 
 
+# TODO(max): these could be generic in the dtype
+# TODO(max): hit .verify() before constructing (maybe)
 class ArithValue(Value, metaclass=ArithValueMeta):
     """Class for functionality shared by Value subclasses that support
     arithmetic operations.
@@ -362,6 +426,9 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __radd__ = partialmethod(_binary_op, op="add")
     __rsub__ = partialmethod(_binary_op, op="sub")
     __rmul__ = partialmethod(_binary_op, op="mul")
+
+    __and__ = partialmethod(_binary_op, op="and")
+    __or__ = partialmethod(_binary_op, op="or")
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -435,6 +502,14 @@ class Scalar(ArithValue):
     def coerce(self, other) -> tuple["Scalar", "Scalar"]:
         if isinstance(other, (int, float, bool)):
             other = Scalar(other, dtype=self.dtype)
+        elif isinstance(other, Scalar) and _is_index_type(self.type):
+            other = index_cast(other)
+        elif isinstance(other, Scalar) and _is_index_type(other.type):
+            other = index_cast(other, to=self.type)
         else:
-            raise ValueError(f"can't coerce {other=} to Scalar")
+            raise ValueError(f"can't coerce {other=} to {self=}")
         return self, other
+
+
+for t in [BF16Type, F16Type, F32Type, F64Type, IndexType, IntegerType, ComplexType]:
+    register_value_caster(t.static_typeid)(Scalar)

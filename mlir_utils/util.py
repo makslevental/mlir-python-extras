@@ -102,21 +102,17 @@ def maybe_cast(val: Value | list[Value]):
     Args:
       val: The ir.Value to maybe cast.
     """
-    from mlir_utils.dialects.ext.arith import Scalar
-
-    if isinstance(val, list):
+    if isinstance(val, (tuple, list)):
         return list(map(maybe_cast, val))
 
-    if not isinstance(val, Value):
+    if not isinstance(val, Value) and not isinstance(val, OpResult):
         return val
 
     if has_value_caster(val.type.typeid):
         for caster in get_value_caster(val.type.typeid):
             if casted := caster(val):
                 return casted
-        raise ValueError(f"no successful casts for {val=}")
-    if Scalar.isinstance(val):
-        return Scalar(val)
+        warnings.warn(f"no successful casts for {val=}")
     return val
 
 
@@ -149,7 +145,7 @@ def op_region_builder(op, op_region, terminator=None):
                 terminator(res)
 
         res = get_result_or_results(op)
-        if isinstance(res, OpResultList):
+        if isinstance(res, (OpResultList, list, tuple)):
             return tuple(map(maybe_cast, res))
         else:
             return maybe_cast(res)

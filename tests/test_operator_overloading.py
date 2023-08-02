@@ -30,7 +30,7 @@ def test_arithmetic(ctx: MLIRContext):
     try:
         one // two
     except ValueError as e:
-        assert str(e) == "floordiv not supported for lhs=Scalar(%cst, f64)"
+        assert str(e) == "floordiv not supported for lhs=Scalar(%cst, f32)"
     one % two
 
     ctx.module.operation.verify()
@@ -38,19 +38,19 @@ def test_arithmetic(ctx: MLIRContext):
         dedent(
             """\
     module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.addi %c1_i64, %c2_i64 : i64
-      %1 = arith.subi %c1_i64, %c2_i64 : i64
-      %2 = arith.divsi %c1_i64, %c2_i64 : i64
-      %3 = arith.floordivsi %c1_i64, %c2_i64 : i64
-      %4 = arith.remsi %c1_i64, %c2_i64 : i64
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %5 = arith.addf %cst, %cst_0 : f64
-      %6 = arith.subf %cst, %cst_0 : f64
-      %7 = arith.divf %cst, %cst_0 : f64
-      %8 = arith.remf %cst, %cst_0 : f64
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.addi %c1_i32, %c2_i32 : i32
+      %1 = arith.subi %c1_i32, %c2_i32 : i32
+      %2 = arith.divsi %c1_i32, %c2_i32 : i32
+      %3 = arith.floordivsi %c1_i32, %c2_i32 : i32
+      %4 = arith.remsi %c1_i32, %c2_i32 : i32
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %5 = arith.addf %cst, %cst_0 : f32
+      %6 = arith.subf %cst, %cst_0 : f32
+      %7 = arith.divf %cst, %cst_0 : f32
+      %8 = arith.remf %cst, %cst_0 : f32
     }
     """
         ),
@@ -66,9 +66,9 @@ def test_tensor_arithmetic(ctx: MLIRContext):
     three = one + two
     assert isinstance(three, Scalar)
 
-    ten1 = empty((10, 10, 10), T.f64_t)
+    ten1 = empty((10, 10, 10), T.f32_t)
     assert isinstance(ten1, Tensor)
-    ten2 = empty((10, 10, 10), T.f64_t)
+    ten2 = empty((10, 10, 10), T.f32_t)
     assert isinstance(ten2, Tensor)
     ten3 = ten1 + ten2
     assert isinstance(ten3, Tensor)
@@ -78,12 +78,12 @@ def test_tensor_arithmetic(ctx: MLIRContext):
         dedent(
             """\
     module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.addi %c1_i64, %c2_i64 : i64
-      %1 = tensor.empty() : tensor<10x10x10xf64>
-      %2 = tensor.empty() : tensor<10x10x10xf64>
-      %3 = arith.addf %1, %2 : tensor<10x10x10xf64>
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.addi %c1_i32, %c2_i32 : i32
+      %1 = tensor.empty() : tensor<10x10x10xf32>
+      %2 = tensor.empty() : tensor<10x10x10xf32>
+      %3 = arith.addf %1, %2 : tensor<10x10x10xf32>
     }
     """
         ),
@@ -102,10 +102,10 @@ def test_r_arithmetic(ctx: MLIRContext):
         dedent(
             """\
     module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.subi %c1_i64, %c2_i64 : i64
-      %1 = arith.subi %c2_i64, %c1_i64 : i64
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.subi %c1_i32, %c2_i32 : i32
+      %1 = arith.subi %c2_i32, %c1_i32 : i32
     }
     """
         ),
@@ -122,6 +122,8 @@ def test_arith_cmp(ctx: MLIRContext):
     one >= two
     one == two
     one != two
+    one & two
+    one | two
     assert one._ne(two)
     assert not one._eq(two)
 
@@ -141,22 +143,24 @@ def test_arith_cmp(ctx: MLIRContext):
         dedent(
             """\
     module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      %1 = arith.cmpi ule, %c1_i64, %c2_i64 : i64
-      %2 = arith.cmpi ugt, %c1_i64, %c2_i64 : i64
-      %3 = arith.cmpi uge, %c1_i64, %c2_i64 : i64
-      %4 = arith.cmpi eq, %c1_i64, %c2_i64 : i64
-      %5 = arith.cmpi ne, %c1_i64, %c2_i64 : i64
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %6 = arith.cmpf olt, %cst, %cst_0 : f64
-      %7 = arith.cmpf ole, %cst, %cst_0 : f64
-      %8 = arith.cmpf ogt, %cst, %cst_0 : f64
-      %9 = arith.cmpf oge, %cst, %cst_0 : f64
-      %10 = arith.cmpf oeq, %cst, %cst_0 : f64
-      %11 = arith.cmpf one, %cst, %cst_0 : f64
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %1 = arith.cmpi ule, %c1_i32, %c2_i32 : i32
+      %2 = arith.cmpi ugt, %c1_i32, %c2_i32 : i32
+      %3 = arith.cmpi uge, %c1_i32, %c2_i32 : i32
+      %4 = arith.cmpi eq, %c1_i32, %c2_i32 : i32
+      %5 = arith.cmpi ne, %c1_i32, %c2_i32 : i32
+      %6 = arith.andi %c1_i32, %c2_i32 : i32
+      %7 = arith.ori %c1_i32, %c2_i32 : i32
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_0 = arith.constant 2.000000e+00 : f32
+      %8 = arith.cmpf olt, %cst, %cst_0 : f32
+      %9 = arith.cmpf ole, %cst, %cst_0 : f32
+      %10 = arith.cmpf ogt, %cst, %cst_0 : f32
+      %11 = arith.cmpf oge, %cst, %cst_0 : f32
+      %12 = arith.cmpf oeq, %cst, %cst_0 : f32
+      %13 = arith.cmpf one, %cst, %cst_0 : f32
     }
     """
         ),
@@ -182,26 +186,26 @@ def test_scalar_promotion(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.addi %c1_i64, %c2_i64 : i64
-      %c2_i64_0 = arith.constant 2 : i64
-      %1 = arith.subi %c1_i64, %c2_i64_0 : i64
-      %c2_i64_1 = arith.constant 2 : i64
-      %2 = arith.divsi %c1_i64, %c2_i64_1 : i64
-      %c2_i64_2 = arith.constant 2 : i64
-      %3 = arith.floordivsi %c1_i64, %c2_i64_2 : i64
-      %c2_i64_3 = arith.constant 2 : i64
-      %4 = arith.remsi %c1_i64, %c2_i64_3 : i64
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_4 = arith.constant 2.000000e+00 : f64
-      %5 = arith.addf %cst, %cst_4 : f64
-      %cst_5 = arith.constant 2.000000e+00 : f64
-      %6 = arith.subf %cst, %cst_5 : f64
-      %cst_6 = arith.constant 2.000000e+00 : f64
-      %7 = arith.divf %cst, %cst_6 : f64
-      %cst_7 = arith.constant 2.000000e+00 : f64
-      %8 = arith.remf %cst, %cst_7 : f64
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.addi %c1_i32, %c2_i32 : i32
+      %c2_i32_0 = arith.constant 2 : i32
+      %1 = arith.subi %c1_i32, %c2_i32_0 : i32
+      %c2_i32_1 = arith.constant 2 : i32
+      %2 = arith.divsi %c1_i32, %c2_i32_1 : i32
+      %c2_i32_2 = arith.constant 2 : i32
+      %3 = arith.floordivsi %c1_i32, %c2_i32_2 : i32
+      %c2_i32_3 = arith.constant 2 : i32
+      %4 = arith.remsi %c1_i32, %c2_i32_3 : i32
+      %cst = arith.constant 1.000000e+00 : f32
+      %cst_4 = arith.constant 2.000000e+00 : f32
+      %5 = arith.addf %cst, %cst_4 : f32
+      %cst_5 = arith.constant 2.000000e+00 : f32
+      %6 = arith.subf %cst, %cst_5 : f32
+      %cst_6 = arith.constant 2.000000e+00 : f32
+      %7 = arith.divf %cst, %cst_6 : f32
+      %cst_7 = arith.constant 2.000000e+00 : f32
+      %8 = arith.remf %cst, %cst_7 : f32
     }
     """
     )

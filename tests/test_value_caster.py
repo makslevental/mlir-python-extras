@@ -2,7 +2,7 @@ import pytest
 from mlir.ir import OpResult, RankedTensorType
 
 import mlir_utils.types as T
-from mlir_utils.dialects.ext.arith import constant
+from mlir_utils.dialects.ext.arith import constant, Scalar
 from mlir_utils.dialects.ext.tensor import S, empty
 
 # noinspection PyUnresolvedReferences
@@ -15,20 +15,39 @@ pytest.mark.usefixtures("ctx")
 
 def test_caster_registration(ctx: MLIRContext):
     sizes = S, 3, S
-    ten = empty(sizes, T.f64_t)
-    assert repr(ten) == "Tensor(%0, tensor<?x3x?xf64>)"
+    ten = empty(sizes, T.f32_t)
+    assert repr(ten) == "Tensor(%0, tensor<?x3x?xf32>)"
 
     def dummy_caster(val):
         return val
 
     register_value_caster(RankedTensorType.static_typeid)(dummy_caster)
-    ten = empty(sizes, T.f64_t)
-    assert repr(ten) == "Tensor(%1, tensor<?x3x?xf64>)"
+    ten = empty(sizes, T.f32_t)
+    assert repr(ten) == "Tensor(%1, tensor<?x3x?xf32>)"
 
     register_value_caster(RankedTensorType.static_typeid, 0)(dummy_caster)
-    ten = empty(sizes, T.f64_t)
-    assert repr(ten) != "Tensor(%1, tensor<?x3x?xf64>)"
+    ten = empty(sizes, T.f32_t)
+    assert repr(ten) != "Tensor(%1, tensor<?x3x?xf32>)"
     assert isinstance(ten, OpResult)
 
     one = constant(1)
-    assert repr(one) == "Scalar(%3, i64)"
+    assert repr(one) == "Scalar(%3, i32)"
+
+
+def test_scalar_register_value_caster_decorator(ctx: MLIRContext):
+    assert isinstance(constant(1, type=T.i8_t), Scalar)
+    assert isinstance(constant(1, type=T.i16_t), Scalar)
+    assert isinstance(constant(1, type=T.i32_t), Scalar)
+    assert isinstance(constant(1, type=T.i32_t), Scalar)
+
+    assert isinstance(constant(1, index=True), Scalar)
+
+    assert isinstance(constant(1, type=T.f16_t), Scalar)
+    assert isinstance(constant(1, type=T.f32_t), Scalar)
+    assert isinstance(constant(1, type=T.f32_t), Scalar)
+
+    assert isinstance(constant(1, type=T.cmp16_t), Scalar)
+    assert isinstance(constant(1, type=T.cmp32_t), Scalar)
+    assert isinstance(constant(1, type=T.cmp64_t), Scalar)
+
+    ctx.module.operation.verify()

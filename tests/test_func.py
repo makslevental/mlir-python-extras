@@ -25,9 +25,9 @@ def test_emit(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      func.func @demo_fun1() -> i64 {
-        %c1_i64 = arith.constant 1 : i64
-        return %c1_i64 : i64
+      func.func @demo_fun1() -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
       }
     }
     """
@@ -46,9 +46,9 @@ def test_func_base_meta(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      func.func @foo1() -> i64 {
-        %c1_i64 = arith.constant 1 : i64
-        return %c1_i64 : i64
+      func.func @foo1() -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
       }
     }
     """
@@ -59,11 +59,11 @@ def test_func_base_meta(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      func.func @foo1() -> i64 {
-        %c1_i64 = arith.constant 1 : i64
-        return %c1_i64 : i64
+      func.func @foo1() -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
       }
-      %0 = func.call @foo1() : () -> i64
+      %0 = func.call @foo1() : () -> i32
     }
     """
     )
@@ -82,11 +82,11 @@ def test_func_base_meta2(ctx: MLIRContext):
     correct = dedent(
         """\
     module {
-      func.func @foo1() -> i64 {
-        %c1_i64 = arith.constant 1 : i64
-        return %c1_i64 : i64
+      func.func @foo1() -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
       }
-      %0 = func.call @foo1() : () -> i64
+      %0 = func.call @foo1() : () -> i32
     }
     """
     )
