@@ -36,7 +36,7 @@ def get_result_or_results(
     if isinstance(op, Value):
         return op
     return (
-        get_op_results_or_values(op)
+        list(get_op_results_or_values(op))
         if len(op.operation.results) > 1
         else get_op_result_or_value(op)
         if len(op.operation.results) > 0
@@ -94,13 +94,16 @@ def get_value_caster(typeid: TypeID):
     return __VALUE_CASTERS[typeid]
 
 
-def maybe_cast(val: Value):
+def maybe_cast(val: Value | list[Value]):
     """Maybe cast an ir.Value to one of Tensor, Scalar.
 
     Args:
       val: The ir.Value to maybe cast.
     """
     from mlir_utils.dialects.ext.arith import Scalar
+
+    if isinstance(val, list):
+        return list(map(maybe_cast, val))
 
     if not isinstance(val, Value):
         return val

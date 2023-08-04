@@ -57,7 +57,7 @@ def test_for_iter_args(ctx: MLIRContext):
         return one, one
 
     assert len(forfoo) == 2 and all(isinstance(i, Scalar) for i in forfoo)
-    assert repr(forfoo) == "(Scalar(%0#0, f64), Scalar(%0#1, f64))"
+    assert repr(forfoo) == "[Scalar(%0#0, f64), Scalar(%0#1, f64)]"
     ctx.module.operation.verify()
     correct = dedent(
         """\
@@ -89,11 +89,11 @@ def test_for_bare(ctx: MLIRContext):
         assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f64)"
         three = constant(3.0)
         four = constant(4.0)
-        yield_(three, four)
+        res1, res2 = yield_(three, four)
     assert _i == 1
 
-    assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%0#0, f64)"
-    assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%0#1, f64)"
+    assert isinstance(res1, Scalar) and repr(res1) == "Scalar(%0#0, f64)"
+    assert isinstance(res2, Scalar) and repr(res2) == "Scalar(%0#1, f64)"
 
     ctx.module.operation.verify()
     correct = dedent(
@@ -127,10 +127,10 @@ def test_scf_canonicalizer(ctx: MLIRContext):
             assert isinstance(i, Scalar) and repr(i) == "Scalar(%arg0, index)"
             assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%arg1, f64)"
             three = constant(3.0)
-            yield three
+            res = yield three
         assert _i == 1
 
-        assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%0, f64)"
+        assert isinstance(res, Scalar) and repr(res) == "Scalar(%0, f64)"
 
     foo()
 
@@ -167,11 +167,11 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
             assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%arg2, f64)"
             three = constant(3.0)
             four = constant(4.0)
-            yield three, four
+            res1, res2 = yield three, four
         assert _i == 1
 
-        assert isinstance(i1, Scalar) and repr(i1) == "Scalar(%0#0, f64)"
-        assert isinstance(i2, Scalar) and repr(i2) == "Scalar(%0#1, f64)"
+        assert isinstance(res1, Scalar) and repr(res1) == "Scalar(%0#0, f64)"
+        assert isinstance(res2, Scalar) and repr(res2) == "Scalar(%0#1, f64)"
 
     foo()
 
@@ -227,12 +227,12 @@ def test_if_replace_yield_3(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (T.f64_t,)):
+        if stack_if(one < two, (T.f64_t,)):
             three = constant(3.0)
-            yield three
+            res = yield three
         else:
             four = constant(4.0)
-            yield four
+            res = yield four
         return
 
     iffoo()
@@ -262,12 +262,12 @@ def test_if_replace_yield_4(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (T.f64_t, T.f64_t)):
+        if stack_if(one < two, (T.f64_t, T.f64_t)):
             three = constant(3.0)
-            yield three, three
+            res1, res2 = yield three, three
         else:
             four = constant(4.0)
-            yield four, four
+            res1, res2 = yield four, four
         return
 
     iffoo()
@@ -297,12 +297,12 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (T.f64_t, T.f64_t, T.f64_t)):
+        if stack_if(one < two, (T.f64_t, T.f64_t, T.f64_t)):
             three = constant(3.0)
-            yield three, three, three
+            res1, res2, res3 = yield three, three, three
         else:
             four = constant(4.0)
-            yield four, four, four
+            res1, res2, res3 = yield four, four, four
         return
 
     iffoo()
@@ -332,16 +332,17 @@ def test_if_replace_cond_2(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := one < two:
+        if one < two:
             three = constant(3.0)
-            yield three
+            res = yield three
         else:
             four = constant(4.0)
-            yield four
+            res = yield four
 
         return
 
     iffoo()
+    print(ctx.module)
     ctx.module.operation.verify()
 
     correct = dedent(
@@ -368,12 +369,12 @@ def test_if_replace_cond_3(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := one < two:
+        if one < two:
             three = constant(3.0)
-            yield three, three
+            res1, res2 = yield three, three
         else:
             four = constant(4.0)
-            yield four, four
+            res1, res2 = yield four, four
         return
 
     iffoo()
@@ -403,12 +404,12 @@ def test_if_replace_cond_4(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := one < two:
+        if one < two:
             three = constant(3.0)
-            yield three, three, three
+            res1, res2, res3 = yield three, three, three
         else:
             four = constant(4.0)
-            yield four, four, four
+            res1, res2, res3 = yield four, four, four
         return
 
     iffoo()
@@ -506,14 +507,14 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := one < two:
+        if one < two:
             three = constant(3.0)
             if two < three:
                 four = constant(4.0)
-            yield three
+            res = yield three
         else:
             five = constant(5.0)
-            yield five
+            res = yield five
         return
 
     iffoo()
@@ -546,14 +547,14 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := one < two:
+        if one < two:
             three = constant(3.0)
             if two < three:
                 four = constant(4.0)
-            yield three, three
+            res1, res2 = yield three, three
         else:
             five = constant(5.0)
-            yield five, five
+            res1, res2 = yield five, five
         return
 
     iffoo()
@@ -772,19 +773,19 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
         two = constant(2.0)
         three = constant(3.0)
 
-        if res := one < two:
+        if one < two:
             four = constant(4.0)
-            yield four
-        elif res1 := two < three:
+            res = yield four
+        elif two < three:
             five = constant(5.0)
-            yield five
+            res1 = yield five
         else:
             six = constant(6.0)
-            yield six
+            res2 = yield six
 
         correct = dedent(
             """\
-        module
+        moduleres
         %1 = scf.if %0 -> (f64) {
           %cst_2 = arith.constant 4.000000e+00 : f64
           scf.yield %cst_2 : f64
@@ -801,9 +802,10 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
         }
         """
         )
-        filecheck(correct, "module\n" + str(res.owner))
-        correct = """\
-        module
+        filecheck(correct, "moduleres\n" + str(res.owner))
+        correct = dedent(
+            """\
+        moduleres2
         %3 = scf.if %2 -> (f64) {
           %cst_2 = arith.constant 5.000000e+00 : f64
           scf.yield %cst_2 : f64
@@ -812,7 +814,8 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
           scf.yield %cst_2 : f64
         }
         """
-        filecheck(correct, "module\n" + str(res1.owner))
+        )
+        filecheck(correct, "moduleres2\n" + str(res2.owner))
         return
 
     iffoo()
@@ -853,18 +856,18 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
         three = constant(3.0)
         four = constant(4.0)
 
-        if res := one < two:
+        if one < two:
             five = constant(5.0)
-            yield five, five
-        elif res1 := two < three:
+            res1, res2 = yield five, five
+        elif two < three:
             six = constant(6.0)
-            yield six, six
-        elif res2 := three < four:
+            res1, res2 = yield six, six
+        elif three < four:
             seven = constant(7.0)
-            yield seven, seven
+            res1, res2 = yield seven, seven
         else:
             eight = constant(8.0)
-            yield eight, eight
+            res1, res2 = yield eight, eight
 
         return
 
@@ -914,18 +917,18 @@ def test_if_with_elif_elif_explicit_yields_results(ctx: MLIRContext):
         three = constant(3.0)
         four = constant(4.0)
 
-        if res := stack_if(one < two, (T.f64_t, T.f64_t)):
+        if stack_if(one < two, (T.f64_t, T.f64_t)):
             five = constant(5.0)
-            yield five, five
-        elif res1 := stack_if(two < three, (T.f64_t, T.f64_t)):
+            res1, res2 = yield five, five
+        elif stack_if(two < three, (T.f64_t, T.f64_t)):
             six = constant(6.0)
-            yield six, six
-        elif res2 := stack_if(three < four, (T.f64_t, T.f64_t)):
+            res1, res2 = yield six, six
+        elif stack_if(three < four, (T.f64_t, T.f64_t)):
             seven = constant(7.0)
-            yield seven, seven
+            res1, res2 = yield seven, seven
         else:
             eight = constant(8.0)
-            yield eight, eight
+            res1, res2 = yield eight, eight
 
         return
 
