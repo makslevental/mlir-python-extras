@@ -43,9 +43,8 @@ def transform_cst(
 
     logger.debug("[transformed code]\n\n%s", module_cst.code)
 
-    tree = ast.parse(module_cst.code, filename=inspect.getfile(f))
-    tree = ast.increment_lineno(tree, f.__code__.co_firstlineno - 1)
-    module_code_o = compile(tree, f.__code__.co_filename, "exec")
+    code = "\n" * (f.__code__.co_firstlineno - 1) + module_cst.code
+    module_code_o = compile(code, f.__code__.co_filename, "exec")
     new_f_code_o = next(
         c
         for c in module_code_o.co_consts

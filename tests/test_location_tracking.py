@@ -34,12 +34,12 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (T.f64_t, T.f64_t, T.f64_t)):
+        if stack_if(one < two, (T.f64_t, T.f64_t, T.f64_t)):
             three = constant(3.0)
-            yield three, three, three
+            res1, res2, res3 = yield three, three, three
         else:
             four = constant(4.0)
-            yield four, four, four
+            res1, res2, res3 = yield four, four, four
         return
 
     iffoo()
@@ -49,24 +49,24 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     module {{
       %cst = arith.constant 1.000000e+00 : f64 THIS_DIR{sep}test_location_tracking.py:35:10
       %cst_0 = arith.constant 2.000000e+00 : f64 THIS_DIR{sep}test_location_tracking.py:36:10
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64 THIS_DIR{sep}test_location_tracking.py:37:23
+      %0 = arith.cmpf olt, %cst, %cst_0 : f64 THIS_DIR{sep}test_location_tracking.py:37:16
       %1:3 = scf.if %0 -> (f64, f64, f64) {{
         %cst_1 = arith.constant 3.000000e+00 : f64 THIS_DIR{sep}test_location_tracking.py:38:16
-        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64 THIS_DIR{sep}test_location_tracking.py:39:8
+        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64 THIS_DIR{sep}test_location_tracking.py:39:27
       }} else {{
         %cst_1 = arith.constant 4.000000e+00 : f64 THIS_DIR{sep}test_location_tracking.py:41:24
-        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64 THIS_DIR{sep}test_location_tracking.py:42:8
-      }} THIS_DIR{sep}test_location_tracking.py:37:14
+        scf.yield %cst_1, %cst_1, %cst_1 : f64, f64, f64 THIS_DIR{sep}test_location_tracking.py:42:27
+      }} THIS_DIR{sep}test_location_tracking.py:37:7
     }} [unknown]
     #loc = [unknown]
     #loc1 = THIS_DIR{sep}test_location_tracking.py:35:10
     #loc2 = THIS_DIR{sep}test_location_tracking.py:36:10
-    #loc3 = THIS_DIR{sep}test_location_tracking.py:37:23
-    #loc4 = THIS_DIR{sep}test_location_tracking.py:37:14
+    #loc3 = THIS_DIR{sep}test_location_tracking.py:37:16
+    #loc4 = THIS_DIR{sep}test_location_tracking.py:37:7
     #loc5 = THIS_DIR{sep}test_location_tracking.py:38:16
-    #loc6 = THIS_DIR{sep}test_location_tracking.py:39:8
+    #loc6 = THIS_DIR{sep}test_location_tracking.py:39:27
     #loc7 = THIS_DIR{sep}test_location_tracking.py:41:24
-    #loc8 = THIS_DIR{sep}test_location_tracking.py:42:8
+    #loc8 = THIS_DIR{sep}test_location_tracking.py:42:27
     """
     )
     asm = get_asm(ctx.module.operation)
