@@ -33,7 +33,7 @@ build-backend = "setuptools.build_meta"
 include = ["mlir_utils", "mlir_utils.*"]  # alternatively: `exclude = ["additional*"]`
 
 [tool.pytest.ini_options]
-log_cli = false
+log_cli = true
 log_cli_level = "DEBUG"
 log_cli_format = "[%(filename)s:%(funcName)s:%(lineno)d] %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
