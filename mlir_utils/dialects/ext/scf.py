@@ -1,11 +1,12 @@
 import inspect
 import logging
-from textwrap import dedent
+import warnings
 from typing import Optional, Sequence
 
 import libcst as cst
 import libcst.matchers as m
 from bytecode import ConcreteBytecode, ConcreteInstr
+from libcst.metadata import QualifiedNameProvider
 from mlir.dialects.scf import IfOp, ForOp
 from mlir.ir import InsertionPoint, Value, OpResultList, OpResult
 
@@ -22,7 +23,6 @@ from mlir_utils.dialects.scf import yield_ as yield__
 from mlir_utils.util import (
     region_op,
     maybe_cast,
-    _update_caller_vars,
     get_result_or_results,
     get_user_code_loc,
 )
@@ -122,163 +122,78 @@ def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
 if_ = region_op(_if, terminator=yield__)
 
 
-class IfStack:
-    __current_if_op: list[IfOp] = []
-    __if_ip: list[InsertionPoint] = []
+class IpStack:
+    #     __current_if_op: list[IfOp]
+    __if_ips: list[InsertionPoint]
 
-    @staticmethod
-    def _repr_current_stacks():
-        return dedent(
-            f"""\
-            {IfStack.__current_if_op}
-            {IfStack.__if_ip}
-        """
-        )
+    def __init__(self, block):
+        self.__if_ips = []
+        self.push_block_ip(block)
 
-    @staticmethod
-    def __push_block_ip(block):
+    def push_block_ip(self, block):
         ip = InsertionPoint(block)
         ip.__enter__()
-        IfStack.__if_ip.append(ip)
+        self.__if_ips.append(ip)
 
-    @staticmethod
-    def push(cond: Value, results_=None, has_else=False):
-        if results_ is None:
-            results_ = []
-        if results_:
-            has_else = True
-        assert isinstance(cond, Value), f"cond must be a mlir.Value: {cond=}"
-        if_op = _if(cond, results_, has_else=has_else)
-        cond.owner.move_before(if_op)
-
-        IfStack.__current_if_op.append(if_op)
-        IfStack.__push_block_ip(if_op.then_block)
-
-        return maybe_cast(get_result_or_results(if_op))
-
-    @staticmethod
-    def pop_branch():
-        ip = IfStack.__if_ip.pop()
+    def pop_branch(self):
+        ip = self.__if_ips.pop()
         ip.__exit__(None, None, None)
 
-    @staticmethod
-    def push_else():
-        if_op = IfStack.__current_if_op[-1]
-        assert len(
-            if_op.regions[1].blocks
-        ), f"can't have else without bb in second region of {if_op=}"
-        IfStack.__push_block_ip(if_op.else_block)
-        return maybe_cast(get_result_or_results(if_op))
+    def __len__(self):
+        return len(self.__if_ips)
 
-    @staticmethod
-    def pop():
-        if len(IfStack.__if_ip):
-            ip = IfStack.__if_ip.pop()
-            ip.__exit__(None, None, None)
-        IfStack.__current_if_op.pop()
-
-    @staticmethod
-    def yield_(*args):
-        if_op = IfStack.__current_if_op[-1]
-        results = get_result_or_results(if_op)
-        assert isinstance(
-            results, (OpResult, OpResultList)
-        ), f"api has changed: {results=}"
-        if isinstance(results, OpResult):
-            results = [results]
-        unpacked_args = args
-        if any(isinstance(a, OpResultList) for a in unpacked_args):
-            assert len(unpacked_args) == 1
-            unpacked_args = list(unpacked_args[0])
-
-        assert len(results) == len(unpacked_args), f"{results=}, {unpacked_args=}"
-        for i, r in enumerate(results):
-            if r.type == T._placeholder_opaque_t():
-                r.set_type(unpacked_args[i].type)
-
-        yield_(*args)
+    def __add__(self, other: "IpStack"):
+        self.__if_ips.extend(other.__if_ips)
+        other.__if_ips = []
+        return self
 
 
-# forward here for readability (and easier ast manipulation below)
-def stack_if(*args, **kwargs):
-    return IfStack.push(*args, **kwargs)
-
-
-def unstack_if(cond: Value, results_=None, has_else=False):
+def unstack_if(cond: Value, results_=None) -> tuple[IpStack, IfOp]:
     if results_ is None:
         results_ = []
-    if results_:
-        has_else = True
     assert isinstance(cond, Value), f"cond must be a mlir.Value: {cond=}"
-    if_op = _if(cond, results_, has_else=has_else)
+    if_op = _if(cond, results_)
     cond.owner.move_before(if_op)
 
-    ip = InsertionPoint(if_op.then_block)
-    ip.__enter__()
-
-    return ip, if_op
+    return IpStack(if_op.then_block), if_op
 
 
-def end_branch():
-    IfStack.pop_branch()
+def unstack_end_branch(ips_ifop: tuple[IpStack, IfOp]) -> tuple[IpStack, IfOp]:
+    ips, ifop = ips_ifop
+    ips.pop_branch()
+    return ips, ifop
 
 
-def unstack_end_branch(ip):
-    ip.__exit__(None, None, None)
+def unstack_else(prev_ips_ifop: tuple[IpStack, IfOp]) -> tuple[IpStack, IfOp]:
+    prev_ips, ifop = prev_ips_ifop
+    if not len(ifop.regions[1].blocks):
+        ifop.regions[1].blocks.append(*[])
+
+    prev_ips.push_block_ip(ifop.else_block)
+    return prev_ips, ifop
 
 
-def else_():
-    return IfStack.push_else()
+def unstack_else_if(prev_ips_ifop: tuple[IpStack, IfOp], cond: Value, results_=None):
+    prev_ips, prev_ifop = unstack_else(prev_ips_ifop)
+    next_if_ip, next_if_op = unstack_if(cond, results_)
+    return prev_ips + next_if_ip, next_if_op
 
 
-def unstack_else_if(if_op):
-    assert len(
-        if_op.regions[1].blocks
-    ), f"can't have else without bb in second region of {if_op=}"
-
-    ip = InsertionPoint(if_op.else_block)
-    ip.__enter__()
-    return ip
+def get_last_statement(original_node):
+    statements = m.findall(original_node, m.SimpleStatementLine())
+    assert len(statements), "no statements...?"
+    return statements[-1]
 
 
-def end_if():
-    IfStack.pop()
-
-
-def unstack_end_if(ip):
-    ip.__exit__(None, None, None)
-
-
-def insert_body_maybe_semicolon(
-    node: cst.CSTNode, index: int, new_node: cst.CSTNode, before=False
-):
-    indented_block = node.body
-    assert isinstance(
-        indented_block, cst.IndentedBlock
-    ), f"expected IndentedBlock, got {indented_block=}"
-    body = list(indented_block.body)
-    maybe_statement = body[index]
-    if isinstance(maybe_statement, cst.SimpleStatementLine):
-        # can append (with semicolon) to the simplestatement
-        if before:
-            maybe_statement_body = [cst.Expr(new_node)] + list(maybe_statement.body)
-        else:
-            maybe_statement_body = list(maybe_statement.body) + [cst.Expr(new_node)]
-        return node.deep_replace(
-            maybe_statement,
-            maybe_statement.with_changes(body=maybe_statement_body),
-        )
-
-    # else have to create new statement at index (or append to body if -1)
-    new_statement = cst.SimpleStatementLine([cst.Expr(new_node)])
-    indented_block_body = list(indented_block.body)
-    if index == -1:
-        indented_block_body.append(new_statement)
-    else:
-        indented_block_body.insert(index, new_statement)
-    return node.with_changes(
-        body=indented_block.with_changes(body=indented_block_body),
+def insert_in_deep_last_statement(
+    original_node: cst.CSTNode,
+    new_node: cst.CSTNode,
+) -> cst.CSTNode:
+    last_statement = get_last_statement(original_node)
+    new_last_statement = last_statement.with_changes(
+        body=list(last_statement.body) + [cst.Expr(new_node)]
     )
+    return original_node.deep_replace(last_statement, new_last_statement)
 
 
 class ReplaceYieldWithSCFYield(StrictTransformer):
@@ -311,117 +226,226 @@ class ReplaceYieldWithSCFYield(StrictTransformer):
         return ast_call(yield_.__name__, args)
 
 
+def maybe_insert_yield_at_end_or_deep(node):
+    maybe_last_statement = node.body[-1]
+    if m.matches(maybe_last_statement, m.SimpleStatementLine()):
+        if len(m.findall(maybe_last_statement, m.Yield())) > 0:
+            return node
+
+        # if last thing in body is a simplestatement then you can talk the yield (with a semicolon)
+        # onto the end
+        new_maybe_last_statement = insert_in_deep_last_statement(
+            maybe_last_statement, cst.Yield()
+        )
+        node = node.deep_replace(maybe_last_statement, new_maybe_last_statement)
+    else:
+        # this branch is different (i.e., doesn't check for a match)
+        # because if the last thing is an indented block, there's no way the user could've intentionally placed
+        # a yield there that handles this conditional (even if they placed a yield to handle a conditional in that
+        # last block)
+        node = insert_in_deep_last_statement(node, cst.Yield())
+
+    return node
+
+
 class InsertEmptyYield(StrictTransformer):
-    @m.leave(m.If() | m.Else())
-    def leave_(
-        self, _original_node: cst.If | cst.Else, updated_node: cst.If | cst.Else
-    ) -> cst.If | cst.Else:
-        indented_block = updated_node.body
-        last_statement = indented_block.body[-1]
-        if not m.matches(last_statement, m.SimpleStatementLine()):
-            return insert_body_maybe_semicolon(updated_node, -1, cst.Yield())
-        elif m.matches(last_statement, m.SimpleStatementLine()) and not m.findall(
-            last_statement, m.Yield()
-        ):
-            return insert_body_maybe_semicolon(updated_node, -1, cst.Yield())
-        # VERY IMPORTANT: you have to return the updated node if you believe
-        # at any point there was a mutation anywhere in the tree below
-        return updated_node
+    @m.leave(m.If())
+    def leave_if(self, _original_node: cst.If, updated_node: cst.If) -> cst.If:
+        new_body = maybe_insert_yield_at_end_or_deep(updated_node.body)
+        new_orelse = updated_node.orelse
+        if new_orelse:
+            new_orelse_body = maybe_insert_yield_at_end_or_deep(new_orelse.body)
+            new_orelse = new_orelse.with_changes(body=new_orelse_body)
+        return updated_node.with_changes(body=new_body, orelse=new_orelse)
+
+    @m.leave(m.For())
+    def leave_for(self, _original_node: cst.For, updated_node: cst.For) -> cst.For:
+        new_body = maybe_insert_yield_at_end_or_deep(updated_node.body)
+        return updated_node.with_changes(body=new_body)
 
 
-class CanonicalizeElIfs(StrictTransformer):
-    @m.leave(m.If(orelse=m.If()))
-    def leave_if_with_elif(
-        self, _original_node: cst.If, updated_node: cst.If
-    ) -> cst.If:
-        indented_block = updated_node.orelse.body
-        last_statement = indented_block.body[-1]
-        if m.matches(last_statement, m.SimpleStatementLine()) and m.matches(
-            last_statement.body[-1], m.Assign(value=m.Yield())
-        ):
-            assign_targets = last_statement.body[-1].targets
-            last_statement = cst.SimpleStatementLine(
-                [
-                    cst.Assign(
-                        targets=assign_targets,
-                        value=cst.Yield(
-                            cst.Tuple([cst.Element(a.target) for a in assign_targets])
-                            if len(assign_targets) > 1
-                            else assign_targets[0].target
-                        ),
-                    )
-                ]
+class CheckMatchingYields(StrictTransformer):
+    @m.leave(m.If())
+    def leave_(self, original_node: cst.If, _updated_node: cst.If) -> cst.If:
+        n_ifs = len(m.findall(original_node, m.If()))
+        n_elses = len(m.findall(original_node, m.Else()))
+        n_yields = len(m.findall(original_node, m.Call(func=m.Name(yield_.__name__))))
+        if n_ifs + n_elses <= n_yields:
+            warnings.warn(
+                f"unmatched if/elses and yields: {n_ifs=} {n_elses=} {n_yields=}; line {self.get_pos(original_node).start.line}"
             )
-            body = [updated_node.orelse, last_statement]
-        else:
-            body = [updated_node.orelse]
-        return updated_node.with_changes(orelse=cst.Else(cst.IndentedBlock(body)))
+        return original_node
+
+
+def check_unstack_if(original_node, metadata_resolver):
+    return m.matches(
+        original_node,
+        m.If(
+            test=m.NamedExpr(
+                target=m.MatchMetadataIfTrue(
+                    QualifiedNameProvider,
+                    lambda qualnames: any(
+                        unstack_if.__name__ in n.name
+                        or unstack_else_if.__name__ in n.name
+                        for n in qualnames
+                    ),
+                )
+            )
+        ),
+        metadata_resolver=metadata_resolver,
+    )
+
+
+class CanonicalizeElIfTests(StrictTransformer):
+    @m.call_if_inside(m.If(orelse=m.If()))
+    @m.leave(m.If())
+    def leave_last_elif(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
+        assert check_unstack_if(
+            original_node, self
+        ), f"if must already have had test replaced with unstack_if"
+        parent = self.get_parent(original_node)
+        if (
+            not check_unstack_if(parent, self)
+            # you need this because call_if_inside matches self as well as parent
+            or parent.orelse != original_node
+        ):
+            return updated_node
+
+        test = updated_node.test
+        new_test_call = ast_call(
+            unstack_else_if.__name__,
+            args=[cst.Arg(parent.test.target)] + list(updated_node.test.value.args),
+        )
+        new_test = test.with_changes(value=new_test_call)
+        return updated_node.with_changes(test=new_test)
 
 
 class ReplaceSCFCond(StrictTransformer):
-    @m.leave(m.If(test=m.Call(func=m.Name(stack_if.__name__))))
+    @m.leave(
+        m.If(
+            test=m.Call(
+                func=m.Name(unstack_if.__name__) | m.Name(unstack_else_if.__name__)
+            )
+        )
+    )
     def insert_with_results(
         self, original_node: cst.If, _updated_node: cst.If
     ) -> cst.If:
         return original_node
 
-    @m.leave(m.If(test=~m.Call(func=m.Name(stack_if.__name__))))
-    def insert_with_results(
-        self, original_node: cst.If, updated_node: cst.If
-    ) -> cst.If:
+    @m.leave(m.If())
+    def leave_if(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
         indented_block = updated_node.body
         last_statement = indented_block.body[-1]
-        assert m.matches(
-            last_statement, m.SimpleStatementLine()
-        ), f"conditional must end with a statement"
-        yield_expr = m.findall(last_statement, m.Call(func=m.Name(yield_.__name__)))
-        assert (
-            len(yield_expr) == 1
-        ), f"conditional with must explicitly {yield_.__name__} on last line: {yield_expr}"
-        yield_expr = yield_expr[0]
-        results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))] * len(
-            yield_expr.args
-        )
+        results = []
+        if m.matches(last_statement, m.SimpleStatementLine()):
+            yield_expr = m.findall(last_statement, m.Call(func=m.Name(yield_.__name__)))
+            assert len(
+                yield_expr
+            ), f"conditional must explicitly {yield_.__name__} on last line: {yield_expr}"
+            yield_expr = yield_expr[0]
+            results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))] * len(
+                yield_expr.args
+            )
         results = cst.Tuple(results)
 
         test = original_node.test
         new_test = ast_call(
-            stack_if.__name__,
-            args=[
-                cst.Arg(test),
-                cst.Arg(results),
-                cst.Arg(
-                    cst.Name(str(bool(original_node.orelse))),
-                    keyword=cst.Name("has_else"),
-                ),
-            ],
+            unstack_if.__name__,
+            args=[cst.Arg(test), cst.Arg(results)],
+        )
+        pos = self.get_pos(original_node)
+        new_test = cst.NamedExpr(
+            cst.Name(f"__{unstack_if.__name__}__{pos.start.line}"), new_test
         )
         new_test = test.deep_replace(test, new_test)
         return updated_node.with_changes(test=new_test)
 
 
+def in_last_statement_maybe_interleave_with_yields(node, new_node):
+    last_statement = get_last_statement(node)
+    last_statement_body = list(last_statement.body)
+    for i, b in enumerate(last_statement_body[:-1]):
+        next_b = last_statement_body[i + 1]
+        # two adjacent yields (this happens when InsertEmptyYield inserts a yield in a deep statement
+        if m.matches(b, m.Expr(m.Call(func=m.Name(yield_.__name__)))) and m.matches(
+            next_b, m.Expr(m.Call(func=m.Name(yield_.__name__)))
+        ):
+            last_statement_body.insert(i + 1, new_node)
+            break
+    else:
+        last_statement_body.append(new_node)
+    return node.deep_replace(
+        last_statement,
+        last_statement.with_changes(body=last_statement_body),
+    )
+
+
 class InsertEndIfs(StrictTransformer):
-    @m.leave(m.If(orelse=None))
-    def no_else(self, _original_node: cst.If, updated_node: cst.If) -> cst.If:
-        # every if branch needs a scf_endif_branch
-        # no else, then need to end the whole if in the body of the true branch
-        return insert_body_maybe_semicolon(updated_node, -1, ast_call(end_if.__name__))
+    @m.leave(m.If())
+    def leave_if(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
+        assert check_unstack_if(
+            original_node, self
+        ), f"if must already have had test replaced with unstack_if"
 
+        assign = cst.Assign(
+            targets=[cst.AssignTarget(updated_node.test.target)],
+            value=ast_call(
+                unstack_end_branch.__name__, [cst.Arg(updated_node.test.target)]
+            ),
+        )
+
+        new_body = in_last_statement_maybe_interleave_with_yields(
+            updated_node.body, assign
+        )
+
+        new_orelse = None
+        if updated_node.orelse:
+            new_orelse = in_last_statement_maybe_interleave_with_yields(
+                updated_node.orelse, assign
+            )
+            parent = self.get_parent(original_node)
+            if not check_unstack_if(parent, self) or parent.orelse != original_node:
+                return updated_node.with_changes(body=new_body, orelse=new_orelse)
+
+            # basically adds a yield for scf.elseif that yields the correct result (i.e., whatever is yielded in the inner
+            # block
+            maybe_assigned_yield_in_body = ast_call(yield_.__name__)
+            last_statement_in_body = updated_node.body.body[-1]
+
+            # if the inner block yields a named result, "re-yield" it
+            if m.matches(last_statement_in_body, m.SimpleStatementLine()) and m.matches(
+                last_statement_in_body.body[0],
+                m.Assign(value=m.Call(func=m.Name(yield_.__name__))),
+            ):
+                maybe_assigned_yield_in_body = last_statement_in_body.body[0]
+                # re-yield but you don't need to name it, i.e. it doesn't need to be visible at the python/frontend level
+                # i.e., if a user sets a breakpoint
+                maybe_assigned_yield_in_body = ast_call(
+                    yield_.__name__,
+                    [cst.Arg(t.target) for t in maybe_assigned_yield_in_body.targets],
+                )
+
+            maybe_assigned_yield_in_body = cst.Expr(maybe_assigned_yield_in_body)
+            new_orelse = in_last_statement_maybe_interleave_with_yields(
+                new_orelse, maybe_assigned_yield_in_body
+            )
+        return updated_node.with_changes(body=new_body, orelse=new_orelse)
+
+
+class InsertPreElses(StrictTransformer):
     @m.leave(m.If(orelse=m.Else()))
-    def has_else(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
-        # every if branch needs a scf_endif_branch
-        updated_node = insert_body_maybe_semicolon(
-            updated_node, -1, ast_call(end_branch.__name__)
-        )
+    def leave_if_else(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
+        assert check_unstack_if(
+            original_node, self
+        ), f"if must already have had test replaced with unstack_if"
 
-        # insert the else at beginning of else
-        orelse = updated_node.orelse
-        orelse = insert_body_maybe_semicolon(
-            orelse, 0, ast_call(else_.__name__), before=True
+        assign = cst.Assign(
+            targets=[cst.AssignTarget(updated_node.test.target)],
+            value=ast_call(unstack_else.__name__, [cst.Arg(updated_node.test.target)]),
         )
-        # and end the if after the else branch
-        orelse = insert_body_maybe_semicolon(orelse, -1, ast_call(end_if.__name__))
-        return updated_node.with_changes(orelse=orelse)
+        new_body = insert_in_deep_last_statement(updated_node.body, assign)
+        return updated_node.with_changes(body=new_body)
 
 
 class RemoveJumpsAndInsertGlobals(BytecodePatcher):
@@ -465,10 +489,11 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
                 str(OpCode.NOP), lineno=c.lineno, location=c.location
             )
 
-        f.__globals__[else_.__name__] = else_
-        f.__globals__[end_branch.__name__] = end_branch
-        f.__globals__[end_if.__name__] = end_if
-        f.__globals__[stack_if.__name__] = stack_if
+        # TODO(max): this is bad
+        f.__globals__[unstack_else.__name__] = unstack_else
+        f.__globals__[unstack_end_branch.__name__] = unstack_end_branch
+        f.__globals__[unstack_else_if.__name__] = unstack_else_if
+        f.__globals__[unstack_if.__name__] = unstack_if
         f.__globals__[yield_.__name__] = yield_
         f.__globals__[T._placeholder_opaque_t.__name__] = T._placeholder_opaque_t
         return code
@@ -476,11 +501,13 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
 
 class SCFCanonicalizer(Canonicalizer):
     cst_transformers = [
-        CanonicalizeElIfs,
         InsertEmptyYield,
         ReplaceYieldWithSCFYield,
+        CheckMatchingYields,
         ReplaceSCFCond,
+        CanonicalizeElIfTests,
         InsertEndIfs,
+        InsertPreElses,
     ]
 
     bytecode_patchers = [RemoveJumpsAndInsertGlobals]
