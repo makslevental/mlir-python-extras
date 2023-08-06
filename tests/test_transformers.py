@@ -184,7 +184,7 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (_placeholder_opaque_t,)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(),)):
             three = constant(3.0)
             yield three
         return
@@ -207,7 +207,7 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())):
             three = constant(3.0)
             yield three, three
         return
@@ -230,7 +230,7 @@ def test_if_replace_cond(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t, _placeholder_opaque_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t(), _placeholder_opaque_t())):
             three = constant(3.0)
             yield three, three, three
         return
@@ -412,7 +412,7 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (_placeholder_opaque_t,)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(),)):
             three = constant(3.0)
             if stack_if(two < three):
                 four = constant(4.0); yield_(); end_if()
@@ -452,7 +452,7 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())):
             three = constant(3.0)
             if stack_if(two < three):
                 four = constant(4.0); yield_(); end_if()
@@ -1074,12 +1074,12 @@ def test_if_with_elif_yields_results(ctx: MLIRContext):
         two = constant(2.0)
         three = constant(3.0)
 
-        if res := stack_if(one < two, (_placeholder_opaque_t,)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(),)):
             four = constant(4.0)
             stack_yield(four); end_branch()
         else:
             else_()
-            if res := stack_if(two < three, (_placeholder_opaque_t,)):
+            if res := stack_if(two < three, (_placeholder_opaque_t(),)):
                 five = constant(5.0)
                 stack_yield(five); end_branch()
             else:
@@ -1131,17 +1131,17 @@ def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
         three = constant(3.0)
         four = constant(4.0)
 
-        if res := stack_if(one < two, (_placeholder_opaque_t, _placeholder_opaque_t)):
+        if res := stack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())):
             five = constant(5.0)
             stack_yield(five, five); end_branch()
         else:
             else_()
-            if res1 := stack_if(two < three, (_placeholder_opaque_t, _placeholder_opaque_t)):
+            if res1 := stack_if(two < three, (_placeholder_opaque_t(), _placeholder_opaque_t())):
                 six = constant(6.0)
                 stack_yield(six, six); end_branch()
             else:
                 else_()
-                if res2 := stack_if(three < four, (_placeholder_opaque_t, _placeholder_opaque_t)):
+                if res2 := stack_if(three < four, (_placeholder_opaque_t(), _placeholder_opaque_t())):
                     seven = constant(7.0)
                     stack_yield(seven, seven); end_branch()
                 else:
