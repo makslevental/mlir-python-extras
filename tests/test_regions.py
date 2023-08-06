@@ -2,6 +2,7 @@ from textwrap import dedent
 
 import pytest
 
+import mlir_utils.types as T
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
 from mlir_utils.dialects.ext.tensor import S, rank
@@ -11,7 +12,7 @@ from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import f64_t, index_t, tensor_t
+from mlir_utils.types import tensor_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -93,11 +94,11 @@ def test_func(ctx: MLIRContext):
 
 
 def test_block_args(ctx: MLIRContext):
-    one = constant(1, index_t)
-    two = constant(2, index_t)
+    one = constant(1, T.index_t)
+    two = constant(2, T.index_t)
 
-    @generate(tensor_t(S, 3, S, f64_t), dynamic_extents=[one, two])
-    def demo_fun1(i: index_t, j: index_t, k: index_t):
+    @generate(tensor_t(S, 3, S, T.f64_t), dynamic_extents=[one, two])
+    def demo_fun1(i: T.index_t, j: T.index_t, k: T.index_t):
         one = constant(1.0)
         tensor_yield(one)
 

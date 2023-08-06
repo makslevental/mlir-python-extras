@@ -1,3 +1,4 @@
+import sys
 from functools import partial
 from typing import Union
 
@@ -19,33 +20,70 @@ from mlir.ir import (
     OpaqueType,
 )
 
-index_t = IndexType.get()
-bool_t = IntegerType.get_signless(1)
-i8_t = IntegerType.get_signless(8)
-i16_t = IntegerType.get_signless(16)
-i32_t = IntegerType.get_signless(32)
-i64_t = IntegerType.get_signless(64)
-f16_t = F16Type.get()
-f32_t = F32Type.get()
-f64_t = F64Type.get()
-bf16_t = BF16Type.get()
+_index_t = lambda: IndexType.get()
+_bool_t = lambda: IntegerType.get_signless(1)
+_i8_t = lambda: IntegerType.get_signless(8)
+_i16_t = lambda: IntegerType.get_signless(16)
+_i32_t = lambda: IntegerType.get_signless(32)
+_i64_t = lambda: IntegerType.get_signless(64)
+_f16_t = lambda: F16Type.get()
+_f32_t = lambda: F32Type.get()
+_f64_t = lambda: F64Type.get()
+_bf16_t = lambda: BF16Type.get()
 opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
-NP_DTYPE_TO_MLIR_TYPE = lambda: {
-    np.int8: i8_t,
-    np.int16: i16_t,
-    np.int32: i32_t,
-    np.int64: i64_t,
-    # this is techincally wrong i guess but numpy by default casts python scalars to this
-    # so to support passing lists of ints we map this to index type
-    np.longlong: index_t,
-    np.uintp: index_t,
-    np.float16: f16_t,
-    np.float32: f32_t,
-    np.float64: f64_t,
+
+def _placeholder_opaque_t():
+    return opaque_t("scf", "placeholder")
+
+
+_name_to_type = {
+    "index_t": _index_t,
+    "bool_t": _bool_t,
+    "i8_t": _i8_t,
+    "i16_t": _i16_t,
+    "i32_t": _i32_t,
+    "i64_t": _i64_t,
+    "f16_t": _f16_t,
+    "f32_t": _f32_t,
+    "f64_t": _f64_t,
+    "bf16_t": _bf16_t,
 }
 
-MLIR_TYPE_TO_NP_DTYPE = lambda: {v: k for k, v in NP_DTYPE_TO_MLIR_TYPE().items()}
+
+def __getattr__(name):
+    if name in _name_to_type:
+        return _name_to_type[name]()
+    # this kicks it to the default module attribute lookup (i.e., functions defined below and such)
+    return None
+
+
+_np_dtype_to_mlir_type_ctor = {
+    np.int8: _i8_t,
+    np.int16: _i16_t,
+    np.int32: _i32_t,
+    np.int64: _i64_t,
+    # is technically wrong i guess but numpy by default casts python scalars to this
+    # so to support passing lists of ints we map to index type
+    np.longlong: _index_t,
+    np.uintp: _index_t,
+    np.float16: _f16_t,
+    np.float32: _f32_t,
+    np.float64: _f64_t,
+}
+
+_mlir_type_ctor_to_np_dtype = lambda: {
+    v: k for k, v in _np_dtype_to_mlir_type_ctor.items()
+}
+
+
+def np_dtype_to_mlir_type(np_dtype):
+    return _np_dtype_to_mlir_type_ctor[np_dtype]()
+
+
+def mlir_type_to_np_dtype(mlir_type):
+    _mlir_type_to_np_dtype = {v(): k for k, v in _np_dtype_to_mlir_type_ctor.items()}
+    return _mlir_type_to_np_dtype[mlir_type]
 
 
 def infer_mlir_type(
@@ -62,13 +100,13 @@ def infer_mlir_type(
       MLIR type corresponding to py_val.
     """
     if isinstance(py_val, bool):
-        return bool_t
+        return _bool_t()
     elif isinstance(py_val, int):
-        return i64_t
+        return _i64_t()
     elif isinstance(py_val, float):
-        return f64_t
+        return _f64_t()
     elif isinstance(py_val, np.ndarray):
-        dtype = NP_DTYPE_TO_MLIR_TYPE()[py_val.dtype.type]
+        dtype = np_dtype_to_mlir_type(py_val.dtype.type)
         return RankedTensorType.get(py_val.shape, dtype)
     else:
         raise NotImplementedError(

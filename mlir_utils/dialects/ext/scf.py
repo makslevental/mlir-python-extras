@@ -9,6 +9,7 @@ from bytecode import ConcreteBytecode, ConcreteInstr
 from mlir.dialects.scf import IfOp, ForOp
 from mlir.ir import InsertionPoint, Value, OpResultList, OpResult
 
+import mlir_utils.types as T
 from mlir_utils.ast.canonicalize import (
     StrictTransformer,
     Canonicalizer,
@@ -18,7 +19,6 @@ from mlir_utils.ast.canonicalize import (
 from mlir_utils.ast.util import ast_call
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.scf import yield_ as yield__
-from mlir_utils.types import opaque_t
 from mlir_utils.util import (
     region_op,
     maybe_cast,
@@ -101,8 +101,6 @@ def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
 
 if_ = region_op(_if, terminator=yield__)
 
-_placeholder_opaque_t = opaque_t("scf", "placeholder")
-
 
 class IfStack:
     __current_if_op: list[IfOp] = []
@@ -175,7 +173,7 @@ class IfStack:
 
         assert len(results) == len(unpacked_args), f"{results=}, {unpacked_args=}"
         for i, r in enumerate(results):
-            if r.type == _placeholder_opaque_t:
+            if r.type == T._placeholder_opaque_t():
                 r.set_type(unpacked_args[i].type)
 
         yield_(*args)
@@ -325,13 +323,13 @@ class ReplaceSCFCond(StrictTransformer):
         ), f"conditional with := must explicitly yield on last line"
         yield_expr = last_statement.body[0]
         if m.matches(yield_expr.value, m.Call(func=m.Name(stack_yield.__name__))):
-            results = [cst.Element(cst.Name("_placeholder_opaque_t"))] * len(
+            results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))] * len(
                 yield_expr.value.args
             )
         elif m.matches(yield_expr.value.value, m.Name()):
-            results = [cst.Element(cst.Name("_placeholder_opaque_t"))]
+            results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))]
         elif m.matches(yield_expr.value.value, m.Tuple()):
-            results = [cst.Element(cst.Name("_placeholder_opaque_t"))] * len(
+            results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))] * len(
                 yield_expr.value.value.elements
             )
         results = cst.Tuple(results)
@@ -422,14 +420,13 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
                 str(OpCode.NOP), lineno=c.lineno, location=c.location
             )
 
-        # TODO(max): this is bad
         f.__globals__[else_.__name__] = else_
         f.__globals__[end_branch.__name__] = end_branch
         f.__globals__[end_if.__name__] = end_if
         f.__globals__[stack_if.__name__] = stack_if
         f.__globals__[stack_yield.__name__] = stack_yield
         f.__globals__[yield_.__name__] = yield_
-        f.__globals__["_placeholder_opaque_t"] = _placeholder_opaque_t
+        f.__globals__[T._placeholder_opaque_t.__name__] = T._placeholder_opaque_t
         return code
 
 

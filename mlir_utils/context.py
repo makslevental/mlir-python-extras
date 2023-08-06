@@ -4,8 +4,6 @@ from typing import Optional
 
 import mlir.ir
 
-from mlir_utils import DefaultContext
-
 
 @dataclass
 class MLIRContext:
@@ -19,7 +17,7 @@ class MLIRContext:
 @contextmanager
 def mlir_mod_ctx(
     src: Optional[str] = None,
-    context: mlir.ir.Context = DefaultContext,
+    context: mlir.ir.Context = None,
     location: mlir.ir.Location = None,
     allow_unregistered_dialects=False,
 ) -> MLIRContext:

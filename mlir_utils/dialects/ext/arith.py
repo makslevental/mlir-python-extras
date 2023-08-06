@@ -35,7 +35,7 @@ try:
 except ModuleNotFoundError:
     pass
 
-from mlir_utils.types import infer_mlir_type, MLIR_TYPE_TO_NP_DTYPE
+from mlir_utils.types import infer_mlir_type, mlir_type_to_np_dtype
 
 
 def constant(
@@ -69,7 +69,7 @@ def constant(
         ranked_tensor_type = RankedTensorType(type)
         value = np.ones(
             ranked_tensor_type.shape,
-            dtype=MLIR_TYPE_TO_NP_DTYPE()[ranked_tensor_type.element_type],
+            dtype=mlir_type_to_np_dtype(ranked_tensor_type.element_type),
         )
     assert type is not None
 

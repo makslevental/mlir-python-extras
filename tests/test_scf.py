@@ -2,6 +2,7 @@ from textwrap import dedent
 
 import pytest
 
+import mlir_utils.types as T
 from mlir_utils.ast.canonicalize import canonicalize, patch_bytecode
 from mlir_utils.dialects.ext.arith import constant, Scalar
 from mlir_utils.dialects.ext.scf import (
@@ -15,7 +16,6 @@ from mlir_utils.dialects.ext.scf import (
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import f64_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -227,7 +227,7 @@ def test_if_replace_yield_3(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (f64_t,)):
+        if res := stack_if(one < two, (T.f64_t,)):
             three = constant(3.0)
             yield three
         else:
@@ -262,7 +262,7 @@ def test_if_replace_yield_4(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (f64_t, f64_t)):
+        if res := stack_if(one < two, (T.f64_t, T.f64_t)):
             three = constant(3.0)
             yield three, three
         else:
@@ -297,7 +297,7 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if res := stack_if(one < two, (f64_t, f64_t, f64_t)):
+        if res := stack_if(one < two, (T.f64_t, T.f64_t, T.f64_t)):
             three = constant(3.0)
             yield three, three, three
         else:
@@ -914,13 +914,13 @@ def test_if_with_elif_elif_explicit_yields_results(ctx: MLIRContext):
         three = constant(3.0)
         four = constant(4.0)
 
-        if res := stack_if(one < two, (f64_t, f64_t)):
+        if res := stack_if(one < two, (T.f64_t, T.f64_t)):
             five = constant(5.0)
             yield five, five
-        elif res1 := stack_if(two < three, (f64_t, f64_t)):
+        elif res1 := stack_if(two < three, (T.f64_t, T.f64_t)):
             six = constant(6.0)
             yield six, six
-        elif res2 := stack_if(three < four, (f64_t, f64_t)):
+        elif res2 := stack_if(three < four, (T.f64_t, T.f64_t)):
             seven = constant(7.0)
             yield seven, seven
         else:
