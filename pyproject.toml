@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest", "mlir-native-tools"]
+test = ["pytest", "mlir-native-tools", "astpretty"]
 torch-mlir = ["torch-mlir-core"]
 jax = ["jax[cpu]", ]
 mlir = ["mlir-python-bindings"]
