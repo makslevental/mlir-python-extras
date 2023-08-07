@@ -1,9 +1,15 @@
+import ast
 import functools
 import inspect
 import types
 from textwrap import dedent
 
-import libcst as cst
+
+def set_lineno(node, n=1):
+    for child in ast.walk(node):
+        child.lineno = n
+        child.end_lineno = n
+    return node
 
 
 def ast_call(name, args=None, keywords=None):
@@ -11,18 +17,20 @@ def ast_call(name, args=None, keywords=None):
         keywords = []
     if args is None:
         args = []
-    call = cst.Call(
-        func=cst.Name(value=name),
-        args=args + keywords,
+    call = ast.Call(
+        func=ast.Name(name, ctx=ast.Load()),
+        args=args,
+        keywords=keywords,
     )
     return call
 
 
 def get_module_cst(f):
     f_src = dedent(inspect.getsource(f))
-    tree = cst.parse_module(f_src)
+    # tree = cst.parse_module(f_src)
+    tree = ast.parse(f_src)
     assert isinstance(
-        tree.body[0], cst.FunctionDef
+        tree.body[0], ast.FunctionDef
     ), f"unexpected ast node {tree.body[0]}"
     return tree
 

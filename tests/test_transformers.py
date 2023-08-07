@@ -1,34 +1,37 @@
-import re
+import ast
 from textwrap import dedent
 
+import astpretty
 import pytest
 
-from mlir_utils.ast.canonicalize import transform_func, canonicalize, Canonicalizer
+from mlir_utils.ast.canonicalize import transform_func
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.scf import (
+    CanonicalizeElIfs,
+    ReplaceIfWithWith,
     ReplaceYieldWithSCFYield,
-    ReplaceSCFCond,
-    InsertEndIfs,
     InsertEmptyYield,
-    CheckMatchingYields,
-    InsertPreElses,
-    unstack_if,
-    RemoveJumpsAndInsertGlobals,
-    yield_,
-    unstack_end_branch,
-    unstack_else,
-    unstack_else_if,
 )
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import _placeholder_opaque_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
 
 
-def test_if_replace_yield(ctx: MLIRContext):
+def _fields(n: ast.AST, show_offsets: bool = True) -> tuple[str, ...]:
+    strip = {"type_ignores", "decorator_list", "type_comment", "ctx", "kind"}
+    fields = tuple(f for f in n._fields if f not in strip)
+    attributes = ("lineno",) if "lineno" in n._attributes else ()
+    return attributes + fields
+
+
+# astpretty._leaf = _leaf
+astpretty._fields = _fields
+
+
+def test_if_handle_yield_1():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -37,7 +40,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             yield
         return
 
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield).code
+    mod = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -50,8 +53,81 @@ def test_if_replace_yield(ctx: MLIRContext):
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
 
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    If(
+                        lineno=4,
+                        test=Compare(
+                            lineno=4,
+                            left=Name(lineno=4, id='one'),
+                            ops=[Lt()],
+                            comparators=[Name(lineno=4, id='two')],
+                        ),
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=6,
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
+                    Return(lineno=7, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+    assert correct.strip() == dump
+
+
+def test_if_handle_yield_2():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -59,7 +135,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             three = constant(3.0)
         return
 
-    code = transform_func(iffoo, InsertEmptyYield).code
+    mod = transform_func(iffoo, InsertEmptyYield)
 
     correct = dedent(
         """\
@@ -67,12 +143,81 @@ def test_if_replace_yield(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         if one < two:
-            three = constant(3.0); yield
-        return
+            three = constant(3.0)
+            yield
+        return\
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
 
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    If(
+                        lineno=4,
+                        test=Compare(
+                            lineno=4,
+                            left=Name(lineno=4, id='one'),
+                            ops=[Lt()],
+                            comparators=[Name(lineno=4, id='two')],
+                        ),
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=5,
+                                value=Yield(lineno=5, value=None),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
+                    Return(lineno=6, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+    assert correct.strip() == dump
+
+
+def test_if_handle_yield_3():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -81,7 +226,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             res = yield three
         return
 
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield).code
+    mod = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -94,8 +239,83 @@ def test_if_replace_yield(ctx: MLIRContext):
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
 
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    If(
+                        lineno=4,
+                        test=Compare(
+                            lineno=4,
+                            left=Name(lineno=4, id='one'),
+                            ops=[Lt()],
+                            comparators=[Name(lineno=4, id='two')],
+                        ),
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=6,
+                                targets=[Name(lineno=6, id='res')],
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[Name(lineno=6, id='three')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
+                    Return(lineno=7, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_if_handle_yield_4():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -104,7 +324,7 @@ def test_if_replace_yield(ctx: MLIRContext):
             res1, res2 = yield three, three
         return
 
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield).code
+    mod = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
     correct = dedent(
         """\
@@ -117,189 +337,94 @@ def test_if_replace_yield(ctx: MLIRContext):
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
 
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            res1, res2, res3 = yield three, three, three
-        return
-
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield).code
-
+    dump = astpretty.pformat(mod, show_offsets=True)
     correct = dedent(
         """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            res1, res2, res3 = yield_(three, three, three)
-        return
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    If(
+                        lineno=4,
+                        test=Compare(
+                            lineno=4,
+                            left=Name(lineno=4, id='one'),
+                            ops=[Lt()],
+                            comparators=[Name(lineno=4, id='two')],
+                        ),
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=6,
+                                targets=[
+                                    Tuple(
+                                        lineno=6,
+                                        elts=[
+                                            Name(lineno=6, id='res1'),
+                                            Name(lineno=6, id='res2'),
+                                        ],
+                                    ),
+                                ],
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[
+                                        Name(lineno=6, id='three'),
+                                        Name(lineno=6, id='three'),
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
+                    Return(lineno=7, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+
+    assert correct.strip() == dump
 
 
-def test_if_replace_cond(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            yield
-        return
-
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceSCFCond).code
-
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if __unstack_if__144 := unstack_if(one < two, ()):
-            three = constant(3.0)
-            yield_()
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            res = yield three
-        return
-
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceSCFCond).code
-
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if __unstack_if__167 := unstack_if(one < two, (_placeholder_opaque_t(),)):
-            three = constant(3.0)
-            res = yield_(three)
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            res1, res2 = yield three, three
-        return
-
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceSCFCond).code
-
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if __unstack_if__190 := unstack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())):
-            three = constant(3.0)
-            res1, res2 = yield_(three, three)
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            res1, res2, res3 = yield three, three, three
-        return
-
-    code = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceSCFCond).code
-
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if __unstack_if__213 := unstack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t(), _placeholder_opaque_t())):
-            three = constant(3.0)
-            res1, res2, res3 = yield_(three, three, three)
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_insert_end_ifs(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            yield
-        return
-
-    code = transform_func(
-        iffoo,
-        ReplaceYieldWithSCFYield,
-        ReplaceSCFCond,
-        InsertEndIfs,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if __unstack_if__238 := unstack_if(one < two, ()):
-            three = constant(3.0)
-            yield_(); __unstack_if__238 = unstack_end_branch(__unstack_if__238)
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            yield three
-        else:
-            four = constant(4.0)
-            yield four
-        return
-
-    code = transform_func(
-        iffoo,
-        ReplaceYieldWithSCFYield,
-        ReplaceSCFCond,
-        InsertEndIfs,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if __unstack_if__266 := unstack_if(one < two, (_placeholder_opaque_t(),)):
-            three = constant(3.0)
-            yield_(three); __unstack_if__266 = unstack_end_branch(__unstack_if__266)
-        else:
-            four = constant(4.0)
-            yield_(four); __unstack_if__266 = unstack_end_branch(__unstack_if__266)
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_nested_no_else_no_yield(ctx: MLIRContext):
+def test_if_nested_no_else_no_yield():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -307,12 +432,9 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
             three = constant(3.0)
             if one < two:
                 four = constant(4.0)
-            yield
         return
 
-    iffoo()
-
-    code = transform_func(iffoo, InsertEmptyYield).code
+    mod = transform_func(iffoo, InsertEmptyYield)
     correct = dedent(
         """\
     def iffoo():
@@ -321,15 +443,477 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
         if one < two:
             three = constant(3.0)
             if one < two:
-                four = constant(4.0); yield
+                four = constant(4.0)
+                yield
             yield
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    If(
+                        lineno=4,
+                        test=Compare(
+                            lineno=4,
+                            left=Name(lineno=4, id='one'),
+                            ops=[Lt()],
+                            comparators=[Name(lineno=4, id='two')],
+                        ),
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            If(
+                                lineno=6,
+                                test=Compare(
+                                    lineno=6,
+                                    left=Name(lineno=6, id='one'),
+                                    ops=[Lt()],
+                                    comparators=[Name(lineno=6, id='two')],
+                                ),
+                                body=[
+                                    Assign(
+                                        lineno=7,
+                                        targets=[Name(lineno=7, id='four')],
+                                        value=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='constant'),
+                                            args=[Constant(lineno=7, value=4.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=7,
+                                        value=Yield(lineno=7, value=None),
+                                    ),
+                                ],
+                                orelse=[],
+                            ),
+                            Expr(
+                                lineno=7,
+                                value=Yield(lineno=7, value=None),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
+                    Return(lineno=8, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
 
 
-def test_if_nested_with_else_no_yield(ctx: MLIRContext):
+def test_if_replace_cond_1():
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        if one < two:
+            three = constant(3.0)
+            yield
+        return
+
+    mod = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceIfWithWith)
+
+    correct = dedent(
+        """\
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        with if_ctx_manager(one < two, ()) as __if_op__4:
+            three = constant(3.0)
+            yield_()
+        return
+    """
+    )
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=4,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=4,
+                                    func=Name(lineno=4, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=4,
+                                            left=Name(lineno=4, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=4, id='two')],
+                                        ),
+                                        Tuple(lineno=4, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=4, id='__if_op__4'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=6,
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=7, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_if_replace_cond_2():
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        if one < two:
+            three = constant(3.0)
+            res = yield three
+        return
+
+    mod = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceIfWithWith)
+
+    correct = dedent(
+        """\
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        with if_ctx_manager(one < two, (_placeholder_opaque_t(),)) as __if_op__4:
+            three = constant(3.0)
+            res = yield_(three)
+        return
+    """
+    )
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=4,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=4,
+                                    func=Name(lineno=4, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=4,
+                                            left=Name(lineno=4, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=4, id='two')],
+                                        ),
+                                        Tuple(
+                                            lineno=4,
+                                            elts=[
+                                                Call(
+                                                    lineno=4,
+                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=4, id='__if_op__4'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=6,
+                                targets=[Name(lineno=6, id='res')],
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[Name(lineno=6, id='three')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=7, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_if_replace_cond_3():
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        if one < two:
+            three = constant(3.0)
+            res1, res2 = yield three, three
+        return
+
+    mod = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceIfWithWith)
+
+    correct = dedent(
+        """\
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        with if_ctx_manager(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())) as __if_op__4:
+            three = constant(3.0)
+            res1, res2 = yield_(three, three)
+        return
+    """
+    )
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=4,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=4,
+                                    func=Name(lineno=4, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=4,
+                                            left=Name(lineno=4, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=4, id='two')],
+                                        ),
+                                        Tuple(
+                                            lineno=4,
+                                            elts=[
+                                                Call(
+                                                    lineno=4,
+                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                                Call(
+                                                    lineno=4,
+                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=4, id='__if_op__4'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=6,
+                                targets=[
+                                    Tuple(
+                                        lineno=6,
+                                        elts=[
+                                            Name(lineno=6, id='res1'),
+                                            Name(lineno=6, id='res2'),
+                                        ],
+                                    ),
+                                ],
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[
+                                        Name(lineno=6, id='three'),
+                                        Name(lineno=6, id='three'),
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=7, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+    assert correct.strip() == dump
+
+
+def test_if_nested_with_else_no_yield():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -339,12 +923,9 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
                 four = constant(4.0)
             else:
                 five = constant(5.0)
-            yield
         return
 
-    iffoo()
-
-    code = transform_func(iffoo, InsertEmptyYield).code
+    mod = transform_func(iffoo, CanonicalizeElIfs, InsertEmptyYield)
     correct = dedent(
         """\
     def iffoo():
@@ -353,49 +934,280 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
         if one < two:
             three = constant(3.0)
             if one < two:
-                four = constant(4.0); yield
+                four = constant(4.0)
+                yield
             else:
-                five = constant(5.0); yield
+                five = constant(5.0)
+                yield
             yield
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    If(
+                        lineno=4,
+                        test=Compare(
+                            lineno=4,
+                            left=Name(lineno=4, id='one'),
+                            ops=[Lt()],
+                            comparators=[Name(lineno=4, id='two')],
+                        ),
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            If(
+                                lineno=6,
+                                test=Compare(
+                                    lineno=6,
+                                    left=Name(lineno=6, id='one'),
+                                    ops=[Lt()],
+                                    comparators=[Name(lineno=6, id='two')],
+                                ),
+                                body=[
+                                    Assign(
+                                        lineno=7,
+                                        targets=[Name(lineno=7, id='four')],
+                                        value=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='constant'),
+                                            args=[Constant(lineno=7, value=4.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=7,
+                                        value=Yield(lineno=7, value=None),
+                                    ),
+                                ],
+                                orelse=[
+                                    Assign(
+                                        lineno=9,
+                                        targets=[Name(lineno=9, id='five')],
+                                        value=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='constant'),
+                                            args=[Constant(lineno=9, value=5.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=9,
+                                        value=Yield(lineno=9, value=None),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=9,
+                                value=Yield(lineno=9, value=None),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
+                    Return(lineno=10, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
 
 
-def test_insert_end_ifs_yield(ctx: MLIRContext):
+def test_insert_end_ifs_yield():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
         if one < two:
             three = constant(3.0)
-            yield
         else:
             four = constant(4.0)
-            yield
         return
 
-    code = transform_func(
-        iffoo, ReplaceYieldWithSCFYield, ReplaceSCFCond, InsertEndIfs
-    ).code
+    mod = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+    )
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if __unstack_if__362 := unstack_if(one < two, ()):
+        with if_ctx_manager(one < two, ()) as __if_op__4:
             three = constant(3.0)
-            yield_(); __unstack_if__362 = unstack_end_branch(__unstack_if__362)
-        else:
+            yield_()
+        with else_ctx_manager(__if_op__4):
             four = constant(4.0)
-            yield_(); __unstack_if__362 = unstack_end_branch(__unstack_if__362)
+            yield_()
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=4,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=4,
+                                    func=Name(lineno=4, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=4,
+                                            left=Name(lineno=4, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=4, id='two')],
+                                        ),
+                                        Tuple(lineno=4, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=4, id='__if_op__4'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=5,
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=6,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='else_ctx_manager'),
+                                    args=[Name(lineno=6, id='__if_op__4')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=7,
+                                targets=[Name(lineno=7, id='four')],
+                                value=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='constant'),
+                                    args=[Constant(lineno=7, value=4.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=7,
+                                value=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=8, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
 
 
-def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
+def test_if_else_with_nested_no_yields_yield_results():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -409,32 +1221,208 @@ def test_if_else_with_nested_no_yields_yield_results(ctx: MLIRContext):
             res = yield five
         return
 
-    code = transform_func(
+    mod = transform_func(
         iffoo,
         InsertEmptyYield,
         ReplaceYieldWithSCFYield,
-        ReplaceSCFCond,
-    ).code
+        ReplaceIfWithWith,
+    )
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if __unstack_if__394 := unstack_if(one < two, (_placeholder_opaque_t(),)):
+        with if_ctx_manager(one < two, (_placeholder_opaque_t(),)) as __if_op__4:
             three = constant(3.0)
-            if __unstack_if__396 := unstack_if(two < three, ()):
-                four = constant(4.0); yield_()
+            with if_ctx_manager(two < three, ()) as __if_op__6:
+                four = constant(4.0)
+                yield_()
             res = yield_(three)
-        else:
+        with else_ctx_manager(__if_op__4):
             five = constant(5.0)
             res = yield_(five)
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=4,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=4,
+                                    func=Name(lineno=4, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=4,
+                                            left=Name(lineno=4, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=4, id='two')],
+                                        ),
+                                        Tuple(
+                                            lineno=4,
+                                            elts=[
+                                                Call(
+                                                    lineno=4,
+                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=4, id='__if_op__4'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            With(
+                                lineno=6,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=6,
+                                            func=Name(lineno=6, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=6,
+                                                    left=Name(lineno=6, id='two'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=6, id='three')],
+                                                ),
+                                                Tuple(lineno=6, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=6, id='__if_op__6'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=7,
+                                        targets=[Name(lineno=7, id='four')],
+                                        value=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='constant'),
+                                            args=[Constant(lineno=7, value=4.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=7,
+                                        value=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Assign(
+                                lineno=8,
+                                targets=[Name(lineno=8, id='res')],
+                                value=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='yield_'),
+                                    args=[Name(lineno=8, id='three')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=9,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=9,
+                                    func=Name(lineno=9, id='else_ctx_manager'),
+                                    args=[Name(lineno=9, id='__if_op__4')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=10,
+                                targets=[Name(lineno=10, id='five')],
+                                value=Call(
+                                    lineno=10,
+                                    func=Name(lineno=10, id='constant'),
+                                    args=[Constant(lineno=10, value=5.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=11,
+                                targets=[Name(lineno=11, id='res')],
+                                value=Call(
+                                    lineno=11,
+                                    func=Name(lineno=11, id='yield_'),
+                                    args=[Name(lineno=11, id='five')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=12, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
 
 
-def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
+def test_if_else_with_nested_no_yields_yield_multiple_results():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -448,351 +1436,452 @@ def test_if_else_with_nested_no_yields_yield_multiple_results(ctx: MLIRContext):
             res = yield five, five
         return
 
-    code = transform_func(
+    mod = transform_func(
         iffoo,
+        CanonicalizeElIfs,
         InsertEmptyYield,
         ReplaceYieldWithSCFYield,
-    ).code
+        ReplaceIfWithWith,
+    )
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        if one < two:
+        with if_ctx_manager(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())) as __if_op__4:
             three = constant(3.0)
-            if two < three:
-                four = constant(4.0); yield_()
+            with if_ctx_manager(two < three, ()) as __if_op__6:
+                four = constant(4.0)
+                yield_()
             res = yield_(three, three)
-        else:
+        with else_ctx_manager(__if_op__4):
             five = constant(5.0)
             res = yield_(five, five)
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=4,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=4,
+                                    func=Name(lineno=4, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=4,
+                                            left=Name(lineno=4, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=4, id='two')],
+                                        ),
+                                        Tuple(
+                                            lineno=4,
+                                            elts=[
+                                                Call(
+                                                    lineno=4,
+                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                                Call(
+                                                    lineno=4,
+                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=4, id='__if_op__4'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=5,
+                                targets=[Name(lineno=5, id='three')],
+                                value=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='constant'),
+                                    args=[Constant(lineno=5, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            With(
+                                lineno=6,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=6,
+                                            func=Name(lineno=6, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=6,
+                                                    left=Name(lineno=6, id='two'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=6, id='three')],
+                                                ),
+                                                Tuple(lineno=6, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=6, id='__if_op__6'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=7,
+                                        targets=[Name(lineno=7, id='four')],
+                                        value=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='constant'),
+                                            args=[Constant(lineno=7, value=4.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=7,
+                                        value=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Assign(
+                                lineno=8,
+                                targets=[Name(lineno=8, id='res')],
+                                value=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='yield_'),
+                                    args=[
+                                        Name(lineno=8, id='three'),
+                                        Name(lineno=8, id='three'),
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=9,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=9,
+                                    func=Name(lineno=9, id='else_ctx_manager'),
+                                    args=[Name(lineno=9, id='__if_op__4')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=10,
+                                targets=[Name(lineno=10, id='five')],
+                                value=Call(
+                                    lineno=10,
+                                    func=Name(lineno=10, id='constant'),
+                                    args=[Constant(lineno=10, value=5.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=11,
+                                targets=[Name(lineno=11, id='res')],
+                                value=Call(
+                                    lineno=11,
+                                    func=Name(lineno=11, id='yield_'),
+                                    args=[
+                                        Name(lineno=11, id='five'),
+                                        Name(lineno=11, id='five'),
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=12, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
 
 
-def test_if_nested_with_else_no_yield_insert_order(ctx: MLIRContext):
+def test_if_with_else_else_with_yields():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
 
         if one < two:
             three = constant(3.0)
+        else:
             if one < two:
                 four = constant(4.0)
             else:
                 five = constant(5.0)
-            yield
 
         return
 
-    iffoo()
-
-    code = transform_func(
+    mod = transform_func(
         iffoo,
-        InsertEmptyYield,
-        # ReplaceYieldWithSCFYield,
-        # ReplaceSCFCond,
-        # InsertEndIfs,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
-                four = constant(4.0); yield
-            else:
-                five = constant(5.0); yield
-            yield
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_else_with_nested_no_yields_insert_order(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
-                four = constant(4.0)
-            yield
-        else:
-            five = constant(5.0)
-
-        return
-
-    iffoo()
-    code = transform_func(
-        iffoo,
+        CanonicalizeElIfs,
         InsertEmptyYield,
         ReplaceYieldWithSCFYield,
-        # ReplaceSCFCond,
-        # InsertEndIfs,
-    ).code
+        ReplaceIfWithWith,
+    )
+
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
-        if one < two:
+        with if_ctx_manager(one < two, ()) as __if_op__5:
             three = constant(3.0)
-            if one < two:
-                four = constant(4.0); yield_()
             yield_()
-        else:
-            five = constant(5.0); yield_()
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_nested_with_else_no_yields_insert_order(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
+        with else_ctx_manager(__if_op__5):
+            with if_ctx_manager(one < two, ()) as __if_op__8:
                 four = constant(4.0)
-            else:
+                yield_()
+            with else_ctx_manager(__if_op__8):
                 five = constant(5.0)
-            yield
-        else:
-            six = constant(6.0)
-
-        return
-
-    iffoo()
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        # ReplaceSCFCond,
-        # InsertEndIfs,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            if one < two:
-                four = constant(4.0); yield_()
-            else:
-                five = constant(5.0); yield_()
+                yield_()
             yield_()
-        else:
-            six = constant(6.0); yield_()
-
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
 
-
-def test_if_with_else_else_with_yields(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            yield
-        else:
-            if one < two:
-                four = constant(4.0)
-                yield
-            else:
-                five = constant(5.0)
-                yield
-            yield
-
-        return
-
-    try:
-        code = transform_func(
-            iffoo,
-            InsertEmptyYield,
-            ReplaceYieldWithSCFYield,
-            CheckMatchingYields,
-            # ReplaceSCFCond,
-            # InsertEndIfs,
-        )
-    except AssertionError as e:
-        assert e.args[0].startswith(
-            "unmatched if/elses and yields: n_ifs=2 n_elses=2 n_yields=3; line"
-        )
-
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-            yield
-        else:
-            if one < two:
-                four = constant(4.0)
-                yield
-            else:
-                five = constant(5.0)
-                yield
-            yield
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
+    dump = astpretty.pformat(mod, show_offsets=True)
 
     correct = dedent(
         """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if __unstack_if__631 := unstack_if(one < two, ()):
-            three = constant(3.0)
-            yield_(); __unstack_if__631 = unstack_end_branch(__unstack_if__631); __unstack_if__631 = unstack_else(__unstack_if__631)
-        else:
-            if __unstack_if__635 := unstack_if(one < two, ()):
-                four = constant(4.0)
-                yield_(); __unstack_if__635 = unstack_end_branch(__unstack_if__635); __unstack_if__635 = unstack_else(__unstack_if__635)
-            else:
-                five = constant(5.0)
-                yield_(); __unstack_if__635 = unstack_end_branch(__unstack_if__635)
-            yield_(); __unstack_if__631 = unstack_end_branch(__unstack_if__631)
-
-        return
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=5,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=5,
+                                    func=Name(lineno=5, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=5,
+                                            left=Name(lineno=5, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=5, id='two')],
+                                        ),
+                                        Tuple(lineno=5, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=5, id='__if_op__5'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=6,
+                                targets=[Name(lineno=6, id='three')],
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='constant'),
+                                    args=[Constant(lineno=6, value=3.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=6,
+                                value=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=7,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='else_ctx_manager'),
+                                    args=[Name(lineno=7, id='__if_op__5')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=8,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=8,
+                                            func=Name(lineno=8, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=8,
+                                                    left=Name(lineno=8, id='one'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=8, id='two')],
+                                                ),
+                                                Tuple(lineno=8, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=8, id='__if_op__8'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=9,
+                                        targets=[Name(lineno=9, id='four')],
+                                        value=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='constant'),
+                                            args=[Constant(lineno=9, value=4.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=9,
+                                        value=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=10,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='else_ctx_manager'),
+                                            args=[Name(lineno=10, id='__if_op__8')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=11,
+                                        targets=[Name(lineno=11, id='five')],
+                                        value=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='constant'),
+                                            args=[Constant(lineno=11, value=5.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=11,
+                                        value=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=11,
+                                value=Call(
+                                    lineno=11,
+                                    func=Name(lineno=11, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=13, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == dump
 
 
-def test_if_insert_yields_if_else(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if one < two:
-            three = constant(3.0)
-        else:
-            if one < two:
-                four = constant(4.0)
-            else:
-                five = constant(5.0)
-            yield
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-
-        if __unstack_if__684 := unstack_if(one < two, ()):
-            three = constant(3.0); yield_(); __unstack_if__684 = unstack_end_branch(__unstack_if__684); __unstack_if__684 = unstack_else(__unstack_if__684)
-        else:
-            if __unstack_if__687 := unstack_if(one < two, ()):
-                four = constant(4.0); yield_(); __unstack_if__687 = unstack_end_branch(__unstack_if__687); __unstack_if__687 = unstack_else(__unstack_if__687)
-            else:
-                five = constant(5.0); yield_(); __unstack_if__687 = unstack_end_branch(__unstack_if__687)
-            yield_(); __unstack_if__684 = unstack_end_branch(__unstack_if__684)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_canonicalize_elif(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if one < two:
-            four = constant(4.0)
-            yield
-        else:
-            if two < three:
-                five = constant(5.0)
-                yield
-            else:
-                six = constant(6.0)
-                yield
-            yield
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if __unstack_if__748 := unstack_if(one < two, ()):
-            four = constant(4.0)
-            yield_(); __unstack_if__748 = unstack_end_branch(__unstack_if__748); __unstack_if__748 = unstack_else(__unstack_if__748)
-        else:
-            if __unstack_if__752 := unstack_if(two < three, ()):
-                five = constant(5.0)
-                yield_(); __unstack_if__752 = unstack_end_branch(__unstack_if__752); __unstack_if__752 = unstack_else(__unstack_if__752)
-            else:
-                six = constant(6.0)
-                yield_(); __unstack_if__752 = unstack_end_branch(__unstack_if__752)
-            yield_(); __unstack_if__748 = unstack_end_branch(__unstack_if__748)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_canonicalize_elif_elif(ctx: MLIRContext):
+def test_if_canonicalize_elif_elif():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
@@ -808,1008 +1897,2297 @@ def test_if_canonicalize_elif_elif(ctx: MLIRContext):
                     six = constant(6.0)
                 else:
                     seven = constant(7.0)
-                yield
-            yield
 
         return
 
-    code = transform_func(
+    mod = transform_func(
         iffoo,
+        CanonicalizeElIfs,
         InsertEmptyYield,
         ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
+        ReplaceIfWithWith,
+    )
     correct = dedent(
         """\
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
         three = constant(3.0)
-
-        if __unstack_if__802 := unstack_if(one < two, ()):
-            four = constant(4.0); yield_(); __unstack_if__802 = unstack_end_branch(__unstack_if__802); __unstack_if__802 = unstack_else(__unstack_if__802)
-        else:
-            if __unstack_if__805 := unstack_if(two < three, ()):
-                five = constant(5.0); yield_(); __unstack_if__805 = unstack_end_branch(__unstack_if__805); __unstack_if__805 = unstack_else(__unstack_if__805)
-            else:
-                if __unstack_if__808 := unstack_if(two < three, ()):
-                    six = constant(6.0); yield_(); __unstack_if__808 = unstack_end_branch(__unstack_if__808); __unstack_if__808 = unstack_else(__unstack_if__808)
-                else:
-                    seven = constant(7.0); yield_(); __unstack_if__808 = unstack_end_branch(__unstack_if__808)
-                yield_(); __unstack_if__805 = unstack_end_branch(__unstack_if__805)
-            yield_(); __unstack_if__802 = unstack_end_branch(__unstack_if__802)
-
+        with if_ctx_manager(one < two, ()) as __if_op__6:
+            four = constant(4.0)
+            yield_()
+        with else_ctx_manager(__if_op__6):
+            with if_ctx_manager(two < three, ()) as __if_op__9:
+                five = constant(5.0)
+                yield_()
+            with else_ctx_manager(__if_op__9):
+                with if_ctx_manager(two < three, ()) as __if_op__12:
+                    six = constant(6.0)
+                    yield_()
+                with else_ctx_manager(__if_op__12):
+                    seven = constant(7.0)
+                    yield_()
+                yield_()
+            yield_()
         return
     """
     )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
+    assert correct.strip() == ast.unparse(mod)
 
+    dump = astpretty.pformat(mod, show_offsets=True)
 
-class OnlyJumpsCanonicalizer(Canonicalizer):
-    cst_transformers = []
-
-    bytecode_patchers = [RemoveJumpsAndInsertGlobals]
-
-
-only_jumps_canonicalizer = OnlyJumpsCanonicalizer()
-
-
-def test_unstack_1(ctx: MLIRContext):
-    ## fmt: off
-    ## @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-
-    iffoo()
     correct = dedent(
         """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      }
-    }
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=4,
+                        targets=[Name(lineno=4, id='three')],
+                        value=Call(
+                            lineno=4,
+                            func=Name(lineno=4, id='constant'),
+                            args=[Constant(lineno=4, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=6,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=6,
+                                            left=Name(lineno=6, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=6, id='two')],
+                                        ),
+                                        Tuple(lineno=6, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=6, id='__if_op__6'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=7,
+                                targets=[Name(lineno=7, id='four')],
+                                value=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='constant'),
+                                    args=[Constant(lineno=7, value=4.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=7,
+                                value=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=8,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='else_ctx_manager'),
+                                    args=[Name(lineno=8, id='__if_op__6')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=9,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=9,
+                                                    left=Name(lineno=9, id='two'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=9, id='three')],
+                                                ),
+                                                Tuple(lineno=9, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=9, id='__if_op__9'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=10,
+                                        targets=[Name(lineno=10, id='five')],
+                                        value=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='constant'),
+                                            args=[Constant(lineno=10, value=5.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=10,
+                                        value=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=11,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='else_ctx_manager'),
+                                            args=[Name(lineno=11, id='__if_op__9')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    With(
+                                        lineno=12,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=12,
+                                                    func=Name(lineno=12, id='if_ctx_manager'),
+                                                    args=[
+                                                        Compare(
+                                                            lineno=12,
+                                                            left=Name(lineno=12, id='two'),
+                                                            ops=[Lt()],
+                                                            comparators=[Name(lineno=12, id='three')],
+                                                        ),
+                                                        Tuple(lineno=12, elts=[]),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=Name(lineno=12, id='__if_op__12'),
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=13,
+                                                targets=[Name(lineno=13, id='six')],
+                                                value=Call(
+                                                    lineno=13,
+                                                    func=Name(lineno=13, id='constant'),
+                                                    args=[Constant(lineno=13, value=6.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Expr(
+                                                lineno=13,
+                                                value=Call(
+                                                    lineno=13,
+                                                    func=Name(lineno=13, id='yield_'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    With(
+                                        lineno=14,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=14,
+                                                    func=Name(lineno=14, id='else_ctx_manager'),
+                                                    args=[Name(lineno=14, id='__if_op__12')],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=None,
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=15,
+                                                targets=[Name(lineno=15, id='seven')],
+                                                value=Call(
+                                                    lineno=15,
+                                                    func=Name(lineno=15, id='constant'),
+                                                    args=[Constant(lineno=15, value=7.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Expr(
+                                                lineno=15,
+                                                value=Call(
+                                                    lineno=15,
+                                                    func=Name(lineno=15, id='yield_'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    Expr(
+                                        lineno=15,
+                                        value=Call(
+                                            lineno=15,
+                                            func=Name(lineno=15, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=15,
+                                value=Call(
+                                    lineno=15,
+                                    func=Name(lineno=15, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=17, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
     """
     )
-    filecheck(correct, ctx.module)
 
+    assert correct.strip() == dump
 
-def test_unstack_2(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        else:
-            ips_ifop_1 = unstack_else(ips_ifop_1)
-            four = constant(4)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
 
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %c4_i64 = arith.constant 4 : i64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_3(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_4(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        else:
-            ips_ifop_2 = unstack_else(ips_ifop_2)
-            three = constant(5)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %c5_i64 = arith.constant 5 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_5(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        elif ips_ifop_3 := unstack_else_if(ips_ifop_2, one < two):
-            three = constant(5)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_3
-        assert len(ips) == 0
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %2 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-          scf.if %2 {
-            %c5_i64 = arith.constant 5 : i64
-          }
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_6(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4)
-            yield_()
-            ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        elif ips_ifop_3 := unstack_else_if(ips_ifop_2, one < two):
-            three = constant(5)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-        else:
-            ips_ifop_3 = unstack_else(ips_ifop_3)
-            three = constant(6)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-            yield_()
-            ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_3
-        assert len(ips) == 0
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %2 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-          scf.if %2 {
-            %c5_i64 = arith.constant 5 : i64
-          } else {
-            %c6_i64 = arith.constant 6 : i64
-          }
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_1_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_2_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        else:
-            ips_ifop_1 = unstack_else(ips_ifop_1); four = constant(4); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %c4_i64 = arith.constant 4 : i64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_3_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_4_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2); ips_ifop_2 = unstack_else(ips_ifop_2)
-        else:
-            three = constant(5); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %c5_i64 = arith.constant 5 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_5_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        elif ips_ifop_3 := unstack_else_if(ips_ifop_2, one < two):
-            three = constant(5); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_3
-        assert len(ips) == 0
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %2 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-          scf.if %2 {
-            %c5_i64 = arith.constant 5 : i64
-          }
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_6_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        elif ips_ifop_3 := unstack_else_if(ips_ifop_2, one < two):
-            three = constant(5); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); ips_ifop_3 = unstack_else(ips_ifop_3)
-        else:
-            three = constant(6); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_3
-        assert len(ips) == 0
-
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %2 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-          scf.if %2 {
-            %c5_i64 = arith.constant 5 : i64
-          } else {
-            %c6_i64 = arith.constant 6 : i64
-          }
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_6_semicolon_move_to_last_elif(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(3); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        elif ips_ifop_2 := unstack_else_if(ips_ifop_1, one < two):
-            three = constant(4); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-        elif ips_ifop_3 := unstack_else_if(ips_ifop_2, one < two):
-            three = constant(5); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); ips_ifop_3 = unstack_else(ips_ifop_3)
-        else:
-            three = constant(6); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3); yield_(); ips_ifop_3 = unstack_end_branch(ips_ifop_3)
-
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_3
-        assert len(ips) == 0
-
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c3_i64 = arith.constant 3 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c4_i64 = arith.constant 4 : i64
-        } else {
-          %2 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-          scf.if %2 {
-            %c5_i64 = arith.constant 5 : i64
-          } else {
-            %c6_i64 = arith.constant 6 : i64
-          }
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_nested_1(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            if ips_ifop_2 := unstack_if(one < two):
-                three = constant(3)
-                yield_()
-                ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-            three = constant(4)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c3_i64 = arith.constant 3 : i64
-        }
-        %c4_i64 = arith.constant 4 : i64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_nested_2(ctx: MLIRContext):
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(4)
-            if ips_ifop_2 := unstack_if(one < two):
-                three = constant(3)
-                yield_()
-                ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-            yield_()
-            ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c4_i64 = arith.constant 4 : i64
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c3_i64 = arith.constant 3 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_nested_1_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            if ips_ifop_2 := unstack_if(one < two):
-                three = constant(3); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2)
-            three = constant(4); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c3_i64 = arith.constant 3 : i64
-        }
-        %c4_i64 = arith.constant 4 : i64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_nested_2_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            three = constant(4)
-            if ips_ifop_2 := unstack_if(one < two):
-                three = constant(3); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-
-    # fmt: on
-    # @formatter:on
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c4_i64 = arith.constant 4 : i64
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c3_i64 = arith.constant 3 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_unstack_nested_2_with_else_semicolon(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
-    def iffoo():
-        one = constant(1)
-        two = constant(2)
-        if ips_ifop_1 := unstack_if(one < two):
-            four = constant(4); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1); ips_ifop_1 = unstack_else(ips_ifop_1)
-        else:
-            if ips_ifop_2 := unstack_if(one < two):
-                three = constant(3); yield_(); ips_ifop_2 = unstack_end_branch(ips_ifop_2); yield_(); ips_ifop_1 = unstack_end_branch(ips_ifop_1)
-        ips, ifop = ips_ifop_1
-        assert len(ips) == 0
-        ips, ifop = ips_ifop_2
-        assert len(ips) == 0
-
-    # fmt: on
-    # @formatter:on
-    iffoo()
-    correct = dedent(
-        """\
-    module {
-      %c1_i64 = arith.constant 1 : i64
-      %c2_i64 = arith.constant 2 : i64
-      %0 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-      scf.if %0 {
-        %c4_i64 = arith.constant 4 : i64
-      } else {
-        %1 = arith.cmpi ult, %c1_i64, %c2_i64 : i64
-        scf.if %1 {
-          %c3_i64 = arith.constant 3 : i64
-        }
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_with_results_no_sugar(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
+def test_elif_1():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
         three = constant(3.0)
-
-        if __unstack_if__1125 := unstack_if(one < two, (_placeholder_opaque_t(),)):
-            four = constant(4.0)
-            res = yield_(four); __unstack_if__1125 = unstack_end_branch(__unstack_if__1125)
-        elif __unstack_if__1128 := unstack_else_if(__unstack_if__1125, two < three, (_placeholder_opaque_t(),)):
+        four = constant(3.0)
+        if one < two:
             five = constant(5.0)
-            res1 = yield_(five); __unstack_if__1128 = unstack_end_branch(__unstack_if__1128); __unstack_if__1128 = unstack_else(__unstack_if__1128)
-        else:
+        elif three < four:
             six = constant(6.0)
-            res2 = yield_(six); __unstack_if__1128 = unstack_end_branch(__unstack_if__1128); res = yield_(res2); __unstack_if__1125 = unstack_end_branch(__unstack_if__1125)
+        else:
+            seven = constant(7.0)
 
         return
-    # fmt: on
-    # @formatter:on
 
-    iffoo()
-    ctx.module.operation.verify()
+    mod = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+    )
+
     correct = dedent(
         """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_2 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_2 : f64
-      } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_2 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_2 : f64
-        } else {
-          %cst_2 = arith.constant 6.000000e+00 : f64
-          scf.yield %cst_2 : f64
-        }
-        scf.yield %3 : f64
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
-
-def test_if_with_results_no_sugar_long(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
         three = constant(3.0)
-
-        if __unstack_if__1176 := unstack_if(one < two, (_placeholder_opaque_t(),)):
-            four = constant(4.0)
-            res = yield_(four); __unstack_if__1176 = unstack_end_branch(__unstack_if__1176)
-        elif __unstack_if__1179 := unstack_else_if(__unstack_if__1176, two < three, (_placeholder_opaque_t(),)):
+        four = constant(3.0)
+        with if_ctx_manager(one < two, ()) as __if_op__6:
             five = constant(5.0)
-            res1 = yield_(five); __unstack_if__1179 = unstack_end_branch(__unstack_if__1179)
-        elif __unstack_if__1182 := unstack_else_if(__unstack_if__1179, two < three, (_placeholder_opaque_t(),)):
-            five = constant(6.0)
-            res2 = yield_(five); __unstack_if__1182 = unstack_end_branch(__unstack_if__1182)
-        elif __unstack_if__1185 := unstack_else_if(__unstack_if__1182, two < three, (_placeholder_opaque_t(),)):
-            five = constant(7.0)
-            res3 = yield_(five); __unstack_if__1185 = unstack_end_branch(__unstack_if__1185)
-        elif __unstack_if__1188 := unstack_else_if(__unstack_if__1185, two < three, (_placeholder_opaque_t(),)):
-            five = constant(8.0)
-            res4 = yield_(five); __unstack_if__1188 = unstack_end_branch(__unstack_if__1188)
-        elif __unstack_if__1191 := unstack_else_if(__unstack_if__1188, two < three, (_placeholder_opaque_t(),)):
-            five = constant(9.0)
-            res5 = yield_(five); __unstack_if__1191 = unstack_end_branch(__unstack_if__1191); __unstack_if__1191 = unstack_else(__unstack_if__1191)
-        else:
-            six = constant(10.0)
-            res6 = yield_(six); __unstack_if__1191 = unstack_end_branch(__unstack_if__1191); yield_(res5); __unstack_if__1188 = unstack_end_branch(__unstack_if__1188); yield_(res4); __unstack_if__1185 = unstack_end_branch(__unstack_if__1185); yield_(res3); __unstack_if__1182 = unstack_end_branch(__unstack_if__1182); yield_(res2); __unstack_if__1179 = unstack_end_branch(__unstack_if__1179); yield_(res1); __unstack_if__1176 = unstack_end_branch(__unstack_if__1176)
-
+            yield_()
+        with else_ctx_manager(__if_op__6):
+            with if_ctx_manager(three < four, ()) as __if_op__8:
+                six = constant(6.0)
+                yield_()
+            with else_ctx_manager(__if_op__8):
+                seven = constant(7.0)
+                yield_()
+            yield_()
         return
-    # fmt: on
-    # @formatter:on
-
-    iffoo()
-    ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %cst_1 = arith.constant 3.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      %1 = scf.if %0 -> (f64) {
-        %cst_2 = arith.constant 4.000000e+00 : f64
-        scf.yield %cst_2 : f64
-      } else {
-        %2 = arith.cmpf olt, %cst_0, %cst_1 : f64
-        %3 = scf.if %2 -> (f64) {
-          %cst_2 = arith.constant 5.000000e+00 : f64
-          scf.yield %cst_2 : f64
-        } else {
-          %4 = arith.cmpf olt, %cst_0, %cst_1 : f64
-          %5 = scf.if %4 -> (f64) {
-            %cst_2 = arith.constant 6.000000e+00 : f64
-            scf.yield %cst_2 : f64
-          } else {
-            %6 = arith.cmpf olt, %cst_0, %cst_1 : f64
-            %7 = scf.if %6 -> (f64) {
-              %cst_2 = arith.constant 7.000000e+00 : f64
-              scf.yield %cst_2 : f64
-            } else {
-              %8 = arith.cmpf olt, %cst_0, %cst_1 : f64
-              %9 = scf.if %8 -> (f64) {
-                %cst_2 = arith.constant 8.000000e+00 : f64
-                scf.yield %cst_2 : f64
-              } else {
-                %10 = arith.cmpf olt, %cst_0, %cst_1 : f64
-                %11 = scf.if %10 -> (f64) {
-                  %cst_2 = arith.constant 9.000000e+00 : f64
-                  scf.yield %cst_2 : f64
-                } else {
-                  %cst_2 = arith.constant 1.000000e+01 : f64
-                  scf.yield %cst_2 : f64
-                }
-                scf.yield %11 : f64
-              }
-              scf.yield %9 : f64
-            }
-            scf.yield %7 : f64
-          }
-          scf.yield %5 : f64
-        }
-        scf.yield %3 : f64
-      }
-    }
     """
     )
-    filecheck(correct, ctx.module)
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=4,
+                        targets=[Name(lineno=4, id='three')],
+                        value=Call(
+                            lineno=4,
+                            func=Name(lineno=4, id='constant'),
+                            args=[Constant(lineno=4, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=5,
+                        targets=[Name(lineno=5, id='four')],
+                        value=Call(
+                            lineno=5,
+                            func=Name(lineno=5, id='constant'),
+                            args=[Constant(lineno=5, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=6,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=6,
+                                            left=Name(lineno=6, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=6, id='two')],
+                                        ),
+                                        Tuple(lineno=6, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=6, id='__if_op__6'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=7,
+                                targets=[Name(lineno=7, id='five')],
+                                value=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='constant'),
+                                    args=[Constant(lineno=7, value=5.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=7,
+                                value=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=8,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='else_ctx_manager'),
+                                    args=[Name(lineno=8, id='__if_op__6')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=8,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=8,
+                                            func=Name(lineno=8, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=8,
+                                                    left=Name(lineno=8, id='three'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=8, id='four')],
+                                                ),
+                                                Tuple(lineno=8, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=8, id='__if_op__8'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=9,
+                                        targets=[Name(lineno=9, id='six')],
+                                        value=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='constant'),
+                                            args=[Constant(lineno=9, value=6.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=9,
+                                        value=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=10,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='else_ctx_manager'),
+                                            args=[Name(lineno=10, id='__if_op__8')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=11,
+                                        targets=[Name(lineno=11, id='seven')],
+                                        value=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='constant'),
+                                            args=[Constant(lineno=11, value=7.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=11,
+                                        value=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=11,
+                                value=Call(
+                                    lineno=11,
+                                    func=Name(lineno=11, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=13, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
 
 
-def test_if_with_else_else_with_yields_explicit(ctx: MLIRContext):
-    # fmt: off
-    # @formatter:off
-    @canonicalize(using=only_jumps_canonicalizer)
+def test_elif_2():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-
-        if __unstack_if__642 := unstack_if(one < two, ()):
-            three = constant(3.0); yield_(); __unstack_if__642 = unstack_end_branch(__unstack_if__642); __unstack_if__642 = unstack_else(__unstack_if__642)
+        three = constant(3.0)
+        four = constant(3.0)
+        five = constant(5.0)
+        if one < two:
+            six = constant(6.0)  # line 8
+        elif three < four:
+            seven = constant(7.0)  # line 10
+        elif four < five:
+            seven = constant(8.0)  # line 12
         else:
-            if __unstack_if__645 := unstack_if(one < two, ()):
-                four = constant(4.0); yield_(); __unstack_if__645 = unstack_end_branch(__unstack_if__645); __unstack_if__645 = unstack_else(__unstack_if__645)
-            else:
-                five = constant(5.0); yield_(); __unstack_if__645 = unstack_end_branch(__unstack_if__645); yield_(); __unstack_if__642 = unstack_end_branch(__unstack_if__642)
+            seven = constant(9.0)  # line 14
 
         return
-    # fmt: on
-    # @formatter:on
 
-    iffoo()
-    ctx.module.operation.verify()
+    mod = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+    )
+
     correct = dedent(
         """\
-    module {
-      %cst = arith.constant 1.000000e+00 : f64
-      %cst_0 = arith.constant 2.000000e+00 : f64
-      %0 = arith.cmpf olt, %cst, %cst_0 : f64
-      scf.if %0 {
-        %cst_1 = arith.constant 3.000000e+00 : f64
-      } else {
-        %1 = arith.cmpf olt, %cst, %cst_0 : f64
-        scf.if %1 {
-          %cst_1 = arith.constant 4.000000e+00 : f64
-        } else {
-          %cst_1 = arith.constant 5.000000e+00 : f64
-        }
-      }
-    }
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(3.0)
+        five = constant(5.0)
+        with if_ctx_manager(one < two, ()) as __if_op__7:
+            six = constant(6.0)
+            yield_()
+        with else_ctx_manager(__if_op__7):
+            with if_ctx_manager(three < four, ()) as __if_op__9:
+                seven = constant(7.0)
+                yield_()
+            with else_ctx_manager(__if_op__9):
+                with if_ctx_manager(four < five, ()) as __if_op__11:
+                    seven = constant(8.0)
+                    yield_()
+                with else_ctx_manager(__if_op__11):
+                    seven = constant(9.0)
+                    yield_()
+                yield_()
+            yield_()
+        return
     """
     )
-    filecheck(correct, ctx.module)
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=4,
+                        targets=[Name(lineno=4, id='three')],
+                        value=Call(
+                            lineno=4,
+                            func=Name(lineno=4, id='constant'),
+                            args=[Constant(lineno=4, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=5,
+                        targets=[Name(lineno=5, id='four')],
+                        value=Call(
+                            lineno=5,
+                            func=Name(lineno=5, id='constant'),
+                            args=[Constant(lineno=5, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=6,
+                        targets=[Name(lineno=6, id='five')],
+                        value=Call(
+                            lineno=6,
+                            func=Name(lineno=6, id='constant'),
+                            args=[Constant(lineno=6, value=5.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=7,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=7,
+                                            left=Name(lineno=7, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=7, id='two')],
+                                        ),
+                                        Tuple(lineno=7, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=7, id='__if_op__7'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=8,
+                                targets=[Name(lineno=8, id='six')],
+                                value=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='constant'),
+                                    args=[Constant(lineno=8, value=6.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Expr(
+                                lineno=8,
+                                value=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=9,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=9,
+                                    func=Name(lineno=9, id='else_ctx_manager'),
+                                    args=[Name(lineno=9, id='__if_op__7')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=9,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=9,
+                                                    left=Name(lineno=9, id='three'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=9, id='four')],
+                                                ),
+                                                Tuple(lineno=9, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=9, id='__if_op__9'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=10,
+                                        targets=[Name(lineno=10, id='seven')],
+                                        value=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='constant'),
+                                            args=[Constant(lineno=10, value=7.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=10,
+                                        value=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=11,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='else_ctx_manager'),
+                                            args=[Name(lineno=11, id='__if_op__9')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    With(
+                                        lineno=11,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=11,
+                                                    func=Name(lineno=11, id='if_ctx_manager'),
+                                                    args=[
+                                                        Compare(
+                                                            lineno=11,
+                                                            left=Name(lineno=11, id='four'),
+                                                            ops=[Lt()],
+                                                            comparators=[Name(lineno=11, id='five')],
+                                                        ),
+                                                        Tuple(lineno=11, elts=[]),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=Name(lineno=11, id='__if_op__11'),
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=12,
+                                                targets=[Name(lineno=12, id='seven')],
+                                                value=Call(
+                                                    lineno=12,
+                                                    func=Name(lineno=12, id='constant'),
+                                                    args=[Constant(lineno=12, value=8.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Expr(
+                                                lineno=12,
+                                                value=Call(
+                                                    lineno=12,
+                                                    func=Name(lineno=12, id='yield_'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    With(
+                                        lineno=13,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=13,
+                                                    func=Name(lineno=13, id='else_ctx_manager'),
+                                                    args=[Name(lineno=13, id='__if_op__11')],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=None,
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=14,
+                                                targets=[Name(lineno=14, id='seven')],
+                                                value=Call(
+                                                    lineno=14,
+                                                    func=Name(lineno=14, id='constant'),
+                                                    args=[Constant(lineno=14, value=9.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Expr(
+                                                lineno=14,
+                                                value=Call(
+                                                    lineno=14,
+                                                    func=Name(lineno=14, id='yield_'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    Expr(
+                                        lineno=14,
+                                        value=Call(
+                                            lineno=14,
+                                            func=Name(lineno=14, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=14,
+                                value=Call(
+                                    lineno=14,
+                                    func=Name(lineno=14, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=16, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_elif_3():
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(3.0)
+        if one < two:  # line 6
+            if one < two:
+                five = constant(5.0)  # line 8
+            elif three < four:
+                six = constant(6.0)  # line 10
+            else:
+                seven = constant(7.0)  # line 12
+        elif three < four:
+            six = constant(6.0)  # line 14
+        else:
+            seven = constant(7.0)  # line 16
+
+        return
+
+    mod = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+    )
+
+    correct = dedent(
+        """\
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(3.0)
+        with if_ctx_manager(one < two, ()) as __if_op__6:
+            with if_ctx_manager(one < two, ()) as __if_op__7:
+                five = constant(5.0)
+                yield_()
+            with else_ctx_manager(__if_op__7):
+                with if_ctx_manager(three < four, ()) as __if_op__9:
+                    six = constant(6.0)
+                    yield_()
+                with else_ctx_manager(__if_op__9):
+                    seven = constant(7.0)
+                    yield_()
+                yield_()
+            yield_()
+        with else_ctx_manager(__if_op__6):
+            with if_ctx_manager(three < four, ()) as __if_op__13:
+                six = constant(6.0)
+                yield_()
+            with else_ctx_manager(__if_op__13):
+                seven = constant(7.0)
+                yield_()
+            yield_()
+        return
+    """
+    )
+    assert correct.strip() == ast.unparse(mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=4,
+                        targets=[Name(lineno=4, id='three')],
+                        value=Call(
+                            lineno=4,
+                            func=Name(lineno=4, id='constant'),
+                            args=[Constant(lineno=4, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=5,
+                        targets=[Name(lineno=5, id='four')],
+                        value=Call(
+                            lineno=5,
+                            func=Name(lineno=5, id='constant'),
+                            args=[Constant(lineno=5, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=6,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=6,
+                                    func=Name(lineno=6, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=6,
+                                            left=Name(lineno=6, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=6, id='two')],
+                                        ),
+                                        Tuple(lineno=6, elts=[]),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=6, id='__if_op__6'),
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=7,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=7,
+                                            func=Name(lineno=7, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=7,
+                                                    left=Name(lineno=7, id='one'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=7, id='two')],
+                                                ),
+                                                Tuple(lineno=7, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=7, id='__if_op__7'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=8,
+                                        targets=[Name(lineno=8, id='five')],
+                                        value=Call(
+                                            lineno=8,
+                                            func=Name(lineno=8, id='constant'),
+                                            args=[Constant(lineno=8, value=5.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=8,
+                                        value=Call(
+                                            lineno=8,
+                                            func=Name(lineno=8, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=9,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=9,
+                                            func=Name(lineno=9, id='else_ctx_manager'),
+                                            args=[Name(lineno=9, id='__if_op__7')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    With(
+                                        lineno=9,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=9,
+                                                    func=Name(lineno=9, id='if_ctx_manager'),
+                                                    args=[
+                                                        Compare(
+                                                            lineno=9,
+                                                            left=Name(lineno=9, id='three'),
+                                                            ops=[Lt()],
+                                                            comparators=[Name(lineno=9, id='four')],
+                                                        ),
+                                                        Tuple(lineno=9, elts=[]),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=Name(lineno=9, id='__if_op__9'),
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=10,
+                                                targets=[Name(lineno=10, id='six')],
+                                                value=Call(
+                                                    lineno=10,
+                                                    func=Name(lineno=10, id='constant'),
+                                                    args=[Constant(lineno=10, value=6.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Expr(
+                                                lineno=10,
+                                                value=Call(
+                                                    lineno=10,
+                                                    func=Name(lineno=10, id='yield_'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    With(
+                                        lineno=11,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=11,
+                                                    func=Name(lineno=11, id='else_ctx_manager'),
+                                                    args=[Name(lineno=11, id='__if_op__9')],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=None,
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=12,
+                                                targets=[Name(lineno=12, id='seven')],
+                                                value=Call(
+                                                    lineno=12,
+                                                    func=Name(lineno=12, id='constant'),
+                                                    args=[Constant(lineno=12, value=7.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Expr(
+                                                lineno=12,
+                                                value=Call(
+                                                    lineno=12,
+                                                    func=Name(lineno=12, id='yield_'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    Expr(
+                                        lineno=12,
+                                        value=Call(
+                                            lineno=12,
+                                            func=Name(lineno=12, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=12,
+                                value=Call(
+                                    lineno=12,
+                                    func=Name(lineno=12, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=13,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=13,
+                                    func=Name(lineno=13, id='else_ctx_manager'),
+                                    args=[Name(lineno=13, id='__if_op__6')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=13,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=13,
+                                            func=Name(lineno=13, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=13,
+                                                    left=Name(lineno=13, id='three'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=13, id='four')],
+                                                ),
+                                                Tuple(lineno=13, elts=[]),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=13, id='__if_op__13'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=14,
+                                        targets=[Name(lineno=14, id='six')],
+                                        value=Call(
+                                            lineno=14,
+                                            func=Name(lineno=14, id='constant'),
+                                            args=[Constant(lineno=14, value=6.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=14,
+                                        value=Call(
+                                            lineno=14,
+                                            func=Name(lineno=14, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=15,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=15,
+                                            func=Name(lineno=15, id='else_ctx_manager'),
+                                            args=[Name(lineno=15, id='__if_op__13')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=16,
+                                        targets=[Name(lineno=16, id='seven')],
+                                        value=Call(
+                                            lineno=16,
+                                            func=Name(lineno=16, id='constant'),
+                                            args=[Constant(lineno=16, value=7.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Expr(
+                                        lineno=16,
+                                        value=Call(
+                                            lineno=16,
+                                            func=Name(lineno=16, id='yield_'),
+                                            args=[],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Expr(
+                                lineno=16,
+                                value=Call(
+                                    lineno=16,
+                                    func=Name(lineno=16, id='yield_'),
+                                    args=[],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=18, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_elif_nested_else_branch():
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(4.0)
+        five = constant(5.0)
+        if one < two:
+            six = constant(6.0)  # line 8
+            res1 = yield six  # line 9
+        elif two < three:
+            ten = constant(10.0)  # line 11
+            res5 = yield ten
+        else:  # line 13
+            if three < four:
+                seven = constant(7.0)  # line 15
+                res2 = yield seven
+            elif four < five:  # line 17
+                eight = constant(8.0)
+                res3 = yield eight  # line 19
+            else:
+                nine = constant(9.0)  # line 21
+                res4 = yield nine
+
+        return
+
+    mod = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+    )
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=4,
+                        targets=[Name(lineno=4, id='three')],
+                        value=Call(
+                            lineno=4,
+                            func=Name(lineno=4, id='constant'),
+                            args=[Constant(lineno=4, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=5,
+                        targets=[Name(lineno=5, id='four')],
+                        value=Call(
+                            lineno=5,
+                            func=Name(lineno=5, id='constant'),
+                            args=[Constant(lineno=5, value=4.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=6,
+                        targets=[Name(lineno=6, id='five')],
+                        value=Call(
+                            lineno=6,
+                            func=Name(lineno=6, id='constant'),
+                            args=[Constant(lineno=6, value=5.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=7,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=7,
+                                            left=Name(lineno=7, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=7, id='two')],
+                                        ),
+                                        Tuple(
+                                            lineno=7,
+                                            elts=[
+                                                Call(
+                                                    lineno=7,
+                                                    func=Name(lineno=7, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=7, id='__if_op__7'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=8,
+                                targets=[Name(lineno=8, id='six')],
+                                value=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='constant'),
+                                    args=[Constant(lineno=8, value=6.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=9,
+                                targets=[Name(lineno=9, id='res1')],
+                                value=Call(
+                                    lineno=9,
+                                    func=Name(lineno=9, id='yield_'),
+                                    args=[Name(lineno=9, id='six')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=10,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=10,
+                                    func=Name(lineno=10, id='else_ctx_manager'),
+                                    args=[Name(lineno=10, id='__if_op__7')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=10,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=10,
+                                                    left=Name(lineno=10, id='two'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=10, id='three')],
+                                                ),
+                                                Tuple(
+                                                    lineno=10,
+                                                    elts=[
+                                                        Call(
+                                                            lineno=10,
+                                                            func=Name(lineno=10, id='_placeholder_opaque_t'),
+                                                            args=[],
+                                                            keywords=[],
+                                                        ),
+                                                    ],
+                                                ),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=10, id='__if_op__10'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=11,
+                                        targets=[Name(lineno=11, id='ten')],
+                                        value=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='constant'),
+                                            args=[Constant(lineno=11, value=10.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Assign(
+                                        lineno=12,
+                                        targets=[Name(lineno=12, id='res5')],
+                                        value=Call(
+                                            lineno=12,
+                                            func=Name(lineno=12, id='yield_'),
+                                            args=[Name(lineno=12, id='ten')],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=13,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=13,
+                                            func=Name(lineno=13, id='else_ctx_manager'),
+                                            args=[Name(lineno=13, id='__if_op__10')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    With(
+                                        lineno=14,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=14,
+                                                    func=Name(lineno=14, id='if_ctx_manager'),
+                                                    args=[
+                                                        Compare(
+                                                            lineno=14,
+                                                            left=Name(lineno=14, id='three'),
+                                                            ops=[Lt()],
+                                                            comparators=[Name(lineno=14, id='four')],
+                                                        ),
+                                                        Tuple(
+                                                            lineno=14,
+                                                            elts=[
+                                                                Call(
+                                                                    lineno=14,
+                                                                    func=Name(lineno=14, id='_placeholder_opaque_t'),
+                                                                    args=[],
+                                                                    keywords=[],
+                                                                ),
+                                                            ],
+                                                        ),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=Name(lineno=14, id='__if_op__14'),
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=15,
+                                                targets=[Name(lineno=15, id='seven')],
+                                                value=Call(
+                                                    lineno=15,
+                                                    func=Name(lineno=15, id='constant'),
+                                                    args=[Constant(lineno=15, value=7.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Assign(
+                                                lineno=16,
+                                                targets=[Name(lineno=16, id='res2')],
+                                                value=Call(
+                                                    lineno=16,
+                                                    func=Name(lineno=16, id='yield_'),
+                                                    args=[Name(lineno=16, id='seven')],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    With(
+                                        lineno=17,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=17,
+                                                    func=Name(lineno=17, id='else_ctx_manager'),
+                                                    args=[Name(lineno=17, id='__if_op__14')],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=None,
+                                            ),
+                                        ],
+                                        body=[
+                                            With(
+                                                lineno=17,
+                                                items=[
+                                                    withitem(
+                                                        context_expr=Call(
+                                                            lineno=17,
+                                                            func=Name(lineno=17, id='if_ctx_manager'),
+                                                            args=[
+                                                                Compare(
+                                                                    lineno=17,
+                                                                    left=Name(lineno=17, id='four'),
+                                                                    ops=[Lt()],
+                                                                    comparators=[Name(lineno=17, id='five')],
+                                                                ),
+                                                                Tuple(
+                                                                    lineno=17,
+                                                                    elts=[
+                                                                        Call(
+                                                                            lineno=17,
+                                                                            func=Name(lineno=17, id='_placeholder_opaque_t'),
+                                                                            args=[],
+                                                                            keywords=[],
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            ],
+                                                            keywords=[],
+                                                        ),
+                                                        optional_vars=Name(lineno=17, id='__if_op__17'),
+                                                    ),
+                                                ],
+                                                body=[
+                                                    Assign(
+                                                        lineno=18,
+                                                        targets=[Name(lineno=18, id='eight')],
+                                                        value=Call(
+                                                            lineno=18,
+                                                            func=Name(lineno=18, id='constant'),
+                                                            args=[Constant(lineno=18, value=8.0)],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                    Assign(
+                                                        lineno=19,
+                                                        targets=[Name(lineno=19, id='res3')],
+                                                        value=Call(
+                                                            lineno=19,
+                                                            func=Name(lineno=19, id='yield_'),
+                                                            args=[Name(lineno=19, id='eight')],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                ],
+                                            ),
+                                            With(
+                                                lineno=20,
+                                                items=[
+                                                    withitem(
+                                                        context_expr=Call(
+                                                            lineno=20,
+                                                            func=Name(lineno=20, id='else_ctx_manager'),
+                                                            args=[Name(lineno=20, id='__if_op__17')],
+                                                            keywords=[],
+                                                        ),
+                                                        optional_vars=None,
+                                                    ),
+                                                ],
+                                                body=[
+                                                    Assign(
+                                                        lineno=21,
+                                                        targets=[Name(lineno=21, id='nine')],
+                                                        value=Call(
+                                                            lineno=21,
+                                                            func=Name(lineno=21, id='constant'),
+                                                            args=[Constant(lineno=21, value=9.0)],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                    Assign(
+                                                        lineno=22,
+                                                        targets=[Name(lineno=22, id='res4')],
+                                                        value=Call(
+                                                            lineno=22,
+                                                            func=Name(lineno=22, id='yield_'),
+                                                            args=[Name(lineno=22, id='nine')],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                ],
+                                            ),
+                                            Assign(
+                                                lineno=22,
+                                                targets=[Name(lineno=22, id='res3')],
+                                                value=Call(
+                                                    lineno=22,
+                                                    func=Name(lineno=22, id='yield_'),
+                                                    args=[Name(lineno=22, id='res3')],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    Assign(
+                                        lineno=22,
+                                        targets=[Name(lineno=22, id='res2')],
+                                        value=Call(
+                                            lineno=22,
+                                            func=Name(lineno=22, id='yield_'),
+                                            args=[Name(lineno=22, id='res2')],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Assign(
+                                lineno=22,
+                                targets=[Name(lineno=22, id='res5')],
+                                value=Call(
+                                    lineno=22,
+                                    func=Name(lineno=22, id='yield_'),
+                                    args=[Name(lineno=22, id='res5')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=24, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
+    def iffoo():
+        one = constant(1.0)
+        two = constant(2.0)
+        three = constant(3.0)
+        four = constant(4.0)
+        five = constant(5.0)
+        if one < two:
+            six = constant(6.0)
+            res1, res2 = yield six, six
+        elif two < three:
+            ten = constant(10.0)
+            res3, res4 = yield ten, ten
+        else:
+            if three < four:
+                seven = constant(7.0)
+                res5, res6 = yield seven, seven
+            elif four < five:
+                eight = constant(8.0)
+                res7, res8 = yield eight, eight
+            else:
+                nine = constant(9.0)
+                res9, res10 = yield nine, nine
+
+        return
+
+    mod = transform_func(
+        iffoo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+    )
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    print()
+    print(dump)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='iffoo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='one')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='constant'),
+                            args=[Constant(lineno=2, value=1.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='two')],
+                        value=Call(
+                            lineno=3,
+                            func=Name(lineno=3, id='constant'),
+                            args=[Constant(lineno=3, value=2.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=4,
+                        targets=[Name(lineno=4, id='three')],
+                        value=Call(
+                            lineno=4,
+                            func=Name(lineno=4, id='constant'),
+                            args=[Constant(lineno=4, value=3.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=5,
+                        targets=[Name(lineno=5, id='four')],
+                        value=Call(
+                            lineno=5,
+                            func=Name(lineno=5, id='constant'),
+                            args=[Constant(lineno=5, value=4.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    Assign(
+                        lineno=6,
+                        targets=[Name(lineno=6, id='five')],
+                        value=Call(
+                            lineno=6,
+                            func=Name(lineno=6, id='constant'),
+                            args=[Constant(lineno=6, value=5.0)],
+                            keywords=[],
+                        ),
+                    ),
+                    With(
+                        lineno=7,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=7,
+                                    func=Name(lineno=7, id='if_ctx_manager'),
+                                    args=[
+                                        Compare(
+                                            lineno=7,
+                                            left=Name(lineno=7, id='one'),
+                                            ops=[Lt()],
+                                            comparators=[Name(lineno=7, id='two')],
+                                        ),
+                                        Tuple(
+                                            lineno=7,
+                                            elts=[
+                                                Call(
+                                                    lineno=7,
+                                                    func=Name(lineno=7, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                                Call(
+                                                    lineno=7,
+                                                    func=Name(lineno=7, id='_placeholder_opaque_t'),
+                                                    args=[],
+                                                    keywords=[],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    keywords=[],
+                                ),
+                                optional_vars=Name(lineno=7, id='__if_op__7'),
+                            ),
+                        ],
+                        body=[
+                            Assign(
+                                lineno=8,
+                                targets=[Name(lineno=8, id='six')],
+                                value=Call(
+                                    lineno=8,
+                                    func=Name(lineno=8, id='constant'),
+                                    args=[Constant(lineno=8, value=6.0)],
+                                    keywords=[],
+                                ),
+                            ),
+                            Assign(
+                                lineno=9,
+                                targets=[
+                                    Tuple(
+                                        lineno=9,
+                                        elts=[
+                                            Name(lineno=9, id='res1'),
+                                            Name(lineno=9, id='res2'),
+                                        ],
+                                    ),
+                                ],
+                                value=Call(
+                                    lineno=9,
+                                    func=Name(lineno=9, id='yield_'),
+                                    args=[
+                                        Name(lineno=9, id='six'),
+                                        Name(lineno=9, id='six'),
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    With(
+                        lineno=10,
+                        items=[
+                            withitem(
+                                context_expr=Call(
+                                    lineno=10,
+                                    func=Name(lineno=10, id='else_ctx_manager'),
+                                    args=[Name(lineno=10, id='__if_op__7')],
+                                    keywords=[],
+                                ),
+                                optional_vars=None,
+                            ),
+                        ],
+                        body=[
+                            With(
+                                lineno=10,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=10,
+                                            func=Name(lineno=10, id='if_ctx_manager'),
+                                            args=[
+                                                Compare(
+                                                    lineno=10,
+                                                    left=Name(lineno=10, id='two'),
+                                                    ops=[Lt()],
+                                                    comparators=[Name(lineno=10, id='three')],
+                                                ),
+                                                Tuple(
+                                                    lineno=10,
+                                                    elts=[
+                                                        Call(
+                                                            lineno=10,
+                                                            func=Name(lineno=10, id='_placeholder_opaque_t'),
+                                                            args=[],
+                                                            keywords=[],
+                                                        ),
+                                                        Call(
+                                                            lineno=10,
+                                                            func=Name(lineno=10, id='_placeholder_opaque_t'),
+                                                            args=[],
+                                                            keywords=[],
+                                                        ),
+                                                    ],
+                                                ),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=Name(lineno=10, id='__if_op__10'),
+                                    ),
+                                ],
+                                body=[
+                                    Assign(
+                                        lineno=11,
+                                        targets=[Name(lineno=11, id='ten')],
+                                        value=Call(
+                                            lineno=11,
+                                            func=Name(lineno=11, id='constant'),
+                                            args=[Constant(lineno=11, value=10.0)],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                    Assign(
+                                        lineno=12,
+                                        targets=[
+                                            Tuple(
+                                                lineno=12,
+                                                elts=[
+                                                    Name(lineno=12, id='res3'),
+                                                    Name(lineno=12, id='res4'),
+                                                ],
+                                            ),
+                                        ],
+                                        value=Call(
+                                            lineno=12,
+                                            func=Name(lineno=12, id='yield_'),
+                                            args=[
+                                                Name(lineno=12, id='ten'),
+                                                Name(lineno=12, id='ten'),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            With(
+                                lineno=13,
+                                items=[
+                                    withitem(
+                                        context_expr=Call(
+                                            lineno=13,
+                                            func=Name(lineno=13, id='else_ctx_manager'),
+                                            args=[Name(lineno=13, id='__if_op__10')],
+                                            keywords=[],
+                                        ),
+                                        optional_vars=None,
+                                    ),
+                                ],
+                                body=[
+                                    With(
+                                        lineno=14,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=14,
+                                                    func=Name(lineno=14, id='if_ctx_manager'),
+                                                    args=[
+                                                        Compare(
+                                                            lineno=14,
+                                                            left=Name(lineno=14, id='three'),
+                                                            ops=[Lt()],
+                                                            comparators=[Name(lineno=14, id='four')],
+                                                        ),
+                                                        Tuple(
+                                                            lineno=14,
+                                                            elts=[
+                                                                Call(
+                                                                    lineno=14,
+                                                                    func=Name(lineno=14, id='_placeholder_opaque_t'),
+                                                                    args=[],
+                                                                    keywords=[],
+                                                                ),
+                                                                Call(
+                                                                    lineno=14,
+                                                                    func=Name(lineno=14, id='_placeholder_opaque_t'),
+                                                                    args=[],
+                                                                    keywords=[],
+                                                                ),
+                                                            ],
+                                                        ),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=Name(lineno=14, id='__if_op__14'),
+                                            ),
+                                        ],
+                                        body=[
+                                            Assign(
+                                                lineno=15,
+                                                targets=[Name(lineno=15, id='seven')],
+                                                value=Call(
+                                                    lineno=15,
+                                                    func=Name(lineno=15, id='constant'),
+                                                    args=[Constant(lineno=15, value=7.0)],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                            Assign(
+                                                lineno=16,
+                                                targets=[
+                                                    Tuple(
+                                                        lineno=16,
+                                                        elts=[
+                                                            Name(lineno=16, id='res5'),
+                                                            Name(lineno=16, id='res6'),
+                                                        ],
+                                                    ),
+                                                ],
+                                                value=Call(
+                                                    lineno=16,
+                                                    func=Name(lineno=16, id='yield_'),
+                                                    args=[
+                                                        Name(lineno=16, id='seven'),
+                                                        Name(lineno=16, id='seven'),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    With(
+                                        lineno=17,
+                                        items=[
+                                            withitem(
+                                                context_expr=Call(
+                                                    lineno=17,
+                                                    func=Name(lineno=17, id='else_ctx_manager'),
+                                                    args=[Name(lineno=17, id='__if_op__14')],
+                                                    keywords=[],
+                                                ),
+                                                optional_vars=None,
+                                            ),
+                                        ],
+                                        body=[
+                                            With(
+                                                lineno=17,
+                                                items=[
+                                                    withitem(
+                                                        context_expr=Call(
+                                                            lineno=17,
+                                                            func=Name(lineno=17, id='if_ctx_manager'),
+                                                            args=[
+                                                                Compare(
+                                                                    lineno=17,
+                                                                    left=Name(lineno=17, id='four'),
+                                                                    ops=[Lt()],
+                                                                    comparators=[Name(lineno=17, id='five')],
+                                                                ),
+                                                                Tuple(
+                                                                    lineno=17,
+                                                                    elts=[
+                                                                        Call(
+                                                                            lineno=17,
+                                                                            func=Name(lineno=17, id='_placeholder_opaque_t'),
+                                                                            args=[],
+                                                                            keywords=[],
+                                                                        ),
+                                                                        Call(
+                                                                            lineno=17,
+                                                                            func=Name(lineno=17, id='_placeholder_opaque_t'),
+                                                                            args=[],
+                                                                            keywords=[],
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            ],
+                                                            keywords=[],
+                                                        ),
+                                                        optional_vars=Name(lineno=17, id='__if_op__17'),
+                                                    ),
+                                                ],
+                                                body=[
+                                                    Assign(
+                                                        lineno=18,
+                                                        targets=[Name(lineno=18, id='eight')],
+                                                        value=Call(
+                                                            lineno=18,
+                                                            func=Name(lineno=18, id='constant'),
+                                                            args=[Constant(lineno=18, value=8.0)],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                    Assign(
+                                                        lineno=19,
+                                                        targets=[
+                                                            Tuple(
+                                                                lineno=19,
+                                                                elts=[
+                                                                    Name(lineno=19, id='res7'),
+                                                                    Name(lineno=19, id='res8'),
+                                                                ],
+                                                            ),
+                                                        ],
+                                                        value=Call(
+                                                            lineno=19,
+                                                            func=Name(lineno=19, id='yield_'),
+                                                            args=[
+                                                                Name(lineno=19, id='eight'),
+                                                                Name(lineno=19, id='eight'),
+                                                            ],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                ],
+                                            ),
+                                            With(
+                                                lineno=20,
+                                                items=[
+                                                    withitem(
+                                                        context_expr=Call(
+                                                            lineno=20,
+                                                            func=Name(lineno=20, id='else_ctx_manager'),
+                                                            args=[Name(lineno=20, id='__if_op__17')],
+                                                            keywords=[],
+                                                        ),
+                                                        optional_vars=None,
+                                                    ),
+                                                ],
+                                                body=[
+                                                    Assign(
+                                                        lineno=21,
+                                                        targets=[Name(lineno=21, id='nine')],
+                                                        value=Call(
+                                                            lineno=21,
+                                                            func=Name(lineno=21, id='constant'),
+                                                            args=[Constant(lineno=21, value=9.0)],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                    Assign(
+                                                        lineno=22,
+                                                        targets=[
+                                                            Tuple(
+                                                                lineno=22,
+                                                                elts=[
+                                                                    Name(lineno=22, id='res9'),
+                                                                    Name(lineno=22, id='res10'),
+                                                                ],
+                                                            ),
+                                                        ],
+                                                        value=Call(
+                                                            lineno=22,
+                                                            func=Name(lineno=22, id='yield_'),
+                                                            args=[
+                                                                Name(lineno=22, id='nine'),
+                                                                Name(lineno=22, id='nine'),
+                                                            ],
+                                                            keywords=[],
+                                                        ),
+                                                    ),
+                                                ],
+                                            ),
+                                            Assign(
+                                                lineno=22,
+                                                targets=[
+                                                    Tuple(
+                                                        lineno=22,
+                                                        elts=[
+                                                            Name(lineno=22, id='res7'),
+                                                            Name(lineno=22, id='res8'),
+                                                        ],
+                                                    ),
+                                                ],
+                                                value=Call(
+                                                    lineno=22,
+                                                    func=Name(lineno=22, id='yield_'),
+                                                    args=[
+                                                        Name(lineno=22, id='res7'),
+                                                        Name(lineno=22, id='res8'),
+                                                    ],
+                                                    keywords=[],
+                                                ),
+                                            ),
+                                        ],
+                                    ),
+                                    Assign(
+                                        lineno=22,
+                                        targets=[
+                                            Tuple(
+                                                lineno=22,
+                                                elts=[
+                                                    Name(lineno=22, id='res5'),
+                                                    Name(lineno=22, id='res6'),
+                                                ],
+                                            ),
+                                        ],
+                                        value=Call(
+                                            lineno=22,
+                                            func=Name(lineno=22, id='yield_'),
+                                            args=[
+                                                Name(lineno=22, id='res5'),
+                                                Name(lineno=22, id='res6'),
+                                            ],
+                                            keywords=[],
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            Assign(
+                                lineno=22,
+                                targets=[
+                                    Tuple(
+                                        lineno=22,
+                                        elts=[
+                                            Name(lineno=22, id='res3'),
+                                            Name(lineno=22, id='res4'),
+                                        ],
+                                    ),
+                                ],
+                                value=Call(
+                                    lineno=22,
+                                    func=Name(lineno=22, id='yield_'),
+                                    args=[
+                                        Name(lineno=22, id='res3'),
+                                        Name(lineno=22, id='res4'),
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                    ),
+                    Return(lineno=24, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump

@@ -5,75 +5,41 @@ import inspect
 import logging
 import types
 from abc import ABC
+from dis import findlinestarts
 from opcode import opmap
 from types import CodeType
 
-import libcst as cst
 from bytecode import ConcreteBytecode
-from libcst._position import CodeRange, CodePosition
-from libcst.matchers import MatcherDecoratableTransformer
-from libcst.metadata import (
-    PositionProvider,
-    ParentNodeProvider,
-    QualifiedNameProvider,
-    ExperimentalReentrantCodegenProvider,
-)
 
 from mlir_utils.ast.util import get_module_cst, copy_func
 
 logger = logging.getLogger(__name__)
 
 
-class Transformer(MatcherDecoratableTransformer):
-    METADATA_DEPENDENCIES = (
-        PositionProvider,
-        ParentNodeProvider,
-        QualifiedNameProvider,
-        ExperimentalReentrantCodegenProvider,
-    )
-
+class Transformer(ast.NodeTransformer):
     def __init__(self, context, first_lineno):
         super().__init__()
         self.context = context
         self.first_lineno = first_lineno
 
-    def get_pos(self, node):
-        pos = self.get_metadata(PositionProvider, node)
-        return CodeRange(
-            CodePosition(pos.start.line + self.first_lineno, pos.start.column),
-            CodePosition(pos.end.line + self.first_lineno, pos.end.column),
-        )
-
-    def get_parent(self, node):
-        # NB: can only call this on "original nodes"
-        return self.get_metadata(ParentNodeProvider, node)
-
-    def get_code_snippet(self, node):
-        return self.get_metadata(
-            ExperimentalReentrantCodegenProvider, node
-        ).get_original_statement_code()
-
 
 class StrictTransformer(Transformer):
-    def visit_FunctionDef(self, node: cst.FunctionDef):
-        return False
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        return node
 
 
-def transform_func(f, *transformer_ctors):
-    module_cst = get_module_cst(f)
+def transform_func(f, *transformer_ctors: type(Transformer)):
+    module = get_module_cst(f)
     context = types.SimpleNamespace()
     for transformer_ctor in transformer_ctors:
-        orig_code = module_cst.code
-        wrapper = cst.MetadataWrapper(module_cst)
-        func_node = wrapper.module.body[0]
+        orig_code = ast.unparse(module)
+        func_node = module.body[0]
         replace = transformer_ctor(
             context=context, first_lineno=f.__code__.co_firstlineno - 1
         )
         logger.debug("[transformer] %s", replace.__class__.__name__)
-        with replace.resolve(wrapper):
-            new_func = func_node._visit_and_replace_children(replace)
-        module_cst = wrapper.module.deep_replace(func_node, new_func)
-        new_code = module_cst.code
+        func_node = replace.generic_visit(func_node)
+        new_code = ast.unparse(func_node)
 
         diff = list(
             difflib.unified_diff(
@@ -82,28 +48,35 @@ def transform_func(f, *transformer_ctors):
                 lineterm="",
             )
         )
-        logger.debug("[transformed code diff]\n\n%s", "\n" + "\n".join(diff))
-    logger.debug("[final transformed code]\n\n%s", module_cst.code)
+        logger.debug("[transformed code diff]\n%s", "\n" + "\n".join(diff))
+        logger.debug("[transformed code]\n%s", new_code)
+        module.body[0] = func_node
 
-    return module_cst
+    logger.debug("[final transformed code]\n\n%s", new_code)
+
+    return module
 
 
-def transform_cst(
+def transform_ast(
     f, transformers: list[type(Transformer) | type(StrictTransformer)] = None
 ):
     if transformers is None:
         return f
 
-    module_cst = transform_func(f, *transformers)
-
-    code = "\n" * (f.__code__.co_firstlineno - 1) + module_cst.code
-    module_code_o = compile(code, f.__code__.co_filename, "exec")
+    module = transform_func(f, *transformers)
+    module = ast.fix_missing_locations(module)
+    module = ast.increment_lineno(module, f.__code__.co_firstlineno - 1)
+    module_code_o = compile(module, f.__code__.co_filename, "exec")
     new_f_code_o = next(
         c
         for c in module_code_o.co_consts
         if type(c) is CodeType and c.co_name == f.__name__
     )
-
+    n_lines = len(inspect.getsource(f).splitlines())
+    line_starts = list(findlinestarts(new_f_code_o))
+    assert (
+        line_starts[-1][1] - line_starts[0][1] == n_lines - 1
+    ), f"something went wrong with the line numbers for the rewritten/canonicalized function"
     return copy_func(f, new_f_code_o)
 
 
@@ -156,7 +129,7 @@ class Canonicalizer(ABC):
 
 def canonicalize(*, using: Canonicalizer):
     def wrapper(f):
-        f = transform_cst(f, using.cst_transformers)
+        f = transform_ast(f, using.cst_transformers)
         f = patch_bytecode(f, using.bytecode_patchers)
         return f
 
