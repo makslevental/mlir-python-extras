@@ -25,6 +25,7 @@ from mlir_utils.util import (
     maybe_cast,
     get_result_or_results,
     get_user_code_loc,
+    region_adder,
 )
 
 logger = logging.getLogger(__name__)
@@ -109,17 +110,22 @@ def yield_(*args):
         return results[0]
 
 
-def _if(cond, results_=None, *, has_else=False, loc=None, ip=None):
-    if results_ is None:
-        results_ = []
-    if results_:
+def _if(cond, results=None, *, has_else=False, loc=None, ip=None):
+    if results is None:
+        results = []
+    if results:
         has_else = True
     if loc is None:
         loc = get_user_code_loc()
-    return IfOp(cond, results_, hasElse=has_else, loc=loc, ip=ip)
+    return IfOp(cond, results, hasElse=has_else, loc=loc, ip=ip)
 
 
 if_ = region_op(_if, terminator=yield__)
+
+
+@region_adder(terminator=yield__)
+def else_(ifop):
+    return ifop.regions[1]
 
 
 class IpStack:
@@ -179,23 +185,6 @@ def unstack_else_if(prev_ips_ifop: tuple[IpStack, IfOp], cond: Value, results_=N
     return prev_ips + next_if_ip, next_if_op
 
 
-def get_last_statement(original_node):
-    statements = m.findall(original_node, m.SimpleStatementLine())
-    assert len(statements), "no statements...?"
-    return statements[-1]
-
-
-def insert_in_deep_last_statement(
-    original_node: cst.CSTNode,
-    new_node: cst.CSTNode,
-) -> cst.CSTNode:
-    last_statement = get_last_statement(original_node)
-    new_last_statement = last_statement.with_changes(
-        body=list(last_statement.body) + [cst.Expr(new_node)]
-    )
-    return original_node.deep_replace(last_statement, new_last_statement)
-
-
 class ReplaceYieldWithSCFYield(StrictTransformer):
     @m.call_if_inside(m.If())
     @m.leave(m.Yield(value=m.Tuple()))
@@ -226,41 +215,35 @@ class ReplaceYieldWithSCFYield(StrictTransformer):
         return ast_call(yield_.__name__, args)
 
 
-def maybe_insert_yield_at_end_or_deep(node):
+def maybe_insert_yield_at_end(node):
     maybe_last_statement = node.body[-1]
     if m.matches(maybe_last_statement, m.SimpleStatementLine()):
         if len(m.findall(maybe_last_statement, m.Yield())) > 0:
             return node
 
-        # if last thing in body is a simplestatement then you can talk the yield (with a semicolon)
+        # if last thing in body is a simplestatement then you can tack the yield (with a semicolon)
         # onto the end
-        new_maybe_last_statement = insert_in_deep_last_statement(
-            maybe_last_statement, cst.Yield()
+        new_maybe_last_statement = maybe_last_statement.with_changes(
+            body=list(maybe_last_statement.body) + [cst.Expr(cst.Yield())]
         )
-        node = node.deep_replace(maybe_last_statement, new_maybe_last_statement)
+        return node.deep_replace(maybe_last_statement, new_maybe_last_statement)
     else:
-        # this branch is different (i.e., doesn't check for a match)
-        # because if the last thing is an indented block, there's no way the user could've intentionally placed
-        # a yield there that handles this conditional (even if they placed a yield to handle a conditional in that
-        # last block)
-        node = insert_in_deep_last_statement(node, cst.Yield())
-
-    return node
+        raise RuntimeError("primitive must have statement as last line")
 
 
 class InsertEmptyYield(StrictTransformer):
     @m.leave(m.If())
     def leave_if(self, _original_node: cst.If, updated_node: cst.If) -> cst.If:
-        new_body = maybe_insert_yield_at_end_or_deep(updated_node.body)
+        new_body = maybe_insert_yield_at_end(updated_node.body)
         new_orelse = updated_node.orelse
         if new_orelse:
-            new_orelse_body = maybe_insert_yield_at_end_or_deep(new_orelse.body)
+            new_orelse_body = maybe_insert_yield_at_end(new_orelse.body)
             new_orelse = new_orelse.with_changes(body=new_orelse_body)
         return updated_node.with_changes(body=new_body, orelse=new_orelse)
 
     @m.leave(m.For())
     def leave_for(self, _original_node: cst.For, updated_node: cst.For) -> cst.For:
-        new_body = maybe_insert_yield_at_end_or_deep(updated_node.body)
+        new_body = maybe_insert_yield_at_end(updated_node.body)
         return updated_node.with_changes(body=new_body)
 
 
@@ -269,12 +252,70 @@ class CheckMatchingYields(StrictTransformer):
     def leave_(self, original_node: cst.If, _updated_node: cst.If) -> cst.If:
         n_ifs = len(m.findall(original_node, m.If()))
         n_elses = len(m.findall(original_node, m.Else()))
+        n_fors = len(m.findall(original_node, m.For()))
         n_yields = len(m.findall(original_node, m.Call(func=m.Name(yield_.__name__))))
-        if n_ifs + n_elses <= n_yields:
-            warnings.warn(
-                f"unmatched if/elses and yields: {n_ifs=} {n_elses=} {n_yields=}; line {self.get_pos(original_node).start.line}"
+        if n_ifs + n_elses + n_fors != n_yields:
+            raise RuntimeError(
+                f"unmatched if/elses and yields: {n_ifs=} {n_elses=} {n_fors=} {n_yields=}; line {self.get_pos(original_node).start.line}"
             )
         return original_node
+
+
+class ReplaceSCFCond(StrictTransformer):
+    @m.leave(
+        m.If(
+            test=m.Call(
+                func=m.Name(unstack_if.__name__) | m.Name(unstack_else_if.__name__)
+            )
+        )
+    )
+    def insert_with_results(
+        self, original_node: cst.If, _updated_node: cst.If
+    ) -> cst.If:
+        return original_node
+
+    @m.leave(m.If())
+    def leave_if(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
+        indented_block = updated_node.body
+        last_statement = indented_block.body[-1]
+
+        assert m.matches(
+            last_statement, m.SimpleStatementLine()
+        ), f"conditional must explicitly end with statement"
+        yield_expr = m.findall(last_statement, m.Call(func=m.Name(yield_.__name__)))
+        assert len(
+            yield_expr
+        ), f"conditional must explicitly {yield_.__name__} on last line: {yield_expr}"
+        yield_expr = yield_expr[0]
+        results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))] * len(
+            yield_expr.args
+        )
+        results = cst.Tuple(results)
+
+        test = original_node.test
+        new_test = ast_call(
+            unstack_if.__name__,
+            args=[cst.Arg(test), cst.Arg(results)],
+        )
+        pos = self.get_pos(original_node)
+        new_test = cst.NamedExpr(
+            cst.Name(f"__{unstack_if.__name__}__{pos.start.line}"), new_test
+        )
+        new_test = test.deep_replace(test, new_test)
+        return updated_node.with_changes(test=new_test)
+
+
+def insert_end_if_in_body(node, assign):
+    maybe_last_statement = node.body[-1]
+    if m.matches(maybe_last_statement, m.SimpleStatementLine()):
+        # if last thing in body is a simplestatement then you can talk the yield (with a semicolon)
+        # onto the end
+        new_maybe_last_statement = maybe_last_statement.with_changes(
+            body=list(maybe_last_statement.body) + [assign]
+        )
+        return node.deep_replace(maybe_last_statement, new_maybe_last_statement)
+    else:
+        raise RuntimeError("if statement must have yield")
 
 
 def check_unstack_if(original_node, metadata_resolver):
@@ -296,97 +337,12 @@ def check_unstack_if(original_node, metadata_resolver):
     )
 
 
-class CanonicalizeElIfTests(StrictTransformer):
-    @m.call_if_inside(m.If(orelse=m.If()))
-    @m.leave(m.If())
-    def leave_last_elif(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
-        assert check_unstack_if(
-            original_node, self
-        ), f"if must already have had test replaced with unstack_if"
-        parent = self.get_parent(original_node)
-        if (
-            not check_unstack_if(parent, self)
-            # you need this because call_if_inside matches self as well as parent
-            or parent.orelse != original_node
-        ):
-            return updated_node
-
-        test = updated_node.test
-        new_test_call = ast_call(
-            unstack_else_if.__name__,
-            args=[cst.Arg(parent.test.target)] + list(updated_node.test.value.args),
-        )
-        new_test = test.with_changes(value=new_test_call)
-        return updated_node.with_changes(test=new_test)
-
-
-class ReplaceSCFCond(StrictTransformer):
-    @m.leave(
-        m.If(
-            test=m.Call(
-                func=m.Name(unstack_if.__name__) | m.Name(unstack_else_if.__name__)
-            )
-        )
-    )
-    def insert_with_results(
-        self, original_node: cst.If, _updated_node: cst.If
-    ) -> cst.If:
-        return original_node
-
-    @m.leave(m.If())
-    def leave_if(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
-        indented_block = updated_node.body
-        last_statement = indented_block.body[-1]
-        results = []
-        if m.matches(last_statement, m.SimpleStatementLine()):
-            yield_expr = m.findall(last_statement, m.Call(func=m.Name(yield_.__name__)))
-            assert len(
-                yield_expr
-            ), f"conditional must explicitly {yield_.__name__} on last line: {yield_expr}"
-            yield_expr = yield_expr[0]
-            results = [cst.Element(ast_call(T._placeholder_opaque_t.__name__))] * len(
-                yield_expr.args
-            )
-        results = cst.Tuple(results)
-
-        test = original_node.test
-        new_test = ast_call(
-            unstack_if.__name__,
-            args=[cst.Arg(test), cst.Arg(results)],
-        )
-        pos = self.get_pos(original_node)
-        new_test = cst.NamedExpr(
-            cst.Name(f"__{unstack_if.__name__}__{pos.start.line}"), new_test
-        )
-        new_test = test.deep_replace(test, new_test)
-        return updated_node.with_changes(test=new_test)
-
-
-def in_last_statement_maybe_interleave_with_yields(node, new_node):
-    last_statement = get_last_statement(node)
-    last_statement_body = list(last_statement.body)
-    for i, b in enumerate(last_statement_body[:-1]):
-        next_b = last_statement_body[i + 1]
-        # two adjacent yields (this happens when InsertEmptyYield inserts a yield in a deep statement
-        if m.matches(b, m.Expr(m.Call(func=m.Name(yield_.__name__)))) and m.matches(
-            next_b, m.Expr(m.Call(func=m.Name(yield_.__name__)))
-        ):
-            last_statement_body.insert(i + 1, new_node)
-            break
-    else:
-        last_statement_body.append(new_node)
-    return node.deep_replace(
-        last_statement,
-        last_statement.with_changes(body=last_statement_body),
-    )
-
-
 class InsertEndIfs(StrictTransformer):
     @m.leave(m.If())
     def leave_if(self, original_node: cst.If, updated_node: cst.If) -> cst.If:
         assert check_unstack_if(
             original_node, self
-        ), f"if must already have had test replaced with unstack_if"
+        ), f"if must already have had test replaced with unstack_if before endifs can be inserted"
 
         assign = cst.Assign(
             targets=[cst.AssignTarget(updated_node.test.target)],
@@ -395,41 +351,12 @@ class InsertEndIfs(StrictTransformer):
             ),
         )
 
-        new_body = in_last_statement_maybe_interleave_with_yields(
-            updated_node.body, assign
-        )
+        new_body = insert_end_if_in_body(updated_node.body, assign)
 
-        new_orelse = None
+        new_orelse = updated_node.orelse
         if updated_node.orelse:
-            new_orelse = in_last_statement_maybe_interleave_with_yields(
-                updated_node.orelse, assign
-            )
-            parent = self.get_parent(original_node)
-            if not check_unstack_if(parent, self) or parent.orelse != original_node:
-                return updated_node.with_changes(body=new_body, orelse=new_orelse)
-
-            # basically adds a yield for scf.elseif that yields the correct result (i.e., whatever is yielded in the inner
-            # block
-            maybe_assigned_yield_in_body = ast_call(yield_.__name__)
-            last_statement_in_body = updated_node.body.body[-1]
-
-            # if the inner block yields a named result, "re-yield" it
-            if m.matches(last_statement_in_body, m.SimpleStatementLine()) and m.matches(
-                last_statement_in_body.body[0],
-                m.Assign(value=m.Call(func=m.Name(yield_.__name__))),
-            ):
-                maybe_assigned_yield_in_body = last_statement_in_body.body[0]
-                # re-yield but you don't need to name it, i.e. it doesn't need to be visible at the python/frontend level
-                # i.e., if a user sets a breakpoint
-                maybe_assigned_yield_in_body = ast_call(
-                    yield_.__name__,
-                    [cst.Arg(t.target) for t in maybe_assigned_yield_in_body.targets],
-                )
-
-            maybe_assigned_yield_in_body = cst.Expr(maybe_assigned_yield_in_body)
-            new_orelse = in_last_statement_maybe_interleave_with_yields(
-                new_orelse, maybe_assigned_yield_in_body
-            )
+            new_orelse_body = insert_end_if_in_body(new_orelse.body, assign)
+            new_orelse = new_orelse.with_changes(body=new_orelse_body)
         return updated_node.with_changes(body=new_body, orelse=new_orelse)
 
 
@@ -444,7 +371,15 @@ class InsertPreElses(StrictTransformer):
             targets=[cst.AssignTarget(updated_node.test.target)],
             value=ast_call(unstack_else.__name__, [cst.Arg(updated_node.test.target)]),
         )
-        new_body = insert_in_deep_last_statement(updated_node.body, assign)
+
+        last_statement = updated_node.body.body[-1]
+        assert m.matches(
+            last_statement, m.SimpleStatementLine()
+        ), f"conditional must explicitly end with statement"
+        new_last_statement = last_statement.with_changes(
+            body=list(last_statement.body) + [cst.Expr(assign)]
+        )
+        new_body = updated_node.body.deep_replace(last_statement, new_last_statement)
         return updated_node.with_changes(body=new_body)
 
 
@@ -505,7 +440,6 @@ class SCFCanonicalizer(Canonicalizer):
         ReplaceYieldWithSCFYield,
         CheckMatchingYields,
         ReplaceSCFCond,
-        CanonicalizeElIfTests,
         InsertEndIfs,
         InsertPreElses,
     ]

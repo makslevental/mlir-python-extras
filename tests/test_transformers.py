@@ -10,8 +10,6 @@ from mlir_utils.dialects.ext.scf import (
     ReplaceSCFCond,
     InsertEndIfs,
     InsertEmptyYield,
-    range_,
-    CanonicalizeElIfTests,
     CheckMatchingYields,
     InsertPreElses,
     unstack_if,
@@ -24,6 +22,7 @@ from mlir_utils.dialects.ext.scf import (
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir_utils.types import _placeholder_opaque_t
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -251,7 +250,6 @@ def test_insert_end_ifs(ctx: MLIRContext):
         iffoo,
         ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
-        CanonicalizeElIfTests,
         InsertEndIfs,
     ).code
     correct = dedent(
@@ -282,7 +280,6 @@ def test_insert_end_ifs(ctx: MLIRContext):
         iffoo,
         ReplaceYieldWithSCFYield,
         ReplaceSCFCond,
-        CanonicalizeElIfTests,
         InsertEndIfs,
     ).code
     correct = dedent(
@@ -310,6 +307,7 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
             three = constant(3.0)
             if one < two:
                 four = constant(4.0)
+            yield
         return
 
     iffoo()
@@ -323,7 +321,8 @@ def test_if_nested_no_else_no_yield(ctx: MLIRContext):
         if one < two:
             three = constant(3.0)
             if one < two:
-                four = constant(4.0); yield; yield
+                four = constant(4.0); yield
+            yield
         return
     """
     )
@@ -340,6 +339,7 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
                 four = constant(4.0)
             else:
                 five = constant(5.0)
+            yield
         return
 
     iffoo()
@@ -355,7 +355,8 @@ def test_if_nested_with_else_no_yield(ctx: MLIRContext):
             if one < two:
                 four = constant(4.0); yield
             else:
-                five = constant(5.0); yield; yield
+                five = constant(5.0); yield
+            yield
         return
     """
     )
@@ -482,6 +483,7 @@ def test_if_nested_with_else_no_yield_insert_order(ctx: MLIRContext):
                 four = constant(4.0)
             else:
                 five = constant(5.0)
+            yield
 
         return
 
@@ -505,7 +507,8 @@ def test_if_nested_with_else_no_yield_insert_order(ctx: MLIRContext):
             if one < two:
                 four = constant(4.0); yield
             else:
-                five = constant(5.0); yield; yield
+                five = constant(5.0); yield
+            yield
 
         return
     """
@@ -522,6 +525,7 @@ def test_if_else_with_nested_no_yields_insert_order(ctx: MLIRContext):
             three = constant(3.0)
             if one < two:
                 four = constant(4.0)
+            yield
         else:
             five = constant(5.0)
 
@@ -544,7 +548,8 @@ def test_if_else_with_nested_no_yields_insert_order(ctx: MLIRContext):
         if one < two:
             three = constant(3.0)
             if one < two:
-                four = constant(4.0); yield_(); yield_()
+                four = constant(4.0); yield_()
+            yield_()
         else:
             five = constant(5.0); yield_()
 
@@ -565,6 +570,7 @@ def test_if_nested_with_else_no_yields_insert_order(ctx: MLIRContext):
                 four = constant(4.0)
             else:
                 five = constant(5.0)
+            yield
         else:
             six = constant(6.0)
 
@@ -589,7 +595,8 @@ def test_if_nested_with_else_no_yields_insert_order(ctx: MLIRContext):
             if one < two:
                 four = constant(4.0); yield_()
             else:
-                five = constant(5.0); yield_(); yield_()
+                five = constant(5.0); yield_()
+            yield_()
         else:
             six = constant(6.0); yield_()
 
@@ -614,6 +621,7 @@ def test_if_with_else_else_with_yields(ctx: MLIRContext):
             else:
                 five = constant(5.0)
                 yield
+            yield
 
         return
 
@@ -695,6 +703,7 @@ def test_if_insert_yields_if_else(ctx: MLIRContext):
                 four = constant(4.0)
             else:
                 five = constant(5.0)
+            yield
 
         return
 
@@ -720,7 +729,8 @@ def test_if_insert_yields_if_else(ctx: MLIRContext):
             if __unstack_if__687 := unstack_if(one < two, ()):
                 four = constant(4.0); yield_(); __unstack_if__687 = unstack_end_branch(__unstack_if__687); __unstack_if__687 = unstack_else(__unstack_if__687)
             else:
-                five = constant(5.0); yield_(); __unstack_if__687 = unstack_end_branch(__unstack_if__687); yield_(); __unstack_if__684 = unstack_end_branch(__unstack_if__684)
+                five = constant(5.0); yield_(); __unstack_if__687 = unstack_end_branch(__unstack_if__687)
+            yield_(); __unstack_if__684 = unstack_end_branch(__unstack_if__684)
 
         return
     """
@@ -737,11 +747,13 @@ def test_if_canonicalize_elif(ctx: MLIRContext):
         if one < two:
             four = constant(4.0)
             yield
-        elif two < three:
-            five = constant(5.0)
-            yield
         else:
-            six = constant(6.0)
+            if two < three:
+                five = constant(5.0)
+                yield
+            else:
+                six = constant(6.0)
+                yield
             yield
 
         return
@@ -752,7 +764,6 @@ def test_if_canonicalize_elif(ctx: MLIRContext):
         ReplaceYieldWithSCFYield,
         CheckMatchingYields,
         ReplaceSCFCond,
-        CanonicalizeElIfTests,
         InsertEndIfs,
         InsertPreElses,
     ).code
@@ -763,15 +774,17 @@ def test_if_canonicalize_elif(ctx: MLIRContext):
         two = constant(2.0)
         three = constant(3.0)
 
-        if __unstack_if__730 := unstack_if(one < two, ()):
+        if __unstack_if__748 := unstack_if(one < two, ()):
             four = constant(4.0)
-            yield_(); __unstack_if__730 = unstack_end_branch(__unstack_if__730)
-        elif __unstack_if__733 := unstack_else_if(__unstack_if__730, two < three, ()):
-            five = constant(5.0)
-            yield_(); __unstack_if__733 = unstack_end_branch(__unstack_if__733); __unstack_if__733 = unstack_else(__unstack_if__733)
+            yield_(); __unstack_if__748 = unstack_end_branch(__unstack_if__748); __unstack_if__748 = unstack_else(__unstack_if__748)
         else:
-            six = constant(6.0)
-            yield_(); __unstack_if__733 = unstack_end_branch(__unstack_if__733); yield_(); __unstack_if__730 = unstack_end_branch(__unstack_if__730)
+            if __unstack_if__752 := unstack_if(two < three, ()):
+                five = constant(5.0)
+                yield_(); __unstack_if__752 = unstack_end_branch(__unstack_if__752); __unstack_if__752 = unstack_else(__unstack_if__752)
+            else:
+                six = constant(6.0)
+                yield_(); __unstack_if__752 = unstack_end_branch(__unstack_if__752)
+            yield_(); __unstack_if__748 = unstack_end_branch(__unstack_if__748)
 
         return
     """
@@ -787,209 +800,16 @@ def test_if_canonicalize_elif_elif(ctx: MLIRContext):
 
         if one < two:
             four = constant(4.0)
-            yield
-        elif two < three:
-            five = constant(5.0)
-            yield
-        elif two < three:
-            six = constant(6.0)
-            yield
-        else:
-            seven = constant(7.0)
-            yield
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if __unstack_if__781 := unstack_if(one < two, ()):
-            four = constant(4.0)
-            yield_(); __unstack_if__781 = unstack_end_branch(__unstack_if__781)
-        elif __unstack_if__784 := unstack_else_if(__unstack_if__781, two < three, ()):
-            five = constant(5.0)
-            yield_(); __unstack_if__784 = unstack_end_branch(__unstack_if__784)
-        elif __unstack_if__787 := unstack_else_if(__unstack_if__784, two < three, ()):
-            six = constant(6.0)
-            yield_(); __unstack_if__787 = unstack_end_branch(__unstack_if__787); __unstack_if__787 = unstack_else(__unstack_if__787)
-        else:
-            seven = constant(7.0)
-            yield_(); __unstack_if__787 = unstack_end_branch(__unstack_if__787); yield_(); __unstack_if__784 = unstack_end_branch(__unstack_if__784); yield_(); __unstack_if__781 = unstack_end_branch(__unstack_if__781)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_with_yields(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if one < two:
-            four = constant(4.0)
-            yield
-        elif two < three:
-            five = constant(5.0)
-            yield
-        else:
-            six = constant(6.0)
-            yield
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if __unstack_if__838 := unstack_if(one < two, ()):
-            four = constant(4.0)
-            yield_(); __unstack_if__838 = unstack_end_branch(__unstack_if__838)
-        elif __unstack_if__841 := unstack_else_if(__unstack_if__838, two < three, ()):
-            five = constant(5.0)
-            yield_(); __unstack_if__841 = unstack_end_branch(__unstack_if__841); __unstack_if__841 = unstack_else(__unstack_if__841)
-        else:
-            six = constant(6.0)
-            yield_(); __unstack_if__841 = unstack_end_branch(__unstack_if__841); yield_(); __unstack_if__838 = unstack_end_branch(__unstack_if__838)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_elif_with_yields(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if one < two:
-            five = constant(5.0)
-            yield
-        elif two < three:
-            five = constant(5.0)
-            yield
-        elif three < four:
-            six = constant(6.0)
-            yield
-        else:
-            six = constant(7.0)
-            yield
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if __unstack_if__890 := unstack_if(one < two, ()):
-            five = constant(5.0)
-            yield_(); __unstack_if__890 = unstack_end_branch(__unstack_if__890)
-        elif __unstack_if__893 := unstack_else_if(__unstack_if__890, two < three, ()):
-            five = constant(5.0)
-            yield_(); __unstack_if__893 = unstack_end_branch(__unstack_if__893)
-        elif __unstack_if__896 := unstack_else_if(__unstack_if__893, three < four, ()):
-            six = constant(6.0)
-            yield_(); __unstack_if__896 = unstack_end_branch(__unstack_if__896); __unstack_if__896 = unstack_else(__unstack_if__896)
-        else:
-            six = constant(7.0)
-            yield_(); __unstack_if__896 = unstack_end_branch(__unstack_if__896); yield_(); __unstack_if__893 = unstack_end_branch(__unstack_if__893); yield_(); __unstack_if__890 = unstack_end_branch(__unstack_if__890)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_no_else(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if one < two:
-            five = constant(5.0)
-            yield
-        elif two < three:
-            five = constant(5.0)
-            yield
-
-        return
-
-    try:
-        code = transform_func(
-            iffoo,
-            InsertEmptyYield,
-            ReplaceYieldWithSCFYield,
-            ReplaceSCFCond,
-            InsertEndIfs,
-        ).code
-    except Exception as e:
-        assert str(e) == "conditional must have else branch"
-
-
-def test_if_with_else_nested_elif(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if one < two:
-            five = constant(5.0)
         else:
             if two < three:
-                six = constant(6.0)
-            elif three < four:
-                seven = constant(7.0)
+                five = constant(5.0)
             else:
-                eight = constant(8.0)
+                if two < three:
+                    six = constant(6.0)
+                else:
+                    seven = constant(7.0)
+                yield
+            yield
 
         return
 
@@ -999,7 +819,6 @@ def test_if_with_else_nested_elif(ctx: MLIRContext):
         ReplaceYieldWithSCFYield,
         CheckMatchingYields,
         ReplaceSCFCond,
-        CanonicalizeElIfTests,
         InsertEndIfs,
         InsertPreElses,
     ).code
@@ -1009,332 +828,21 @@ def test_if_with_else_nested_elif(ctx: MLIRContext):
         one = constant(1.0)
         two = constant(2.0)
         three = constant(3.0)
-        four = constant(4.0)
 
-        if __unstack_if__977 := unstack_if(one < two, ()):
-            five = constant(5.0); yield_(); __unstack_if__977 = unstack_end_branch(__unstack_if__977); __unstack_if__977 = unstack_else(__unstack_if__977)
+        if __unstack_if__802 := unstack_if(one < two, ()):
+            four = constant(4.0); yield_(); __unstack_if__802 = unstack_end_branch(__unstack_if__802); __unstack_if__802 = unstack_else(__unstack_if__802)
         else:
-            if __unstack_if__980 := unstack_if(two < three, ()):
-                six = constant(6.0); yield_(); __unstack_if__980 = unstack_end_branch(__unstack_if__980)
-            elif __unstack_if__982 := unstack_else_if(__unstack_if__980, three < four, ()):
-                seven = constant(7.0); yield_(); __unstack_if__982 = unstack_end_branch(__unstack_if__982); __unstack_if__982 = unstack_else(__unstack_if__982)
+            if __unstack_if__805 := unstack_if(two < three, ()):
+                five = constant(5.0); yield_(); __unstack_if__805 = unstack_end_branch(__unstack_if__805); __unstack_if__805 = unstack_else(__unstack_if__805)
             else:
-                eight = constant(8.0); yield_(); __unstack_if__982 = unstack_end_branch(__unstack_if__982); yield_(); __unstack_if__980 = unstack_end_branch(__unstack_if__980); yield_(); __unstack_if__977 = unstack_end_branch(__unstack_if__977)
+                if __unstack_if__808 := unstack_if(two < three, ()):
+                    six = constant(6.0); yield_(); __unstack_if__808 = unstack_end_branch(__unstack_if__808); __unstack_if__808 = unstack_else(__unstack_if__808)
+                else:
+                    seven = constant(7.0); yield_(); __unstack_if__808 = unstack_end_branch(__unstack_if__808)
+                yield_(); __unstack_if__805 = unstack_end_branch(__unstack_if__805)
+            yield_(); __unstack_if__802 = unstack_end_branch(__unstack_if__802)
 
         return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_no_yields(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if one < two:
-            four = constant(4.0)
-        elif two < three:
-            five = constant(5.0)
-        else:
-            six = constant(6.0)
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if __unstack_if__1029 := unstack_if(one < two, ()):
-            four = constant(4.0); yield_(); __unstack_if__1029 = unstack_end_branch(__unstack_if__1029)
-        elif __unstack_if__1031 := unstack_else_if(__unstack_if__1029, two < three, ()):
-            five = constant(5.0); yield_(); __unstack_if__1031 = unstack_end_branch(__unstack_if__1031); __unstack_if__1031 = unstack_else(__unstack_if__1031)
-        else:
-            six = constant(6.0); yield_(); __unstack_if__1031 = unstack_end_branch(__unstack_if__1031); yield_(); __unstack_if__1029 = unstack_end_branch(__unstack_if__1029)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_elif_no_yields(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if one < two:
-            five = constant(5.0)
-        elif two < three:
-            six = constant(6.0)
-        elif three < four:
-            seven = constant(7.0)
-        else:
-            eight = constant(8.0)
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if __unstack_if__1075 := unstack_if(one < two, ()):
-            five = constant(5.0); yield_(); __unstack_if__1075 = unstack_end_branch(__unstack_if__1075)
-        elif __unstack_if__1077 := unstack_else_if(__unstack_if__1075, two < three, ()):
-            six = constant(6.0); yield_(); __unstack_if__1077 = unstack_end_branch(__unstack_if__1077)
-        elif __unstack_if__1079 := unstack_else_if(__unstack_if__1077, three < four, ()):
-            seven = constant(7.0); yield_(); __unstack_if__1079 = unstack_end_branch(__unstack_if__1079); __unstack_if__1079 = unstack_else(__unstack_if__1079)
-        else:
-            eight = constant(8.0); yield_(); __unstack_if__1079 = unstack_end_branch(__unstack_if__1079); yield_(); __unstack_if__1077 = unstack_end_branch(__unstack_if__1077); yield_(); __unstack_if__1075 = unstack_end_branch(__unstack_if__1075)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_yields_results(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if one < two:
-            four = constant(4.0)
-            res = yield four
-        elif two < three:
-            five = constant(5.0)
-            res1 = yield five
-        else:
-            six = constant(6.0)
-            res2 = yield six
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if __unstack_if__1125 := unstack_if(one < two, (_placeholder_opaque_t(),)):
-            four = constant(4.0)
-            res = yield_(four); __unstack_if__1125 = unstack_end_branch(__unstack_if__1125)
-        elif __unstack_if__1128 := unstack_else_if(__unstack_if__1125, two < three, (_placeholder_opaque_t(),)):
-            five = constant(5.0)
-            res1 = yield_(five); __unstack_if__1128 = unstack_end_branch(__unstack_if__1128); __unstack_if__1128 = unstack_else(__unstack_if__1128)
-        else:
-            six = constant(6.0)
-            res2 = yield_(six); __unstack_if__1128 = unstack_end_branch(__unstack_if__1128); yield_(res1); __unstack_if__1125 = unstack_end_branch(__unstack_if__1125)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_yields_results_long(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if one < two:
-            four = constant(4.0)
-            res = yield four
-        elif two < three:
-            five = constant(5.0)
-            res1 = yield five
-        elif two < three:
-            six = constant(6.0)
-            res2 = yield six
-        elif two < three:
-            seven = constant(7.0)
-            res3 = yield seven
-        elif two < three:
-            eight = constant(8.0)
-            res4 = yield eight
-        elif two < three:
-            nine = constant(9.0)
-            res5 = yield nine
-        else:
-            ten = constant(10.0)
-            res6 = yield ten
-
-        return
-
-    code = transform_func(
-        iffoo,
-        # InsertYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        # InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-
-        if __unstack_if__1176 := unstack_if(one < two, (_placeholder_opaque_t(),)):
-            four = constant(4.0)
-            res = yield_(four); __unstack_if__1176 = unstack_end_branch(__unstack_if__1176)
-        elif __unstack_if__1179 := unstack_else_if(__unstack_if__1176, two < three, (_placeholder_opaque_t(),)):
-            five = constant(5.0)
-            res1 = yield_(five); __unstack_if__1179 = unstack_end_branch(__unstack_if__1179)
-        elif __unstack_if__1182 := unstack_else_if(__unstack_if__1179, two < three, (_placeholder_opaque_t(),)):
-            six = constant(6.0)
-            res2 = yield_(six); __unstack_if__1182 = unstack_end_branch(__unstack_if__1182)
-        elif __unstack_if__1185 := unstack_else_if(__unstack_if__1182, two < three, (_placeholder_opaque_t(),)):
-            seven = constant(7.0)
-            res3 = yield_(seven); __unstack_if__1185 = unstack_end_branch(__unstack_if__1185)
-        elif __unstack_if__1188 := unstack_else_if(__unstack_if__1185, two < three, (_placeholder_opaque_t(),)):
-            eight = constant(8.0)
-            res4 = yield_(eight); __unstack_if__1188 = unstack_end_branch(__unstack_if__1188)
-        elif __unstack_if__1191 := unstack_else_if(__unstack_if__1188, two < three, (_placeholder_opaque_t(),)):
-            nine = constant(9.0)
-            res5 = yield_(nine); __unstack_if__1191 = unstack_end_branch(__unstack_if__1191)
-        else:
-            ten = constant(10.0)
-            res6 = yield_(ten); __unstack_if__1191 = unstack_end_branch(__unstack_if__1191); yield_(res5); __unstack_if__1188 = unstack_end_branch(__unstack_if__1188); yield_(res4); __unstack_if__1185 = unstack_end_branch(__unstack_if__1185); yield_(res3); __unstack_if__1182 = unstack_end_branch(__unstack_if__1182); yield_(res2); __unstack_if__1179 = unstack_end_branch(__unstack_if__1179); yield_(res1); __unstack_if__1176 = unstack_end_branch(__unstack_if__1176)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_if_with_elif_elif_yields_results(ctx: MLIRContext):
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if one < two:
-            five = constant(5.0)
-            res1, res2 = yield five, five
-        elif two < three:
-            six = constant(6.0)
-            res1, res2 = yield six, six
-        elif three < four:
-            seven = constant(7.0)
-            res1, res2 = yield seven, seven
-        else:
-            eight = constant(8.0)
-            res1, res2 = yield eight, eight
-
-        return
-
-    code = transform_func(
-        iffoo,
-        InsertEmptyYield,
-        ReplaceYieldWithSCFYield,
-        CheckMatchingYields,
-        ReplaceSCFCond,
-        CanonicalizeElIfTests,
-        InsertEndIfs,
-        InsertPreElses,
-    ).code
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        three = constant(3.0)
-        four = constant(4.0)
-
-        if __unstack_if__1252 := unstack_if(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())):
-            five = constant(5.0)
-            res1, res2 = yield_(five, five); __unstack_if__1252 = unstack_end_branch(__unstack_if__1252)
-        elif __unstack_if__1255 := unstack_else_if(__unstack_if__1252, two < three, (_placeholder_opaque_t(), _placeholder_opaque_t())):
-            six = constant(6.0)
-            res1, res2 = yield_(six, six); __unstack_if__1255 = unstack_end_branch(__unstack_if__1255)
-        elif __unstack_if__1258 := unstack_else_if(__unstack_if__1255, three < four, (_placeholder_opaque_t(), _placeholder_opaque_t())):
-            seven = constant(7.0)
-            res1, res2 = yield_(seven, seven); __unstack_if__1258 = unstack_end_branch(__unstack_if__1258); __unstack_if__1258 = unstack_else(__unstack_if__1258)
-        else:
-            eight = constant(8.0)
-            res1, res2 = yield_(eight, eight); __unstack_if__1258 = unstack_end_branch(__unstack_if__1258); yield_(res1, res2); __unstack_if__1255 = unstack_end_branch(__unstack_if__1255); yield_(res1, res2); __unstack_if__1252 = unstack_end_branch(__unstack_if__1252)
-
-        return
-    """
-    )
-    assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
-
-
-def test_for(ctx: MLIRContext):
-    def foo():
-        one = constant(1.0)
-        two = constant(1.0)
-
-        _i = 0
-        for i, i1 in range_(0, 10, iter_args=[one]):
-            three = constant(3.0)
-            res = yield three
-
-    foo()
-
-    code = transform_func(
-        foo,
-        ReplaceYieldWithSCFYield,
-    ).code
-
-    correct = dedent(
-        """\
-    def foo():
-        one = constant(1.0)
-        two = constant(1.0)
-
-        _i = 0
-        for i, i1 in range_(0, 10, iter_args=[one]):
-            three = constant(3.0)
-            res = yield_(three)
     """
     )
     assert re.sub(r"_\d+", "", correct) == re.sub(r"_\d+", "", code)
