@@ -1,6 +1,5 @@
 import ctypes
 import inspect
-import traceback
 import warnings
 from collections import defaultdict
 from functools import wraps
@@ -118,46 +117,63 @@ def maybe_cast(val: Value | list[Value]):
     return val
 
 
+def op_region_builder(op, op_region, terminator=None):
+    def builder_wrapper(body_builder):
+        # add a block with block args having types ...
+        if len(op_region.blocks) == 0:
+            sig = inspect.signature(body_builder)
+            types = [p.annotation for p in sig.parameters.values()]
+            if not (
+                len(types) == len(sig.parameters)
+                and all(isinstance(t, Type) for t in types)
+            ):
+                raise ValueError(
+                    f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
+                )
+
+            arg_locs = [get_user_code_loc()] * len(sig.parameters)
+            op_region.blocks.append(*types, arg_locs=arg_locs)
+        with InsertionPoint(op_region.blocks[0]):
+            results = body_builder(
+                *[maybe_cast(a) for a in op_region.blocks[0].arguments]
+            )
+            if terminator is not None:
+                res = []
+                if isinstance(results, (tuple, list)):
+                    res.extend(results)
+                elif results is not None:
+                    res.append(results)
+                terminator(res)
+
+        res = get_result_or_results(op)
+        if isinstance(res, OpResultList):
+            return tuple(map(maybe_cast, res))
+        else:
+            return maybe_cast(res)
+
+    return builder_wrapper
+
+
+def region_adder(terminator=None):
+    def wrapper(op_region_adder):
+        def region_adder_decorator(op, *args, **kwargs):
+            region = op_region_adder(op, *args, **kwargs)
+
+            return op_region_builder(op, region, terminator)
+
+        return region_adder_decorator
+
+    return wrapper
+
+
 # builds the decorator
 def region_op(op_constructor, terminator=None):
     # the decorator itself
     def op_decorator(*args, **kwargs):
         op = op_constructor(*args, **kwargs)
+        op_region = op.regions[0]
 
-        def builder_wrapper(body_builder):
-            # add a block with block args having types ...
-            if len(op.regions[0].blocks) == 0:
-                sig = inspect.signature(body_builder)
-                types = [p.annotation for p in sig.parameters.values()]
-                if not (
-                    len(types) == len(sig.parameters)
-                    and all(isinstance(t, Type) for t in types)
-                ):
-                    raise ValueError(
-                        f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
-                    )
-
-                arg_locs = [get_user_code_loc()] * len(sig.parameters)
-                op.regions[0].blocks.append(*types, arg_locs=arg_locs)
-            with InsertionPoint(op.regions[0].blocks[0]):
-                results = body_builder(
-                    *[maybe_cast(a) for a in op.regions[0].blocks[0].arguments]
-                )
-                if terminator is not None:
-                    res = []
-                    if isinstance(results, (tuple, list)):
-                        res.extend(results)
-                    elif results is not None:
-                        res.append(results)
-                    terminator(res)
-
-            res = get_result_or_results(op)
-            if isinstance(res, OpResultList):
-                return tuple(map(maybe_cast, res))
-            else:
-                return maybe_cast(res)
-
-        return builder_wrapper
+        return op_region_builder(op, op_region, terminator)
 
     # this is like make_maybe_no_args_decorator but a little different because the decorators here
     # are already wrapped (or something like that)
