@@ -126,7 +126,7 @@ def yield_(*args):
 
         assert len(results) == len(unpacked_args), f"{results=}, {unpacked_args=}"
         for i, r in enumerate(results):
-            if r.type == T._placeholder_opaque_t():
+            if r.type == T.placeholder_opaque():
                 r.set_type(unpacked_args[i].type)
 
         results = maybe_cast(results)
@@ -295,7 +295,7 @@ class ReplaceIfWithWith(StrictTransformer):
 
         test = updated_node.test
         results = [
-            ast_call(T._placeholder_opaque_t.__name__)
+            ast_call(T.placeholder_opaque.__name__)
             for _ in range(len(last_statement.value.args))
         ]
         results = ast.fix_missing_locations(
@@ -358,7 +358,7 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
         f.__globals__[yield_.__name__] = yield_
         f.__globals__[if_ctx_manager.__name__] = if_ctx_manager
         f.__globals__[else_ctx_manager.__name__] = else_ctx_manager
-        f.__globals__[T._placeholder_opaque_t.__name__] = T._placeholder_opaque_t
+        f.__globals__[T.placeholder_opaque.__name__] = T.placeholder_opaque
         return code
 
 

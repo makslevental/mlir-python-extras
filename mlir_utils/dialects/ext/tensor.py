@@ -14,9 +14,9 @@ from mlir.ir import (
     ShapedType,
 )
 
+import mlir_utils.types as T
 from mlir_utils.dialects import tensor
 from mlir_utils.dialects.ext.arith import ArithValue, Scalar, constant
-from mlir_utils.types import tensor_t
 from mlir_utils.util import (
     get_result_or_results,
     maybe_cast,
@@ -52,7 +52,7 @@ def extract_slice(
     assert offsets or static_offsets and bool(offsets) != bool(static_offsets)
     assert strides or static_strides and bool(strides) != bool(static_strides)
     sizes = []
-    result = tensor_t(*static_sizes, source.dtype)
+    result = T.tensor(*static_sizes, source.dtype)
     return tensor.extract_slice(
         result,
         source,

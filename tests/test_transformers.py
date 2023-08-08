@@ -672,7 +672,7 @@ def test_if_replace_cond_2():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        with if_ctx_manager(one < two, (_placeholder_opaque_t(),)) as __if_op__4:
+        with if_ctx_manager(one < two, (placeholder_opaque(),)) as __if_op__4:
             three = constant(3.0)
             res = yield_(three)
         return
@@ -730,7 +730,7 @@ def test_if_replace_cond_2():
                                             elts=[
                                                 Call(
                                                     lineno=4,
-                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=4, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
@@ -793,7 +793,7 @@ def test_if_replace_cond_3():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        with if_ctx_manager(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())) as __if_op__4:
+        with if_ctx_manager(one < two, (placeholder_opaque(), placeholder_opaque())) as __if_op__4:
             three = constant(3.0)
             res1, res2 = yield_(three, three)
         return
@@ -850,13 +850,13 @@ def test_if_replace_cond_3():
                                             elts=[
                                                 Call(
                                                     lineno=4,
-                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=4, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
                                                 Call(
                                                     lineno=4,
-                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=4, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
@@ -1232,7 +1232,7 @@ def test_if_else_with_nested_no_yields_yield_results():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        with if_ctx_manager(one < two, (_placeholder_opaque_t(),)) as __if_op__4:
+        with if_ctx_manager(one < two, (placeholder_opaque(),)) as __if_op__4:
             three = constant(3.0)
             with if_ctx_manager(two < three, ()) as __if_op__6:
                 four = constant(4.0)
@@ -1296,7 +1296,7 @@ def test_if_else_with_nested_no_yields_yield_results():
                                             elts=[
                                                 Call(
                                                     lineno=4,
-                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=4, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
@@ -1448,7 +1448,7 @@ def test_if_else_with_nested_no_yields_yield_multiple_results():
     def iffoo():
         one = constant(1.0)
         two = constant(2.0)
-        with if_ctx_manager(one < two, (_placeholder_opaque_t(), _placeholder_opaque_t())) as __if_op__4:
+        with if_ctx_manager(one < two, (placeholder_opaque(), placeholder_opaque())) as __if_op__4:
             three = constant(3.0)
             with if_ctx_manager(two < three, ()) as __if_op__6:
                 four = constant(4.0)
@@ -1511,13 +1511,13 @@ def test_if_else_with_nested_no_yields_yield_multiple_results():
                                             elts=[
                                                 Call(
                                                     lineno=4,
-                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=4, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
                                                 Call(
                                                     lineno=4,
-                                                    func=Name(lineno=4, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=4, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
@@ -3318,7 +3318,7 @@ def test_elif_nested_else_branch():
                                             elts=[
                                                 Call(
                                                     lineno=7,
-                                                    func=Name(lineno=7, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=7, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
@@ -3386,7 +3386,7 @@ def test_elif_nested_else_branch():
                                                     elts=[
                                                         Call(
                                                             lineno=10,
-                                                            func=Name(lineno=10, id='_placeholder_opaque_t'),
+                                                            func=Name(lineno=10, id='placeholder_opaque'),
                                                             args=[],
                                                             keywords=[],
                                                         ),
@@ -3454,7 +3454,7 @@ def test_elif_nested_else_branch():
                                                             elts=[
                                                                 Call(
                                                                     lineno=14,
-                                                                    func=Name(lineno=14, id='_placeholder_opaque_t'),
+                                                                    func=Name(lineno=14, id='placeholder_opaque'),
                                                                     args=[],
                                                                     keywords=[],
                                                                 ),
@@ -3522,7 +3522,7 @@ def test_elif_nested_else_branch():
                                                                     elts=[
                                                                         Call(
                                                                             lineno=17,
-                                                                            func=Name(lineno=17, id='_placeholder_opaque_t'),
+                                                                            func=Name(lineno=17, id='placeholder_opaque'),
                                                                             args=[],
                                                                             keywords=[],
                                                                         ),
@@ -3758,13 +3758,13 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
                                             elts=[
                                                 Call(
                                                     lineno=7,
-                                                    func=Name(lineno=7, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=7, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
                                                 Call(
                                                     lineno=7,
-                                                    func=Name(lineno=7, id='_placeholder_opaque_t'),
+                                                    func=Name(lineno=7, id='placeholder_opaque'),
                                                     args=[],
                                                     keywords=[],
                                                 ),
@@ -3843,13 +3843,13 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
                                                     elts=[
                                                         Call(
                                                             lineno=10,
-                                                            func=Name(lineno=10, id='_placeholder_opaque_t'),
+                                                            func=Name(lineno=10, id='placeholder_opaque'),
                                                             args=[],
                                                             keywords=[],
                                                         ),
                                                         Call(
                                                             lineno=10,
-                                                            func=Name(lineno=10, id='_placeholder_opaque_t'),
+                                                            func=Name(lineno=10, id='placeholder_opaque'),
                                                             args=[],
                                                             keywords=[],
                                                         ),
@@ -3928,13 +3928,13 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
                                                             elts=[
                                                                 Call(
                                                                     lineno=14,
-                                                                    func=Name(lineno=14, id='_placeholder_opaque_t'),
+                                                                    func=Name(lineno=14, id='placeholder_opaque'),
                                                                     args=[],
                                                                     keywords=[],
                                                                 ),
                                                                 Call(
                                                                     lineno=14,
-                                                                    func=Name(lineno=14, id='_placeholder_opaque_t'),
+                                                                    func=Name(lineno=14, id='placeholder_opaque'),
                                                                     args=[],
                                                                     keywords=[],
                                                                 ),
@@ -4013,13 +4013,13 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
                                                                     elts=[
                                                                         Call(
                                                                             lineno=17,
-                                                                            func=Name(lineno=17, id='_placeholder_opaque_t'),
+                                                                            func=Name(lineno=17, id='placeholder_opaque'),
                                                                             args=[],
                                                                             keywords=[],
                                                                         ),
                                                                         Call(
                                                                             lineno=17,
-                                                                            func=Name(lineno=17, id='_placeholder_opaque_t'),
+                                                                            func=Name(lineno=17, id='placeholder_opaque'),
                                                                             args=[],
                                                                             keywords=[],
                                                                         ),

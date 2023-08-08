@@ -29,13 +29,13 @@ def get_asm(operation):
 def test_if_replace_yield_5(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def iffoo():
-        one = constant(1.0, T.f32_t)
-        two = constant(2.0, T.f32_t)
+        one = constant(1.0, T.f32)
+        two = constant(2.0, T.f32)
         if one < two:
-            three = constant(3.0, T.f32_t)
+            three = constant(3.0, T.f32)
             res1, res2, res3 = yield three, three, three
         else:
-            four = constant(4.0, T.f32_t)
+            four = constant(4.0, T.f32)
             res1, res2, res3 = yield four, four, four
         return
 
@@ -71,11 +71,11 @@ module {
 
 
 def test_block_args(ctx: MLIRContext):
-    one = constant(1, T.index_t)
-    two = constant(2, T.index_t)
+    one = constant(1, T.index)
+    two = constant(2, T.index)
 
-    @generate(T.tensor_t(S, 3, S, T.f32_t), dynamic_extents=[one, two])
-    def demo_fun1(i: T.index_t, j: T.index_t, k: T.index_t):
+    @generate(T.tensor(S, 3, S, T.f32), dynamic_extents=[one, two])
+    def demo_fun1(i: T.index, j: T.index, k: T.index):
         one = constant(1.0)
         tensor_yield(one)
 
