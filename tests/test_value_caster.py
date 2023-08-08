@@ -15,18 +15,18 @@ pytest.mark.usefixtures("ctx")
 
 def test_caster_registration(ctx: MLIRContext):
     sizes = S, 3, S
-    ten = empty(sizes, T.f32_t)
+    ten = empty(sizes, T.f32)
     assert repr(ten) == "Tensor(%0, tensor<?x3x?xf32>)"
 
     def dummy_caster(val):
         return val
 
     register_value_caster(RankedTensorType.static_typeid)(dummy_caster)
-    ten = empty(sizes, T.f32_t)
+    ten = empty(sizes, T.f32)
     assert repr(ten) == "Tensor(%1, tensor<?x3x?xf32>)"
 
     register_value_caster(RankedTensorType.static_typeid, 0)(dummy_caster)
-    ten = empty(sizes, T.f32_t)
+    ten = empty(sizes, T.f32)
     assert repr(ten) != "Tensor(%1, tensor<?x3x?xf32>)"
     assert isinstance(ten, OpResult)
 
@@ -35,19 +35,19 @@ def test_caster_registration(ctx: MLIRContext):
 
 
 def test_scalar_register_value_caster_decorator(ctx: MLIRContext):
-    assert isinstance(constant(1, type=T.i8_t), Scalar)
-    assert isinstance(constant(1, type=T.i16_t), Scalar)
-    assert isinstance(constant(1, type=T.i32_t), Scalar)
-    assert isinstance(constant(1, type=T.i32_t), Scalar)
+    assert isinstance(constant(1, type=T.i8), Scalar)
+    assert isinstance(constant(1, type=T.i16), Scalar)
+    assert isinstance(constant(1, type=T.i32), Scalar)
+    assert isinstance(constant(1, type=T.i32), Scalar)
 
     assert isinstance(constant(1, index=True), Scalar)
 
-    assert isinstance(constant(1, type=T.f16_t), Scalar)
-    assert isinstance(constant(1, type=T.f32_t), Scalar)
-    assert isinstance(constant(1, type=T.f32_t), Scalar)
+    assert isinstance(constant(1, type=T.f16), Scalar)
+    assert isinstance(constant(1, type=T.f32), Scalar)
+    assert isinstance(constant(1, type=T.f32), Scalar)
 
-    assert isinstance(constant(1, type=T.cmp16_t), Scalar)
-    assert isinstance(constant(1, type=T.cmp32_t), Scalar)
-    assert isinstance(constant(1, type=T.cmp64_t), Scalar)
+    assert isinstance(constant(1, type=T.cmp16), Scalar)
+    assert isinstance(constant(1, type=T.cmp32), Scalar)
+    assert isinstance(constant(1, type=T.cmp64), Scalar)
 
     ctx.module.operation.verify()

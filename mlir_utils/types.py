@@ -1,4 +1,3 @@
-import sys
 from functools import partial
 from typing import Union
 
@@ -25,72 +24,72 @@ from mlir.ir import (
     VectorType,
 )
 
-_index_t = lambda: IndexType.get()
-_bool_t = lambda: IntegerType.get_signless(1)
+_index = lambda: IndexType.get()
+_bool = lambda: IntegerType.get_signless(1)
 
-_i8_t = lambda: IntegerType.get_signless(8)
-_i16_t = lambda: IntegerType.get_signless(16)
-_i32_t = lambda: IntegerType.get_signless(32)
-_i64_t = lambda: IntegerType.get_signless(64)
+_i8 = lambda: IntegerType.get_signless(8)
+_i16 = lambda: IntegerType.get_signless(16)
+_i32 = lambda: IntegerType.get_signless(32)
+_i64 = lambda: IntegerType.get_signless(64)
 
-_si8_t = lambda: IntegerType.get_signed(8)
-_si16_t = lambda: IntegerType.get_signed(16)
-_si32_t = lambda: IntegerType.get_signed(32)
-_si64_t = lambda: IntegerType.get_signed(64)
+_si8 = lambda: IntegerType.get_signed(8)
+_si16 = lambda: IntegerType.get_signed(16)
+_si32 = lambda: IntegerType.get_signed(32)
+_si64 = lambda: IntegerType.get_signed(64)
 
-_ui8_t = lambda: IntegerType.get_unsigned(8)
-_ui16_t = lambda: IntegerType.get_unsigned(16)
-_ui32_t = lambda: IntegerType.get_unsigned(32)
-_ui64_t = lambda: IntegerType.get_unsigned(64)
+_ui8 = lambda: IntegerType.get_unsigned(8)
+_ui16 = lambda: IntegerType.get_unsigned(16)
+_ui32 = lambda: IntegerType.get_unsigned(32)
+_ui64 = lambda: IntegerType.get_unsigned(64)
 
-_f16_t = lambda: F16Type.get()
-_f32_t = lambda: F32Type.get()
-_f64_t = lambda: F64Type.get()
-_bf16_t = lambda: BF16Type.get()
+_f16 = lambda: F16Type.get()
+_f32 = lambda: F32Type.get()
+_f64 = lambda: F64Type.get()
+_bf16 = lambda: BF16Type.get()
 
-_f8e5m2_t = lambda: Float8E5M2Type.get()
-_f8e4m3_t = lambda: Float8E4M3FNType.get()
-_f8e4m3b11fnuz_t = lambda: Float8E4M3B11FNUZType.get()
+_f8e5m2 = lambda: Float8E5M2Type.get()
+_f8e4m3 = lambda: Float8E4M3FNType.get()
+_f8e4m3b11fnuz = lambda: Float8E4M3B11FNUZType.get()
 
-_cmp16_t = lambda: ComplexType.get(_f16_t())
-_cmp32_t = lambda: ComplexType.get(_f32_t())
-_cmp64_t = lambda: ComplexType.get(_f64_t())
+_cmp16 = lambda: ComplexType.get(_f16())
+_cmp32 = lambda: ComplexType.get(_f32())
+_cmp64 = lambda: ComplexType.get(_f64())
 
-_none_t = lambda: NoneType.get()
+_none = lambda: NoneType.get()
 
-opaque_t = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
+opaque = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
 
-def _placeholder_opaque_t():
-    return opaque_t("scf", "placeholder")
+def placeholder_opaque():
+    return opaque("scf", "placeholder")
 
 
 _name_to_type = {
-    "index_t": _index_t,
-    "bool_t": _bool_t,
-    "i8_t": _i8_t,
-    "i16_t": _i16_t,
-    "i32_t": _i32_t,
-    "i64_t": _i64_t,
-    "si8_t": _si8_t,
-    "si16_t": _si16_t,
-    "si32_t": _si32_t,
-    "si64_t": _si64_t,
-    "ui8_t": _ui8_t,
-    "ui16_t": _ui16_t,
-    "ui32_t": _ui32_t,
-    "ui64_t": _ui64_t,
-    "f16_t": _f16_t,
-    "f32_t": _f32_t,
-    "f64_t": _f64_t,
-    "bf16_t": _bf16_t,
-    "f8e5m2_t": _f8e5m2_t,
-    "f8e4m3_t": _f8e4m3_t,
-    "f8e4m3b11fnuz_t": _f8e4m3b11fnuz_t,
-    "cmp16_t": _cmp16_t,
-    "cmp32_t": _cmp32_t,
-    "cmp64_t": _cmp64_t,
-    "none_t": _none_t,
+    "index": _index,
+    "bool": _bool,
+    "i8": _i8,
+    "i16": _i16,
+    "i32": _i32,
+    "i64": _i64,
+    "si8": _si8,
+    "si16": _si16,
+    "si32": _si32,
+    "si64": _si64,
+    "ui8": _ui8,
+    "ui16": _ui16,
+    "ui32": _ui32,
+    "ui64": _ui64,
+    "f16": _f16,
+    "f32": _f32,
+    "f64": _f64,
+    "bf16": _bf16,
+    "f8e5m2": _f8e5m2,
+    "f8e4m3": _f8e4m3,
+    "f8e4m3b11fnuz": _f8e4m3b11fnuz,
+    "cmp16": _cmp16,
+    "cmp32": _cmp32,
+    "cmp64": _cmp64,
+    "none": _none,
 }
 
 
@@ -102,19 +101,19 @@ def __getattr__(name):
 
 
 _np_dtype_to_mlir_type_ctor = {
-    np.int8: _i8_t,
-    np.int16: _i16_t,
-    np.int32: _i32_t,
+    np.int8: _i8,
+    np.int16: _i16,
+    np.int32: _i32,
     # windows
-    np.intc: _i32_t,
-    np.int64: _i64_t,
+    np.intc: _i32,
+    np.int64: _i64,
     # is technically wrong i guess but numpy by default casts python scalars to this
     # so to support passing lists of ints we map to index type
-    np.longlong: _index_t,
-    np.uintp: _index_t,
-    np.float16: _f16_t,
-    np.float32: _f32_t,
-    np.float64: _f64_t,
+    np.longlong: _index,
+    np.uintp: _index,
+    np.float16: _f16,
+    np.float32: _f32,
+    np.float64: _f64,
 }
 
 _mlir_type_ctor_to_np_dtype = lambda: {
@@ -146,16 +145,16 @@ def infer_mlir_type(
       MLIR type corresponding to py_val.
     """
     if isinstance(py_val, bool):
-        return _bool_t()
+        return _bool()
     elif isinstance(py_val, int):
         if -(2 ** 31) <= py_val < 2 ** 31:
-            return _i32_t()
+            return _i32()
         elif 2 ** 31 <= py_val < 2 ** 32:
-            return _ui32_t()
+            return _ui32()
         elif -(2 ** 63) <= py_val < 2 ** 63:
-            return _i64_t()
+            return _i64()
         elif 2 ** 63 <= py_val < 2 ** 64:
-            return _ui64_t()
+            return _ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
     elif isinstance(py_val, float):
@@ -165,9 +164,9 @@ def infer_mlir_type(
             or py_val != py_val  # NaN
             or np.finfo(np.float32).min <= abs(py_val) <= np.finfo(np.float32).max
         ):
-            return _f32_t()
+            return _f32()
         else:
-            return _f64_t()
+            return _f64()
     elif isinstance(py_val, np.ndarray):
         dtype = np_dtype_to_mlir_type(py_val.dtype.type)
         return RankedTensorType.get(py_val.shape, dtype)
@@ -177,9 +176,9 @@ def infer_mlir_type(
         )
 
 
-def shaped_t(*args, element_type: Type = None, type_constructor=None):
+def shaped(*args, element_type: Type = None, type_constructor=None):
     if type_constructor is None:
-        raise ValueError("shaped_t is an abstract base class - cannot be constructed")
+        raise ValueError("shaped is an abstract base class - cannot be constructed")
     if (element_type is None and args and not isinstance(args[-1], Type)) or (
         args and isinstance(args[-1], Type) and element_type is not None
     ):
@@ -198,33 +197,33 @@ def shaped_t(*args, element_type: Type = None, type_constructor=None):
         return type_constructor(type)
 
 
-def vector_t(*args, element_type: Type = None):
-    return shaped_t(*args, element_type=element_type, type_constructor=VectorType.get)
+def vector(*args, element_type: Type = None):
+    return shaped(*args, element_type=element_type, type_constructor=VectorType.get)
 
 
-def tensor_t(*args, element_type: Type = None):
+def tensor(*args, element_type: Type = None):
     if not len(args) or len(args) == 1 and isinstance(args[-1], Type):
-        return shaped_t(
+        return shaped(
             *args, element_type=element_type, type_constructor=UnrankedTensorType.get
         )
     else:
-        return shaped_t(
+        return shaped(
             *args, element_type=element_type, type_constructor=RankedTensorType.get
         )
 
 
-def memref_t(*args, element_type: Type = None, memory_space: int = None):
+def memref(*args, element_type: Type = None, memory_space: int = None):
     if memory_space is None:
         memory_space = 0
     memory_space = Attribute.parse(str(memory_space))
     if not len(args) or len(args) == 1 and isinstance(args[-1], Type):
-        return shaped_t(
+        return shaped(
             *args,
             element_type=element_type,
             type_constructor=partial(UnrankedMemRefType.get, memory_space=memory_space),
         )
     else:
-        return shaped_t(
+        return shaped(
             *args,
             element_type=element_type,
             type_constructor=partial(MemRefType.get, memory_space=memory_space),

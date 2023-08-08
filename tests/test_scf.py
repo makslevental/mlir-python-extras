@@ -286,11 +286,11 @@ def test_if_ctx_manager(ctx: MLIRContext):
     # @formatter:off
     one = constant(1.0)
     two = constant(2.0)
-    with if_ctx_manager(one < two, results=[T._placeholder_opaque_t()]) as if_op:  # if
+    with if_ctx_manager(one < two, results=[T.placeholder_opaque()]) as if_op:  # if
         three = constant(3.0)
         res = yield_(three)
     with else_ctx_manager(if_op) as _:  # else
-        with if_ctx_manager(one < two, results=[T._placeholder_opaque_t()]) as if_op:  # if
+        with if_ctx_manager(one < two, results=[T.placeholder_opaque()]) as if_op:  # if
             three = constant(4.0)
             res = yield_(three)
         with else_ctx_manager(if_op) as _:  # else
