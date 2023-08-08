@@ -247,7 +247,7 @@ def func(
 ) -> FuncBase:
     if loc is None:
         loc = get_user_code_loc()
-    return FuncBase(
+    func = FuncBase(
         body_builder=f,
         func_op_ctor=FuncOp.__base__,
         return_op_ctor=ReturnOp,
@@ -259,3 +259,5 @@ def func(
         loc=loc,
         ip=ip,
     )
+    func.__name__ = f.__name__
+    return func

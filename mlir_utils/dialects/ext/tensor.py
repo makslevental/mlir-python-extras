@@ -268,10 +268,14 @@ class _Indexer:
                 sizes.append(1)
             elif isinstance(i, slice):
                 start, stop, step = map(int, (i.start, i.stop, i.step))
-                s = ((stop - start) // step) + 1
-                if (stop - start) % step == 0:
-                    s -= 1
-                sizes.append(s)
+                if all(isinstance(j, int) for j in (start, stop, step)):
+                    s = ((stop - start) // step) + 1
+                    if (stop - start) % step == 0:
+                        s -= 1
+                    sizes.append(s)
+                else:
+                    raise ValueError(f"idx {i} not supported with static sizes")
+
             else:
                 raise ValueError(f"idx {i} not supported with static sizes")
         return tuple(sizes)
@@ -496,12 +500,12 @@ def _indices_to_indexer(
         elif isinstance(idx_e, slice):
             # Normalize the slice to use None when possible
             start, stop, step = idx_e.start, idx_e.stop, idx_e.step
-            if step is None or step == 1:
+            if step is None or isinstance(step, int) and step == 1:
                 step = None
             if step is None:
-                if start is None or start == 0:
+                if start is None or isinstance(start, int) and start == 0:
                     start = None
-                if stop is None or stop >= in_shape[in_axis]:
+                if stop is None or isinstance(stop, int) and stop >= in_shape[in_axis]:
                     stop = None
             # Handle slice(None) and slice(None, None, -1)
             if (
@@ -529,6 +533,8 @@ def _indices_to_indexer(
                     )
                     raise IndexError(msg)
 
+                if step is None:
+                    step = 1
                 indices[in_axis] = slice(start, stop, step)
 
                 out_axis += 1

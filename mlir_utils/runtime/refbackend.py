@@ -1,25 +1,35 @@
 import ctypes
 import logging
 import os
+import platform
 import warnings
 from pathlib import Path
 
 import numpy as np
 from mlir import _mlir_libs
 from mlir.dialects.func import FuncOp, CallOp
-from mlir.execution_engine import ExecutionEngine
 from mlir.ir import UnitAttr, Module, MemRefType
-from mlir.runtime import (
-    UnrankedMemRefDescriptor,
-    get_ranked_memref_descriptor,
-    unranked_memref_to_numpy,
-    get_unranked_memref_descriptor,
-)
 
+try:
+    from mlir.execution_engine import ExecutionEngine
+    from mlir.runtime import (
+        UnrankedMemRefDescriptor,
+        get_ranked_memref_descriptor,
+        unranked_memref_to_numpy,
+        get_unranked_memref_descriptor,
+    )
+except:
+    warnings.warn("no execution engine in mlir bindings; refbackend won't work")
+
+
+import mlir_utils.types as T
 from mlir_utils.dialects.memref import cast
 from mlir_utils.runtime.passes import Pipeline, run_pipeline
-from mlir_utils.types import memref_type_to_np_dtype, mlir_type_to_ctype, np_dtype_to_mlir_type
-import mlir_utils.types as T
+from mlir_utils.types import (
+    memref_type_to_np_dtype,
+    mlir_type_to_ctype,
+    np_dtype_to_mlir_type,
+)
 from mlir_utils.util import shlib_ext, find_ops, shlib_prefix
 
 logger = logging.getLogger(__name__)
@@ -86,8 +96,8 @@ def convert_arg_to_ctype(arg, unranked=True):
     if isinstance(arg, CData) or isinstance(arg, (int, float, bool)):
         return arg
     elif isinstance(arg, np.ndarray):
-        assert (
-            np_dtype_to_mlir_type(arg.dtype.type)
+        assert np_dtype_to_mlir_type(
+            arg.dtype.type
         ), f"unsupported numpy array type {arg.dtype}"
         if unranked:
             return ctypes.pointer(ctypes.pointer(get_unranked_memref_descriptor(arg)))
@@ -145,6 +155,8 @@ class LLVMJITBackendInvoker:
             self.ee.invoke(
                 function_name, *[convert_arg_to_ctype(a, unranked=False) for a in args]
             )
+            if self.results is not None and len(self.results) == 1:
+                return self.results[0]
             return self.results
 
         return invoke
@@ -193,7 +205,7 @@ class LLVMJITBackend:
         self,
         shared_lib_paths=None,
     ):
-        if shared_lib_paths is None:
+        if shared_lib_paths is None and platform.system() != "Windows":
             shared_lib_paths = [
                 ASYNC_RUNTIME_LIB_PATH,
                 C_RUNNER_UTILS_LIB_PATH,

@@ -1,4 +1,3 @@
-import sys
 import ctypes
 from functools import partial
 from typing import Union
@@ -24,6 +23,7 @@ from mlir.ir import (
     UnrankedMemRefType,
     UnrankedTensorType,
     VectorType,
+    StridedLayoutAttr,
 )
 
 _index = lambda: IndexType.get()
@@ -228,9 +228,17 @@ def tensor(*args, element_type: Type = None):
         )
 
 
-def memref(*args, element_type: Type = None, memory_space: int = None):
+def memref(
+    *args,
+    element_type: Type = None,
+    memory_space: int = None,
+    layout: tuple[tuple[int, ...], int] = None,
+):
     if memory_space is None:
         memory_space = 0
+    if layout is not None:
+        strides, offset = layout
+        layout = StridedLayoutAttr.get(offset, strides)
     memory_space = Attribute.parse(str(memory_space))
     if not len(args) or len(args) == 1 and isinstance(args[-1], Type):
         return shaped(
@@ -242,7 +250,9 @@ def memref(*args, element_type: Type = None, memory_space: int = None):
         return shaped(
             *args,
             element_type=element_type,
-            type_constructor=partial(MemRefType.get, memory_space=memory_space),
+            type_constructor=partial(
+                MemRefType.get, memory_space=memory_space, layout=layout
+            ),
         )
 
 

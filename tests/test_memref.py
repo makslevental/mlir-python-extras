@@ -1,16 +1,19 @@
+import re
 from textwrap import dedent
 
 import pytest
+from mlir.ir import MLIRError, Type
 
 import mlir_utils.types as T
 from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.dialects.ext.arith import Scalar
-from mlir_utils.dialects.ext.memref import alloc
+from mlir_utils.dialects.ext.arith import Scalar, constant
+from mlir_utils.dialects.ext.memref import alloc, S
 from mlir_utils.dialects.ext.scf import (
     range_,
     yield_,
     canonicalizer,
 )
+from mlir_utils.dialects.memref import subview
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -359,6 +362,54 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
         memref.store %3, %arg1[%arg0, %arg0] : memref<10x10xi32>
         scf.yield %arg1 : memref<10x10xi32>
       }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_subview_mixed_offsets(ctx: MLIRContext):
+    def tenfoo():
+        mem = alloc((10, 10), T.i32)
+        i, j = constant(0, index=True), constant(0, index=True)
+        v = subview(
+            T.memref(5, 5, T.i32),
+            mem,
+            offsets=[i, j],
+            sizes=[],
+            strides=[],
+            static_offsets=[S, S],
+            static_sizes=[5, 5],
+            static_strides=[1, 1],
+        )
+        try:
+            v.owner.verify()
+        except MLIRError as e:
+            diag = str(e.error_diagnostics[0]).strip()
+            correct_type = re.findall(r"'memref<(.*)>'", diag)
+            assert len(correct_type) == 1
+            correct_type = Type.parse(f"memref<{correct_type[0]}>")
+            v.owner.erase()
+            v = subview(
+                correct_type,
+                mem,
+                offsets=[i, j],
+                sizes=[],
+                strides=[],
+                static_offsets=[S, S],
+                static_sizes=[5, 5],
+                static_strides=[1, 1],
+            )
+
+    tenfoo()
+    correct = dedent(
+        """\
+    module {
+      %alloc = memref.alloc() : memref<10x10xi32>
+      %c0 = arith.constant 0 : index
+      %c0_0 = arith.constant 0 : index
+      %subview = memref.subview %alloc[%c0, %c0_0] [5, 5] [1, 1] : memref<10x10xi32> to memref<5x5xi32, strided<[10, 1], offset: ?>>
     }
     """
     )
