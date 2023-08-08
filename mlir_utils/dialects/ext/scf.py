@@ -59,30 +59,6 @@ def _for(
 
 for_ = region_op(_for, terminator=yield__)
 
-# def range_(
-#     start,
-#     stop=None,
-#     step=None,
-#     iter_args: Optional[Sequence[Value]] = None,
-#     *,
-#     loc=None,
-#     ip=None,
-# ):
-#     for_op = _for(start, stop, step, iter_args, loc=loc, ip=ip)
-#     iv = maybe_cast(for_op.induction_variable)
-#     for_iter_args = tuple(map(maybe_cast, for_op.inner_iter_args))
-#     results = tuple(map(maybe_cast, for_op.results_))
-#     with InsertionPoint(for_op.body):
-#         previous_frame = inspect.currentframe().f_back
-#         _update_caller_vars(previous_frame, iter_args, for_iter_args)
-#
-#         if len(results) > 1:
-#             yield iv, results
-#         elif len(results) == 1:
-#             yield iv, results[0]
-#         else:
-#             yield iv
-
 
 def range_(
     start,

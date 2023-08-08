@@ -252,14 +252,92 @@ def generate_trampolines(
             _add_file_to_sources_txt_file(dst_path)
 
 
+def generate_linalg(mod_path):
+    import mlir_utils.dialects
+    import mlir.dialects
+    from mlir_utils._configuration.configuration import _add_file_to_sources_txt_file
+    from mlir.dialects.linalg import DefinedOpCallable, OperandKind
+    from mlir_utils.util import (
+        get_result_or_results,
+        maybe_cast,
+        region_op,
+        get_user_code_loc,
+    )
+
+    linalg_modu = __import__(mod_path, fromlist=["*"])
+
+    dst_path = Path(mlir_utils.dialects.__path__[0])
+    dst_path = dst_path / f"linalg.py"
+    with open(dst_path, "w") as f:
+        functions = []
+        linalg_import = ast.ImportFrom(
+            module=mlir.dialects.__name__,
+            names=[ast.Name("linalg")],
+            level=0,
+        )
+        ods_imports = ast.ImportFrom(
+            module=mlir_utils.util.__name__,
+            names=[ast.alias(f.__name__) for f in [maybe_cast, get_user_code_loc]],
+            level=0,
+        )
+        _keywords = [
+            ast.keyword("loc", ast.Name("loc")),
+            ast.keyword("ip", ast.Name("ip")),
+        ]
+        for name, op_callable in inspect.getmembers(
+            linalg_modu, lambda x: isinstance(x, DefinedOpCallable)
+        ):
+            inputs = [
+                ast.Name(o)
+                for o, def_ in op_callable.op_def.registered_operands.items()
+                if def_.kind == OperandKind.INPUT_TENSOR
+            ]
+            outputs = [
+                ast.Name(o)
+                for o, def_ in op_callable.op_def.registered_operands.items()
+                if def_.kind == OperandKind.OUTPUT_TENSOR
+            ]
+
+            keywords = _keywords + [ast.keyword("outs", ast.List(outputs))]
+            # body = [ast.Str(op_callable.op_def.metadata.doc)]
+            body = [ast.parse(f"if loc is None: loc = {get_user_code_loc.__name__}()")]
+            body += [
+                ast.parse(
+                    f"return {maybe_cast.__name__}({ast.unparse(ast_call('linalg.' + name, inputs, keywords))})"
+                ).body[0]
+            ]
+            n = ast.FunctionDef(
+                name=op_callable.op_name,
+                args=ast.arguments(
+                    posonlyargs=[],
+                    args=inputs + outputs,
+                    defaults=[],
+                    kwonlyargs=[ast.Name("loc"), ast.Name("ip")],
+                    kw_defaults=[ast.Name("None"), ast.Name("None")],
+                ),
+                body=body,
+                decorator_list=[],
+            )
+            ast.fix_missing_locations(n)
+            functions.append(n)
+
+        new_mod = ast.Module([linalg_import, ods_imports] + functions, [])
+        new_src = ast.unparse(new_mod)
+        generated = black.format_file_contents(new_src, fast=False, mode=black.Mode())
+        f.write(generated)
+    _add_file_to_sources_txt_file(dst_path)
+
+
 def generate_all_upstream_trampolines():
     import mlir.dialects
     import mlir_utils.dialects
 
     for mod in pkgutil.iter_modules(mlir.dialects.__path__):
-        if not mod.name.startswith("_"):
+        if not mod.name.startswith("_") and mod.name != "linalg":
             generate_trampolines(
                 f"mlir.dialects.{mod.name}",
                 Path(mlir_utils.dialects.__path__[0]),
                 mod.name,
             )
+        elif mod.name == "linalg":
+            generate_linalg("mlir.dialects.linalg")
