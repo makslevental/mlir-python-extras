@@ -2,12 +2,22 @@ import ast
 import logging
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Union
 
 from bytecode import ConcreteBytecode, ConcreteInstr
+from mlir.dialects._ods_common import get_op_results_or_values, get_default_loc_context
 from mlir.dialects.linalg.opdsl.lang.emitter import _is_index_type
-from mlir.dialects.scf import IfOp, ForOp
-from mlir.ir import InsertionPoint, Value, OpResultList, OpResult
+from mlir.dialects.scf import IfOp, ForOp, ForallOp, ParallelOp, InParallelOp
+from mlir.ir import (
+    InsertionPoint,
+    Value,
+    OpResultList,
+    OpResult,
+    Operation,
+    OpView,
+    IndexType,
+    _denseI64ArrayAttr,
+)
 
 import mlir_utils.types as T
 from mlir_utils.ast.canonicalize import (
@@ -61,6 +71,166 @@ def _for(
 for_ = region_op(_for, terminator=yield__)
 
 
+class ForallOp(ForallOp):
+    def __init__(
+        self,
+        lower_bounds,
+        upper_bounds,
+        steps,
+        shared_outs: Optional[Union[Operation, OpView, Sequence[Value]]] = None,
+        *,
+        loc=None,
+        ip=None,
+    ):
+        assert len(lower_bounds) == len(upper_bounds) == len(steps)
+        if shared_outs is not None:
+            results = [o.type for o in shared_outs]
+        else:
+            results = shared_outs = []
+        iv_types = [IndexType.get()] * len(lower_bounds)
+        dynamic_lower_bounds = []
+        dynamic_upper_bounds = []
+        dynamic_steps = []
+        context = get_default_loc_context(loc)
+        attributes = {
+            "staticLowerBound": _denseI64ArrayAttr(lower_bounds, context),
+            "staticUpperBound": _denseI64ArrayAttr(upper_bounds, context),
+            "staticStep": _denseI64ArrayAttr(steps, context),
+        }
+
+        super().__init__(
+            self.build_generic(
+                regions=1,
+                results=results,
+                operands=[
+                    get_op_results_or_values(o)
+                    for o in [
+                        dynamic_lower_bounds,
+                        dynamic_upper_bounds,
+                        dynamic_steps,
+                        # lower_bounds,
+                        # upper_bounds,
+                        # steps,
+                        shared_outs,
+                    ]
+                ],
+                attributes=attributes,
+                loc=loc,
+                ip=ip,
+            )
+        )
+        self.regions[0].blocks.append(*iv_types, *results)
+
+    @property
+    def body(self):
+        """Returns the body (block) of the loop."""
+        return self.regions[0].blocks[0]
+
+    @property
+    def arguments(self):
+        """Returns the induction variable of the loop."""
+        return self.body.arguments
+
+
+class InParallelOp(InParallelOp):
+    def __init__(self, *, loc=None, ip=None):
+        super().__init__(
+            self.build_generic(regions=1, results=[], operands=[], loc=loc, ip=ip)
+        )
+        self.regions[0].blocks.append(*[])
+
+    @property
+    def body(self):
+        """Returns the body (block) of the loop."""
+        return self.regions[0].blocks[0]
+
+
+def _parfor(op_ctor, iter_args_name):
+    def _base(
+        lower_bounds,
+        upper_bounds=None,
+        steps=None,
+        *,
+        loc=None,
+        ip=None,
+        **kwargs,
+    ):
+        iter_args = kwargs.get(iter_args_name)
+        if loc is None:
+            loc = get_user_code_loc()
+
+        if upper_bounds is None:
+            upper_bounds = lower_bounds
+            lower_bounds = [0] * len(upper_bounds)
+        if steps is None:
+            steps = [1] * len(lower_bounds)
+
+        params = [lower_bounds, upper_bounds, steps]
+        for i, p in enumerate(params):
+            for j, pp in enumerate(p):
+                if isinstance(pp, int):
+                    pp = constant(pp, index=True)
+                if not _is_index_type(pp.type):
+                    pp = index_cast(pp)
+                p[j] = pp
+            params[i] = p
+
+        if loc is None:
+            loc = get_user_code_loc()
+
+        return op_ctor(*params, iter_args, loc=loc, ip=ip)
+
+    return _base
+
+
+@region_op
+def in_parallel():
+    return InParallelOp()
+
+
+def parallel_insert_slice(
+    source,
+    dest,
+    static_offsets=None,
+    static_sizes=None,
+    static_strides=None,
+    offsets=None,
+    sizes=None,
+    strides=None,
+):
+    from . import tensor
+
+    @in_parallel
+    def foo():
+        tensor.parallel_insert_slice(
+            source,
+            dest,
+            offsets,
+            sizes,
+            strides,
+            static_offsets,
+            static_sizes,
+            static_strides,
+        )
+
+
+forall_ = region_op(_parfor(ForallOp, iter_args_name="shared_outs"))
+
+
+def _parfor_cm(op_ctor, iter_args_name):
+    def _base(*args, **kwargs):
+        for_op = _parfor(op_ctor, iter_args_name=iter_args_name)(*args, **kwargs)
+        block = for_op.regions[0].blocks[0]
+        block_args = tuple(map(maybe_cast, block.arguments))
+        with InsertionPoint(block):
+            yield block_args
+
+    return _base
+
+
+forall = _parfor_cm(ForallOp, iter_args_name="shared_outs")
+
+
 def range_(
     start,
     stop=None,
@@ -70,6 +240,8 @@ def range_(
     loc=None,
     ip=None,
 ):
+    if loc is None:
+        loc = get_user_code_loc()
     for_op = _for(start, stop, step, iter_args, loc=loc, ip=ip)
     iv = maybe_cast(for_op.induction_variable)
     iter_args = tuple(map(maybe_cast, for_op.inner_iter_args))
@@ -80,6 +252,51 @@ def range_(
             yield iv, iter_args[0]
         else:
             yield iv
+
+
+class ParallelOp(ParallelOp):
+    def __init__(
+        self,
+        lower_bounds,
+        upper_bounds,
+        steps,
+        inits: Optional[Union[Operation, OpView, Sequence[Value]]] = None,
+        *,
+        loc=None,
+        ip=None,
+    ):
+        assert len(lower_bounds) == len(upper_bounds) == len(steps)
+        if inits is None:
+            inits = []
+        results = [i.type for i in inits]
+        iv_types = [IndexType.get()] * len(lower_bounds)
+        super().__init__(
+            self.build_generic(
+                regions=1,
+                results=results,
+                operands=[
+                    get_op_results_or_values(o)
+                    for o in [lower_bounds, upper_bounds, steps, inits]
+                ],
+                loc=loc,
+                ip=ip,
+            )
+        )
+        self.regions[0].blocks.append(*iv_types)
+
+    @property
+    def body(self):
+        """Returns the body (block) of the loop."""
+        return self.regions[0].blocks[0]
+
+    @property
+    def induction_variables(self):
+        """Returns the induction variable of the loop."""
+        return self.body.arguments
+
+
+parange_ = region_op(_parfor(ParallelOp, iter_args_name="inits"), terminator=yield__)
+parange = _parfor_cm(ParallelOp, iter_args_name="inits")
 
 
 def yield_(*args):

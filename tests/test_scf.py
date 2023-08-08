@@ -4,6 +4,7 @@ import pytest
 
 import mlir_utils.types as T
 from mlir_utils.ast.canonicalize import canonicalize
+from mlir_utils.dialects.ext import scf
 from mlir_utils.dialects.ext.arith import constant, Scalar
 from mlir_utils.dialects.ext.scf import (
     for_,
@@ -14,7 +15,13 @@ from mlir_utils.dialects.ext.scf import (
     else_,
     if_ctx_manager,
     else_ctx_manager,
+    forall_,
+    in_parallel,
+    parange_,
+    forall,
+    parange,
 )
+from mlir_utils.dialects.ext.tensor import empty, parallel_insert_slice
 from mlir_utils.dialects.memref import alloca_scope, return_
 
 # noinspection PyUnresolvedReferences
@@ -2290,6 +2297,231 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
           scf.yield %5#0, %5#1 : f32, f32
         }
         scf.yield %3#0, %3#1 : f32, f32
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_forall_1(ctx: MLIRContext):
+    @forall_([1], [2], [3])
+    def forfoo(ivs):
+        one = constant(1.0)
+
+        @in_parallel
+        def term():
+            pass
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      scf.forall (%arg0) = (1) to (2) step (3) {
+        %cst = arith.constant 1.000000e+00 : f32
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_forall_3(ctx: MLIRContext):
+    @forall_([1, 1], [2, 2], [3, 3])
+    def forfoo(iv1, iv2):
+        one = constant(1.0)
+
+        @in_parallel
+        def term():
+            pass
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      scf.forall (%arg0, %arg1) = (1, 1) to (2, 2) step (3, 3) {
+        %cst = arith.constant 1.000000e+00 : f32
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_forall_insert_slice(ctx: MLIRContext):
+    ten = empty((10, 10), T.i32)
+
+    @forall_([1, 1], [2, 2], [3, 3], shared_outs=[ten])
+    def forfoo(i, j, shared_outs):
+        one = constant(1.0)
+
+        @in_parallel
+        def term():
+            parallel_insert_slice(
+                ten,
+                shared_outs,
+                offsets=[i, j],
+                static_sizes=[10, 10],
+                static_strides=[1, 1],
+            )
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %0 = tensor.empty() : tensor<10x10xi32>
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      %1 = scf.forall (%arg0, %arg1) = (1, 1) to (2, 2) step (3, 3) shared_outs(%arg2 = %0) -> (tensor<10x10xi32>) {
+        %cst = arith.constant 1.000000e+00 : f32
+        scf.forall.in_parallel {
+          tensor.parallel_insert_slice %0 into %arg2[%arg0, %arg1] [10, 10] [1, 1] : tensor<10x10xi32> into tensor<10x10xi32>
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_forall_insert_slice_no_region(ctx: MLIRContext):
+    ten = empty((10, 10), T.i32)
+
+    @forall_([1, 1], [2, 2], [3, 3], shared_outs=[ten])
+    def forfoo(i, j, shared_outs):
+        one = constant(1.0)
+
+        scf.parallel_insert_slice(
+            ten,
+            shared_outs,
+            offsets=[i, j],
+            static_sizes=[10, 10],
+            static_strides=[1, 1],
+        )
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %0 = tensor.empty() : tensor<10x10xi32>
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      %1 = scf.forall (%arg0, %arg1) = (1, 1) to (2, 2) step (3, 3) shared_outs(%arg2 = %0) -> (tensor<10x10xi32>) {
+        %cst = arith.constant 1.000000e+00 : f32
+        scf.forall.in_parallel {
+          tensor.parallel_insert_slice %0 into %arg2[%arg0, %arg1] [10, 10] [1, 1] : tensor<10x10xi32> into tensor<10x10xi32>
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_parange_no_inits(ctx: MLIRContext):
+    ten = empty((10, 10), T.i32)
+
+    @parange_([1, 1], [2, 2], [3, 3], inits=[])
+    def forfoo(i, j):
+        one = constant(1.0)
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %0 = tensor.empty() : tensor<10x10xi32>
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      scf.parallel (%arg0, %arg1) = (%c1, %c1_0) to (%c2, %c2_1) step (%c3, %c3_2) {
+        %cst = arith.constant 1.000000e+00 : f32
+        scf.yield
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_forall_insert_slice_no_region_with_for(ctx: MLIRContext):
+    ten = empty((10, 10), T.i32)
+
+    for i, j, shared_outs in forall([1, 1], [2, 2], [3, 3], shared_outs=[ten]):
+        one = constant(1.0)
+
+        scf.parallel_insert_slice(
+            ten,
+            shared_outs,
+            offsets=[i, j],
+            static_sizes=[10, 10],
+            static_strides=[1, 1],
+        )
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %0 = tensor.empty() : tensor<10x10xi32>
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      %1 = scf.forall (%arg0, %arg1) = (1, 1) to (2, 2) step (3, 3) shared_outs(%arg2 = %0) -> (tensor<10x10xi32>) {
+        %cst = arith.constant 1.000000e+00 : f32
+        scf.forall.in_parallel {
+          tensor.parallel_insert_slice %0 into %arg2[%arg0, %arg1] [10, 10] [1, 1] : tensor<10x10xi32> into tensor<10x10xi32>
+        }
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_parange_no_inits_with_for(ctx: MLIRContext):
+    ten = empty((10, 10), T.i32)
+
+    for i, j in parange([1, 1], [2, 2], [3, 3], inits=[]):
+        one = constant(1.0)
+        yield_()
+
+    print(ctx.module)
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %0 = tensor.empty() : tensor<10x10xi32>
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      scf.parallel (%arg0, %arg1) = (%c1, %c1_0) to (%c2, %c2_1) step (%c3, %c3_2) {
+        %cst = arith.constant 1.000000e+00 : f32
+        scf.yield
       }
     }
     """
