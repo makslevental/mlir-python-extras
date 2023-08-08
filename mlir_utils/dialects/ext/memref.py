@@ -4,13 +4,13 @@ from typing import Tuple, Sequence, Optional, Union
 
 from mlir.ir import Type, Value, MemRefType, ShapedType, MLIRError
 
-from mlir_utils.dialects import memref
+import mlir_utils.types as T
+from mlir_utils.dialects import memref, arith
 from mlir_utils.dialects.ext.arith import Scalar, constant
 from mlir_utils.dialects.ext.tensor import (
     _indices_to_indexer,
     compute_result_shape_reassoc_list,
 )
-import mlir_utils.types as T
 from mlir_utils.util import (
     register_value_caster,
     get_user_code_loc,
@@ -88,6 +88,8 @@ def store(
 
 def subview(
     source: "MemRef",
+    offsets: Optional[Sequence[Value]] = None,
+    strides: Optional[Sequence[Value]] = None,
     static_offsets: Optional[Sequence[int]] = None,
     static_sizes: Optional[Sequence[int]] = None,
     static_strides: Optional[Sequence[int]] = None,
@@ -97,11 +99,23 @@ def subview(
 ):
     if loc is None:
         loc = get_user_code_loc()
+    if offsets is None:
+        offsets = []
+    if static_offsets is None:
+        static_offsets = []
+    if strides is None:
+        strides = []
+    if static_strides is None:
+        static_strides = []
     assert static_sizes, f"this convenience method only handles static sizes"
-    offsets = sizes = strides = []
-    result = T.memref(*static_sizes, source.dtype)
+    sizes = []
+    wrong_type = T.memref(*static_sizes, source.dtype)
+    if offsets and static_offsets:
+        assert all(s == S for s in static_offsets)
+    if strides and static_strides:
+        assert all(s == S for s in static_strides)
     val = memref.subview(
-        result,
+        wrong_type,
         source,
         offsets,
         sizes,
@@ -270,7 +284,51 @@ def _subview(
             ip=ip,
         )
     else:
-        raise ValueError(f"non-constant indices not supported {indexer}")
+        # special tile case
+        offsets = [None] * len(indexer.in_shape)
+        static_offsets = [None] * len(indexer.in_shape)
+        static_sizes = [None] * len(indexer.in_shape)
+        static_strides = [None] * len(indexer.in_shape)
+        for i, ind in enumerate(indexer.indices):
+            maybe_size = maybe_cast(ind.stop.owner.operands[1])
+            if (
+                isinstance(ind.start.owner.opview, arith.MulIOp)
+                and isinstance(ind.stop.owner.opview, arith.MulIOp)
+                and isinstance(ind.stop.owner.operands[0].owner.opview, arith.AddIOp)
+                and ind.start.owner.operands[0]
+                == ind.stop.owner.operands[0].owner.operands[0]
+                and maybe_size.is_constant()
+                and isinstance(ind.step, int)
+                or isinstance(ind.step, Scalar)
+                and ind.step.is_constant()
+            ):
+                offsets[i] = ind.start
+                static_offsets[i] = S
+                static_sizes[i] = maybe_size.literal_value
+                static_strides[i] = (
+                    ind.step.literal_value if isinstance(ind.step, Scalar) else ind.step
+                )
+            else:
+                raise RuntimeError(f"indexing not supported {indexer.indices}")
+        offsets = list(filter(None, offsets))
+        static_offsets = list(filter(None, static_offsets))
+        static_sizes = list(filter(None, static_sizes))
+        static_strides = list(filter(None, static_strides))
+        assert (
+            len(offsets)
+            == len(static_sizes)
+            == len(static_strides)
+            == len(indexer.in_shape)
+        ), f"not each slice is statically known: {indexer.indices}"
+        out = subview(
+            out,
+            offsets=offsets,
+            static_offsets=static_offsets,
+            static_sizes=static_sizes,
+            static_strides=static_strides,
+            loc=loc,
+            ip=ip,
+        )
 
     # This adds newaxis/None dimensions.
     return expand_shape(out, indexer.newaxis_dims, loc=loc, ip=ip)
