@@ -93,7 +93,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
     except IndexError as e:
         assert (
             str(e)
-            == "Too many indices for tensor: 5 non-None/Ellipsis indices for dim 4."
+            == "Too many indices for shaped type with rank: 5 non-None/Ellipsis indices for dim 4."
         )
 
     correct = dedent(

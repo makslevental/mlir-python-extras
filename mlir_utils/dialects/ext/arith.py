@@ -203,12 +203,14 @@ class ArithValueMeta(type(Value)):
             fold = kwargs.get("fold")
             if fold is not None and not isinstance(fold, bool):
                 raise ValueError(f"{fold=} is expected to be a bool.")
+            loc = kwargs.get("loc")
+            ip = kwargs.get("ip")
             # If we're wrapping a numpy array (effectively a tensor literal),
             # then we want to make sure no one else has access to that memory.
             # Otherwise, the array will get funneled down to DenseElementsAttr.get,
             # which by default (through the Python buffer protocol) does not copy;
             # see mlir/lib/Bindings/Python/IRAttributes.cpp#L556
-            val = constant(deepcopy(arg), dtype)
+            val = constant(deepcopy(arg), dtype, loc=loc, ip=ip)
         else:
             raise NotImplementedError(f"{cls.__name__} doesn't support wrapping {arg}.")
 
