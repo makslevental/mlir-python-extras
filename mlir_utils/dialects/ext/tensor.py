@@ -22,12 +22,15 @@ from mlir_utils.util import (
     maybe_cast,
     register_value_caster,
     _update_caller_vars,
+    get_user_code_loc,
 )
 
 S = ShapedType.get_dynamic_size()
 
 
 def empty(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     return maybe_cast(
         get_result_or_results(tensor.EmptyOp(sizes, element_type, loc=loc, ip=ip))
     )
@@ -44,6 +47,8 @@ def extract_slice(
     loc=None,
     ip=None,
 ):
+    if loc is None:
+        loc = get_user_code_loc()
     if offsets is None:
         offsets = []
     if strides is None:
@@ -79,6 +84,8 @@ def insert_slice(
     loc=None,
     ip=None,
 ):
+    if loc is None:
+        loc = get_user_code_loc()
     if offsets is None:
         offsets = []
     if strides is None:
@@ -132,6 +139,8 @@ class Tensor(ArithValue):
         return self._shaped_type.element_type
 
     def __getitem__(self, idx: tuple) -> "Tensor":
+        loc = get_user_code_loc()
+
         if not self.has_rank():
             raise ValueError("only ranked tensor slicing/indexing supported")
 
@@ -140,19 +149,21 @@ class Tensor(ArithValue):
         if isinstance(idx, tuple) and all(i == slice(None) for i in idx):
             return self
         if idx is None:
-            return expand_dims(self, (0,))
+            return expand_dims(self, (0,), loc=loc)
 
         idx = list((idx,) if isinstance(idx, int) else idx)
         for i, d in enumerate(idx):
             if isinstance(d, int):
-                idx[i] = constant(d, index=True)
+                idx[i] = constant(d, index=True, loc=loc)
 
         if all(isinstance(d, Scalar) for d in idx) and len(idx) == len(self.shape):
-            return tensor.extract(self, idx)
+            return tensor.extract(self, idx, loc=loc)
         else:
-            return _extract_slice(self, tuple(idx))
+            return _extract_slice(self, tuple(idx), loc=loc)
 
     def __setitem__(self, idx, source):
+        loc = get_user_code_loc()
+
         if not self.has_rank():
             raise ValueError("only ranked tensor slicing/indexing supported")
         if not source.has_rank():
@@ -171,7 +182,7 @@ class Tensor(ArithValue):
         idx = list((idx,) if isinstance(idx, int) else idx)
         for i, d in enumerate(idx):
             if isinstance(d, int):
-                idx[i] = constant(d, index=True)
+                idx[i] = constant(d, index=True, loc=loc)
 
         if all(isinstance(d, Scalar) and d.fold() for d in idx) and len(idx) == len(
             self.shape
@@ -179,14 +190,22 @@ class Tensor(ArithValue):
             assert isinstance(
                 source, Scalar
             ), "coordinate insert requires scalar element"
-            res = tensor.insert(source, self, idx)
+            res = tensor.insert(source, self, idx, loc=loc)
         else:
-            res = _insert_slice(self, source, tuple(idx))
+            res = _insert_slice(self, source, tuple(idx), loc=loc)
 
         previous_frame = inspect.currentframe().f_back
         _update_caller_vars(previous_frame, [self], [res])
 
-    def coerce(self, other) -> tuple["Tensor", "Tensor"]:
+    def coerce(
+        self,
+        other,
+        *,
+        loc=None,
+        ip=None,
+    ) -> tuple["Tensor", "Tensor"]:
+        if loc is None:
+            loc = get_user_code_loc()
         if isinstance(other, np.ndarray):
             other = Tensor(other)
             return self, other
@@ -196,11 +215,13 @@ class Tensor(ArithValue):
                     f"can't coerce {other=} because {self=} doesn't have static shape"
                 )
             if isinstance(other, (int, float)):
-                other = Tensor(np.full(self.shape, other), dtype=self.dtype)
+                other = Tensor(
+                    np.full(self.shape, other), dtype=self.dtype, loc=loc, ip=ip
+                )
                 return self, other
             elif isinstance(other, Scalar):
                 other = tensor.splat(
-                    RankedTensorType.get(self.shape, other.dtype), other
+                    RankedTensorType.get(self.shape, other.dtype), other, loc=loc, ip=ip
                 )
                 return self, other
 
@@ -258,7 +279,35 @@ class _Indexer:
         return tuple(strides)
 
 
-def expand_dims(inp, newaxis_dims) -> Tensor:
+def compute_result_shape_reassoc_list(inp_shape, newaxis_dims):
+    newaxis_dims = sorted(newaxis_dims)
+    if len(set(newaxis_dims)) != len(newaxis_dims):
+        raise ValueError(f"repeated axis in expand_dims: {newaxis_dims}")
+
+    ndim_out = len(inp_shape) + len(newaxis_dims)
+    if not all(0 <= d < ndim_out for d in newaxis_dims):
+        raise ValueError("no negative dims allowed")
+    result_shape = list(inp_shape)
+    for i in reversed(newaxis_dims):
+        result_shape.insert(i, 1)
+    reassoc_list = [[i] for i in range(len(inp_shape))]
+    for i, d in enumerate(newaxis_dims):
+        reassoc_list.append([len(inp_shape) + i])
+        if d == 0:
+            d = 1
+        reassoc_list[max(d - 1, 0)].extend(reassoc_list.pop(d))
+
+    reassoc_list = _get_int_int_array_attr(reassoc_list)
+    return result_shape, reassoc_list
+
+
+def expand_dims(
+    inp,
+    newaxis_dims,
+    *,
+    loc=None,
+    ip=None,
+) -> Tensor:
     """Expand the shape of a tensor.
 
     Insert a new axis that will appear at the `axis` position in the expanded
@@ -272,34 +321,25 @@ def expand_dims(inp, newaxis_dims) -> Tensor:
        View of `a` with the number of dimensions increased.
 
     """
+    if loc is None:
+        loc = get_user_code_loc()
+
     if len(newaxis_dims) == 0:
         return inp
 
-    newaxis_dims = sorted(newaxis_dims)
-    if len(set(newaxis_dims)) != len(newaxis_dims):
-        raise ValueError(f"repeated axis in expand_dims: {newaxis_dims}")
-
-    ndim_out = len(inp.shape) + len(newaxis_dims)
-    if not all(0 <= d < ndim_out for d in newaxis_dims):
-        raise ValueError("no negative dims allowed")
-    result_shape = list(inp.shape)
-    for i in reversed(newaxis_dims):
-        result_shape.insert(i, 1)
-
+    result_shape, reassoc_list = compute_result_shape_reassoc_list(
+        inp.shape, newaxis_dims
+    )
     if inp.fold():
         return Tensor(inp.literal_value.reshape(result_shape))
 
-    reassoc_list = [[i] for i in range(len(inp.shape))]
-    for i, d in enumerate(newaxis_dims):
-        reassoc_list.append([len(inp.shape) + i])
-        if d == 0:
-            d = 1
-        reassoc_list[max(d - 1, 0)].extend(reassoc_list.pop(d))
-
-    reassoc_list = _get_int_int_array_attr(reassoc_list)
     return Tensor(
         tensor.expand_shape(
-            RankedTensorType.get(result_shape, inp.dtype), inp, reassoc_list
+            RankedTensorType.get(result_shape, inp.dtype),
+            inp,
+            reassoc_list,
+            loc=loc,
+            ip=ip,
         )
     )
 
@@ -391,7 +431,7 @@ def _canonicalize_tuple_index(idx: Tuple[Any], rank: int):
 
     if len_without_none > rank:
         raise IndexError(
-            f"Too many indices for tensor: {len_without_none} "
+            f"Too many indices for shaped type with rank: {len_without_none} "
             f"non-None/Ellipsis indices for dim {rank}."
         )
     ellipses = (i for i, elt in enumerate(idx) if elt is Ellipsis)
@@ -501,7 +541,13 @@ def _indices_to_indexer(
 def _extract_slice(
     ten: Tensor,
     idx,
+    *,
+    loc=None,
+    ip=None,
 ) -> Tensor:
+    if loc is None:
+        loc = get_user_code_loc()
+
     indexer = _indices_to_indexer(idx, ten.shape)
     out = ten
 
@@ -511,21 +557,29 @@ def _extract_slice(
             static_offsets=indexer.static_offsets(),
             static_sizes=indexer.static_sizes(),
             static_strides=indexer.static_strides(),
+            loc=loc,
+            ip=ip,
         )
     else:
         raise ValueError(f"non-constant indices not supported {indexer}")
 
     # This adds newaxis/None dimensions.
-    return expand_dims(out, indexer.newaxis_dims)
+    return expand_dims(out, indexer.newaxis_dims, loc=loc, ip=ip)
 
 
 def _insert_slice(
     dest: Tensor,
     source: Tensor,
     idx,
+    *,
+    loc=None,
+    ip=None,
 ):
+    if loc is None:
+        loc = get_user_code_loc()
+
     if isinstance(source, Scalar):
-        source = expand_dims(source, (0,))
+        source = expand_dims(source, (0,), loc=loc, ip=ip)
 
     indexer = _indices_to_indexer(idx, dest.shape)
 
@@ -539,6 +593,8 @@ def _insert_slice(
             static_offsets=indexer.static_offsets(),
             static_sizes=indexer.static_sizes(),
             static_strides=indexer.static_strides(),
+            loc=loc,
+            ip=ip,
         )
     else:
         raise ValueError(f"non-constant indices not supported {indexer}")
