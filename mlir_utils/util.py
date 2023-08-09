@@ -225,6 +225,10 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
             )
 
 
+def is_311():
+    return sys.version_info.minor > 10
+
+
 def get_user_code_loc(user_base: Optional[Path] = None):
     import mlir_utils
     import mlir
@@ -244,17 +248,20 @@ def get_user_code_loc(user_base: Optional[Path] = None):
     ):
         prev_frame = prev_frame.f_back
     frame_info = inspect.getframeinfo(prev_frame)
-    return Location.file(
-        frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
-    )
+    if is_311():
+        return Location.file(
+            frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
+        )
+    else:
+        return Location.file(frame_info.filename, frame_info.lineno, col=0)
 
 
 @contextlib.contextmanager
 def enable_multithreading(context=None):
-    from . import DefaultContext
+    from mlir.ir import Context
 
     if context is None:
-        context = DefaultContext
+        context = Context.current
     context.enable_multithreading(True)
     yield
     context.enable_multithreading(False)
@@ -262,10 +269,10 @@ def enable_multithreading(context=None):
 
 @contextlib.contextmanager
 def disable_multithreading(context=None):
-    from . import DefaultContext
+    from mlir.ir import Context
 
     if context is None:
-        context = DefaultContext
+        context = Context.current
 
     context.enable_multithreading(False)
     yield

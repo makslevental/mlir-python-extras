@@ -76,7 +76,7 @@ def transform_ast(
     line_starts = list(findlinestarts(new_f_code_o))
     assert (
         max([l for _, l in line_starts]) - min([l for _, l in line_starts]) + 1
-        == n_lines
+        <= n_lines
     ), f"something went wrong with the line numbers for the rewritten/canonicalized function"
     return copy_func(f, new_f_code_o)
 

@@ -25,6 +25,7 @@ from mlir_utils.util import (
     get_result_or_results,
     get_user_code_loc,
     region_adder,
+    is_311,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,7 +318,9 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
                 # this is the first test condition jump from python <= 3.10
                 # "POP_JUMP_IF_FALSE",
                 # this is the test condition jump from python >= 3.11
-                int(OpCode.POP_JUMP_FORWARD_IF_FALSE),
+                int(OpCode.POP_JUMP_FORWARD_IF_FALSE)
+                if is_311()
+                else int(OpCode.POP_JUMP_IF_FALSE),
             }:
                 code[i] = ConcreteInstr(
                     str(OpCode.POP_TOP), lineno=c.lineno, location=c.location

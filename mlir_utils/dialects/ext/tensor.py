@@ -233,7 +233,7 @@ class Tensor(ArithValue):
 
 @dataclass(frozen=True)
 class _Indexer:
-    indices: tuple[Union[int, Scalar, slice, Ellipsis, None]]
+    indices: tuple[Union[int, Scalar, slice, "Ellipsis", None]]
     newaxis_dims: tuple[int, ...]
     in_shape: tuple[Value | int]
 
@@ -464,7 +464,7 @@ def _canonicalize_tuple_index(idx: Tuple[Any], rank: int):
 
 
 def _indices_to_indexer(
-    idx: tuple[Union[Scalar, slice, Ellipsis, None]], in_shape: tuple[int]
+    idx: tuple[Union[Scalar, slice, "Ellipsis", None]], in_shape: tuple[int]
 ) -> _Indexer:
     """Processes sequence of index objects and constructs _Indexer with
     corresponding indexing tensor and collapse dims (i.e., scatter/gather dims).

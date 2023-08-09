@@ -7,7 +7,10 @@ from importlib.metadata import distribution, packages_distributions
 from importlib.resources import files
 from pathlib import Path
 
-from importlib.resources.readers import MultiplexedPath
+if sys.version_info.minor > 10:
+    from importlib.resources.readers import MultiplexedPath
+else:
+    from importlib.readers import MultiplexedPath
 
 from .module_alias_map import get_meta_path_insertion_index, AliasedModuleFinder
 
