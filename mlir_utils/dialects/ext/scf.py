@@ -323,13 +323,6 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
                     str(OpCode.POP_TOP), lineno=c.lineno, location=c.location
                 )
 
-        # early returns cause branches in conditionals to not be visited
-        for idx in early_returns[:-1]:
-            c = code[idx]
-            code[idx] = ConcreteInstr(
-                str(OpCode.NOP), lineno=c.lineno, location=c.location
-            )
-
         # TODO(max): this is bad
         f.__globals__[yield_.__name__] = yield_
         f.__globals__[if_ctx_manager.__name__] = if_ctx_manager
