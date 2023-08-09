@@ -630,7 +630,6 @@ def test_memref_double_loop_no_iter(ctx: MLIRContext, backend: LLVMJITBackend):
 def _memref_tiled_add(K, D, ctx: MLIRContext, backend: LLVMJITBackend):
     F = K // D
     ranked_memref_kxk_f32 = T.memref(K, K, T.f32)
-    # memref<4x4xf32, strided<[16, 1], offset: ?>>
     ranked_memref_dxd_f32 = T.memref(D, D, T.f32, layout=((K, 1), S))
 
     @func
@@ -705,18 +704,13 @@ def _memref_tiled_add(K, D, ctx: MLIRContext, backend: LLVMJITBackend):
         module,
         kernel_name=memfoo.__name__,
         pipeline=Pipeline().bufferize().lower_to_llvm(),
-        generate_kernel_wrapper=True,
-        generate_return_consumer=True,
     )
     invoker = backend.load(module)
     A = np.random.randint(0, 10, (K, K)).astype(np.float32)
-    AA = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(A)))
     B = np.random.randint(0, 10, (K, K)).astype(np.float32)
-    BB = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(B)))
     C = np.zeros((K, K)).astype(np.float32)
-    CC = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(C)))
 
-    invoker.memfoo_capi_wrapper(AA, BB, CC)
+    invoker.memfoo(A, B, C)
     assert np.array_equal(A + B, C)
 
 

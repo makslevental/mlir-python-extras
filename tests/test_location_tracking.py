@@ -13,6 +13,7 @@ from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield, rank
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir_utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -26,6 +27,7 @@ def get_asm(operation):
     )
 
 
+@pytest.mark.skipif(not is_311(), reason="310 doesn't have col numbers")
 def test_if_replace_yield_5(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def iffoo():
@@ -44,32 +46,33 @@ def test_if_replace_yield_5(ctx: MLIRContext):
     correct = dedent(
         r"""
 module {
-  %cst = arith.constant 1.000000e+00 : f32 THIS_DIR/test_location_tracking.py:32:10
-  %cst_0 = arith.constant 2.000000e+00 : f32 THIS_DIR/test_location_tracking.py:33:10
-  %0 = arith.cmpf olt, %cst, %cst_0 : f32 THIS_DIR/test_location_tracking.py:34:7
+  %cst = arith.constant 1.000000e+00 : f32 THIS_DIR/test_location_tracking.py:34:10
+  %cst_0 = arith.constant 2.000000e+00 : f32 THIS_DIR/test_location_tracking.py:35:10
+  %0 = arith.cmpf olt, %cst, %cst_0 : f32 THIS_DIR/test_location_tracking.py:36:7
   %1:3 = scf.if %0 -> (f32, f32, f32) {
-    %cst_1 = arith.constant 3.000000e+00 : f32 THIS_DIR/test_location_tracking.py:35:16
-    scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:36:27
+    %cst_1 = arith.constant 3.000000e+00 : f32 THIS_DIR/test_location_tracking.py:37:16
+    scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:38:27
   } else {
-    %cst_1 = arith.constant 4.000000e+00 : f32 THIS_DIR/test_location_tracking.py:38:15
-    scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:39:27
-  } THIS_DIR/test_location_tracking.py:34:4
+    %cst_1 = arith.constant 4.000000e+00 : f32 THIS_DIR/test_location_tracking.py:40:15
+    scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:41:27
+  } THIS_DIR/test_location_tracking.py:36:4
 } [unknown]
 #loc = [unknown]
-#loc1 = THIS_DIR/test_location_tracking.py:32:10
-#loc2 = THIS_DIR/test_location_tracking.py:33:10
-#loc3 = THIS_DIR/test_location_tracking.py:34:7
-#loc4 = THIS_DIR/test_location_tracking.py:34:4
-#loc5 = THIS_DIR/test_location_tracking.py:35:16
-#loc6 = THIS_DIR/test_location_tracking.py:36:27
-#loc7 = THIS_DIR/test_location_tracking.py:38:15
-#loc8 = THIS_DIR/test_location_tracking.py:39:27
+#loc1 = THIS_DIR/test_location_tracking.py:34:10
+#loc2 = THIS_DIR/test_location_tracking.py:35:10
+#loc3 = THIS_DIR/test_location_tracking.py:36:7
+#loc4 = THIS_DIR/test_location_tracking.py:36:4
+#loc5 = THIS_DIR/test_location_tracking.py:37:16
+#loc6 = THIS_DIR/test_location_tracking.py:38:27
+#loc7 = THIS_DIR/test_location_tracking.py:40:15
+#loc8 = THIS_DIR/test_location_tracking.py:41:27
     """
     ).replace("/", sep)
     asm = get_asm(ctx.module.operation)
     filecheck(correct, asm)
 
 
+@pytest.mark.skipif(not is_311(), reason="310 doesn't have col numbers")
 def test_block_args(ctx: MLIRContext):
     one = constant(1, T.index)
     two = constant(2, T.index)
@@ -85,23 +88,23 @@ def test_block_args(ctx: MLIRContext):
 
     correct = dedent(
         r"""
-#loc3 = THIS_DIR/test_location_tracking.py:77:5
+#loc3 = THIS_DIR/test_location_tracking.py:80:5
 module {
-  %c1 = arith.constant 1 : index THIS_DIR/test_location_tracking.py:74:10
-  %c2 = arith.constant 2 : index THIS_DIR/test_location_tracking.py:75:10
+  %c1 = arith.constant 1 : index THIS_DIR/test_location_tracking.py:77:10
+  %c2 = arith.constant 2 : index THIS_DIR/test_location_tracking.py:78:10
   %generated = tensor.generate %c1, %c2 {
-  ^bb0(%arg0: index THIS_DIR/test_location_tracking.py:77:5, %arg1: index THIS_DIR/test_location_tracking.py:77:5, %arg2: index THIS_DIR/test_location_tracking.py:77:5):
-    %cst = arith.constant 1.000000e+00 : f32 THIS_DIR/test_location_tracking.py:79:14
-    tensor.yield %cst : f32 THIS_DIR/test_location_tracking.py:80:8
-  } : tensor<?x3x?xf32> THIS_DIR/test_location_tracking.py:77:5
-  %rank = tensor.rank %generated : tensor<?x3x?xf32> THIS_DIR/test_location_tracking.py:82:8
+  ^bb0(%arg0: index THIS_DIR/test_location_tracking.py:80:5, %arg1: index THIS_DIR/test_location_tracking.py:80:5, %arg2: index THIS_DIR/test_location_tracking.py:80:5):
+    %cst = arith.constant 1.000000e+00 : f32 THIS_DIR/test_location_tracking.py:82:14
+    tensor.yield %cst : f32 THIS_DIR/test_location_tracking.py:83:8
+  } : tensor<?x3x?xf32> THIS_DIR/test_location_tracking.py:80:5
+  %rank = tensor.rank %generated : tensor<?x3x?xf32> THIS_DIR/test_location_tracking.py:85:8
 } [unknown]
 #loc = [unknown]
-#loc1 = THIS_DIR/test_location_tracking.py:74:10
-#loc2 = THIS_DIR/test_location_tracking.py:75:10
-#loc4 = THIS_DIR/test_location_tracking.py:79:14
-#loc5 = THIS_DIR/test_location_tracking.py:80:8
-#loc6 = THIS_DIR/test_location_tracking.py:82:8
+#loc1 = THIS_DIR/test_location_tracking.py:77:10
+#loc2 = THIS_DIR/test_location_tracking.py:78:10
+#loc4 = THIS_DIR/test_location_tracking.py:82:14
+#loc5 = THIS_DIR/test_location_tracking.py:83:8
+#loc6 = THIS_DIR/test_location_tracking.py:85:8
     """
     ).replace("/", sep)
     asm = get_asm(ctx.module.operation)

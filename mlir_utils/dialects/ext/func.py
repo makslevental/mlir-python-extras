@@ -17,6 +17,7 @@ from mlir_utils.util import (
     maybe_cast,
     make_maybe_no_args_decorator,
     get_user_code_loc,
+    is_311,
 )
 
 
@@ -146,7 +147,10 @@ class FuncBase:
 
     def _is_decl(self):
         # magic constant found from looking at the code for an empty fn
-        return self.body_builder.__code__.co_code == b"\x97\x00d\x00S\x00"
+        if is_311():
+            return self.body_builder.__code__.co_code == b"\x97\x00d\x00S\x00"
+        else:
+            return self.body_builder.__code__.co_code == b"d\x00S\x00"
 
     def __str__(self):
         return str(f"{self.__class__} {self.__dict__}")

@@ -15,6 +15,7 @@ from mlir_utils.dialects.ext.scf import (
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir_utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -326,17 +327,30 @@ def test_if_handle_yield_4():
 
     mod = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        if one < two:
-            three = constant(3.0)
-            res1, res2 = yield_(three, three)
-        return
-    """
-    )
+    if is_311():
+        correct = dedent(
+            """\
+        def iffoo():
+            one = constant(1.0)
+            two = constant(2.0)
+            if one < two:
+                three = constant(3.0)
+                res1, res2 = yield_(three, three)
+            return
+        """
+        )
+    else:
+        correct = dedent(
+            """\
+        def iffoo():
+            one = constant(1.0)
+            two = constant(2.0)
+            if one < two:
+                three = constant(3.0)
+                (res1, res2) = yield_(three, three)
+            return
+        """
+        )
     assert correct.strip() == ast.unparse(mod)
 
     dump = astpretty.pformat(mod, show_offsets=True)
@@ -788,17 +802,30 @@ def test_if_replace_cond_3():
 
     mod = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceIfWithWith)
 
-    correct = dedent(
-        """\
-    def iffoo():
-        one = constant(1.0)
-        two = constant(2.0)
-        with if_ctx_manager(one < two, (placeholder_opaque(), placeholder_opaque())) as __if_op__4:
-            three = constant(3.0)
-            res1, res2 = yield_(three, three)
-        return
-    """
-    )
+    if is_311():
+        correct = dedent(
+            """\
+        def iffoo():
+            one = constant(1.0)
+            two = constant(2.0)
+            with if_ctx_manager(one < two, (placeholder_opaque(), placeholder_opaque())) as __if_op__4:
+                three = constant(3.0)
+                res1, res2 = yield_(three, three)
+            return
+        """
+        )
+    else:
+        correct = dedent(
+            """\
+        def iffoo():
+            one = constant(1.0)
+            two = constant(2.0)
+            with if_ctx_manager(one < two, (placeholder_opaque(), placeholder_opaque())) as __if_op__4:
+                three = constant(3.0)
+                (res1, res2) = yield_(three, three)
+            return
+        """
+        )
     assert correct.strip() == ast.unparse(mod)
 
     dump = astpretty.pformat(mod, show_offsets=True)

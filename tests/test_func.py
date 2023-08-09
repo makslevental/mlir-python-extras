@@ -9,6 +9,7 @@ from mlir_utils.dialects.ext.func import func
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 import mlir_utils.types as T
+from mlir_utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -40,7 +41,10 @@ def test_declare_byte_rep(ctx: MLIRContext):
     def demo_fun1():
         ...
 
-    assert demo_fun1.__code__.co_code == b"\x97\x00d\x00S\x00"
+    if is_311():
+        assert demo_fun1.__code__.co_code == b"\x97\x00d\x00S\x00"
+    else:
+        assert demo_fun1.__code__.co_code == b"d\x00S\x00"
 
 
 def test_declare(ctx: MLIRContext):
