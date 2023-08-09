@@ -16,7 +16,6 @@ jobs:
   test-against-mlir-bindings:
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
 
     strategy:
       fail-fast: false
@@ -52,10 +51,14 @@ jobs:
             pytest --capture=tee-sys --ignore-glob=*test_smoke* tests
           fi
 
+      - name: Test mwe
+        shell: bash
+        run: |
+          python examples/mwe.py
+
   test-against-torch-mlir-bindings:
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
 
     strategy:
       fail-fast: false
@@ -95,7 +98,6 @@ jobs:
   test-against-jax-bindings:
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
 
     strategy:
       fail-fast: false

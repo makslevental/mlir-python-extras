@@ -31,6 +31,8 @@ def run_pipeline(
     enable_ir_printing=False,
     print_pipeline=False,
 ):
+    if isinstance(pipeline, Pipeline):
+        pipeline = str(pipeline)
     """Runs `pipeline` on `module`, with a nice repro report if it fails."""
     module_name = get_module_name_for_debug_dump(module)
     try:
