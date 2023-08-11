@@ -7,7 +7,7 @@ from typing import Optional, Sequence, Union
 from bytecode import ConcreteBytecode, ConcreteInstr
 from mlir.dialects._ods_common import get_op_results_or_values, get_default_loc_context
 from mlir.dialects.linalg.opdsl.lang.emitter import _is_index_type
-from mlir.dialects.scf import IfOp, ForOp, ForallOp, ParallelOp, InParallelOp
+from mlir.dialects.scf import IfOp, ForOp, ForallOp, ParallelOp, InParallelOp, ReduceOp
 from mlir.ir import (
     InsertionPoint,
     Value,
@@ -28,7 +28,7 @@ from mlir_utils.ast.canonicalize import (
 )
 from mlir_utils.ast.util import ast_call, set_lineno
 from mlir_utils.dialects.ext.arith import constant, index_cast
-from mlir_utils.dialects.scf import yield_ as yield__
+from mlir_utils.dialects.scf import yield_ as yield__, return_
 from mlir_utils.util import (
     region_op,
     maybe_cast,
@@ -147,13 +147,7 @@ class InParallelOp(InParallelOp):
 
 def _parfor(op_ctor, iter_args_name):
     def _base(
-        lower_bounds,
-        upper_bounds=None,
-        steps=None,
-        *,
-        loc=None,
-        ip=None,
-        **kwargs,
+        lower_bounds, upper_bounds=None, steps=None, *, loc=None, ip=None, **kwargs
     ):
         iter_args = kwargs.get(iter_args_name)
         if loc is None:
@@ -286,17 +280,34 @@ class ParallelOp(ParallelOp):
 
     @property
     def body(self):
-        """Returns the body (block) of the loop."""
         return self.regions[0].blocks[0]
 
     @property
     def induction_variables(self):
-        """Returns the induction variable of the loop."""
         return self.body.arguments
 
 
 parange_ = region_op(_parfor(ParallelOp, iter_args_name="inits"), terminator=yield__)
 parange = _parfor_cm(ParallelOp, iter_args_name="inits")
+
+
+class ReduceOp(ReduceOp):
+    def __init__(self, operand, *, loc=None, ip=None):
+        super().__init__(
+            self.build_generic(
+                regions=1, results=[], operands=[operand], loc=loc, ip=ip
+            )
+        )
+        self.regions[0].blocks.append(*[operand.type, operand.type])
+
+
+def reduce_(operand, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    return ReduceOp(operand, loc=loc, ip=ip)
+
+
+reduce = region_op(reduce_, terminator=lambda xs: return_(*xs))
 
 
 def yield_(*args):
@@ -318,7 +329,6 @@ def yield_(*args):
             assert len(unpacked_args) == 1
             unpacked_args = list(unpacked_args[0])
 
-        assert len(results) == len(unpacked_args), f"{results=}, {unpacked_args=}"
         for i, r in enumerate(results):
             if r.type == T.placeholder_opaque():
                 r.set_type(unpacked_args[i].type)

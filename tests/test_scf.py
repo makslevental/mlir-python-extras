@@ -20,8 +20,9 @@ from mlir_utils.dialects.ext.scf import (
     parange_,
     forall,
     parange,
+    reduce,
 )
-from mlir_utils.dialects.ext.tensor import empty, parallel_insert_slice
+from mlir_utils.dialects.ext.tensor import empty, parallel_insert_slice, Tensor
 from mlir_utils.dialects.memref import alloca_scope, return_
 
 # noinspection PyUnresolvedReferences
@@ -2507,7 +2508,6 @@ def test_parange_no_inits_with_for(ctx: MLIRContext):
         one = constant(1.0)
         yield_()
 
-    print(ctx.module)
     ctx.module.operation.verify()
     correct = dedent(
         """\
@@ -2521,6 +2521,93 @@ def test_parange_no_inits_with_for(ctx: MLIRContext):
       %c3_2 = arith.constant 3 : index
       scf.parallel (%arg0, %arg1) = (%c1, %c1_0) to (%c2, %c2_1) step (%c3, %c3_2) {
         %cst = arith.constant 1.000000e+00 : f32
+        scf.yield
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_parange_inits_with_for(ctx: MLIRContext):
+    ten = empty((10, 10), T.i32)
+
+    for i, j in parange([1, 1], [2, 2], [3, 3], inits=[ten]):
+        one = constant(1.0)
+        twenty = empty((10, 10), T.i32)
+
+        @reduce(twenty)
+        def res(lhs: Tensor, rhs: Tensor):
+            assert isinstance(lhs, Tensor)
+            assert isinstance(rhs, Tensor)
+            return lhs + rhs
+
+        yield_()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %0 = tensor.empty() : tensor<10x10xi32>
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_1 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_2 = arith.constant 3 : index
+      %1 = scf.parallel (%arg0, %arg1) = (%c1, %c1_0) to (%c2, %c2_1) step (%c3, %c3_2) init (%0) -> tensor<10x10xi32> {
+        %cst = arith.constant 1.000000e+00 : f32
+        %2 = tensor.empty() : tensor<10x10xi32>
+        scf.reduce(%2)  : tensor<10x10xi32> {
+        ^bb0(%arg2: tensor<10x10xi32>, %arg3: tensor<10x10xi32>):
+          %3 = arith.addi %arg2, %arg3 : tensor<10x10xi32>
+          scf.reduce.return %3 : tensor<10x10xi32>
+        }
+        scf.yield
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_parange_inits_with_for_with_two_reduce(ctx: MLIRContext):
+    one = constant(1, index=True)
+
+    for i, j in parange([1, 1], [2, 2], [3, 3], inits=[one, one]):
+
+        @reduce(i)
+        def res1(lhs: T.index, rhs: T.index):
+            return lhs + rhs
+
+        @reduce(j)
+        def res1(lhs: T.index, rhs: T.index):
+            return lhs + rhs
+
+        yield_()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %c1 = arith.constant 1 : index
+      %c1_0 = arith.constant 1 : index
+      %c1_1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c2_2 = arith.constant 2 : index
+      %c3 = arith.constant 3 : index
+      %c3_3 = arith.constant 3 : index
+      %0:2 = scf.parallel (%arg0, %arg1) = (%c1_0, %c1_1) to (%c2, %c2_2) step (%c3, %c3_3) init (%c1, %c1) -> (index, index) {
+        scf.reduce(%arg0)  : index {
+        ^bb0(%arg2: index, %arg3: index):
+          %1 = arith.addi %arg2, %arg3 : index
+          scf.reduce.return %1 : index
+        }
+        scf.reduce(%arg1)  : index {
+        ^bb0(%arg2: index, %arg3: index):
+          %1 = arith.addi %arg2, %arg3 : index
+          scf.reduce.return %1 : index
+        }
         scf.yield
       }
     }
