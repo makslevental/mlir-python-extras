@@ -262,6 +262,7 @@ class LLVMJITBackend:
         enable_ir_printing=False,
         generate_kernel_wrapper=True,
         generate_return_consumer=True,
+        verify=True,
     ):
         pipeline = str(pipeline)
         if "to-llvm" in pipeline or generate_kernel_wrapper:
@@ -274,6 +275,7 @@ class LLVMJITBackend:
             pipeline=pipeline,
             description="Lowering IR",
             enable_ir_printing=enable_ir_printing,
+            verify=verify,
         )
 
     def load(

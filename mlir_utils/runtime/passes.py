@@ -30,6 +30,7 @@ def run_pipeline(
     description: Optional[str] = None,
     enable_ir_printing=False,
     print_pipeline=False,
+    verify=True,
 ):
     if isinstance(pipeline, Pipeline):
         pipeline = str(pipeline)
@@ -46,6 +47,7 @@ def run_pipeline(
                 enable_debug_info=True,
             )
             pm = PassManager.parse(pipeline)
+            pm.enable_verifier(verify)
             if print_pipeline:
                 print(pm)
             if enable_ir_printing:
