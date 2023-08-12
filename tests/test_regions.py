@@ -1,8 +1,15 @@
 from textwrap import dedent
 
 import pytest
+from mlir.dialects._linalg_ops_gen import CopyOp
 
 import mlir_utils.types as T
+
+# this has to be above the next one
+from mlir_utils.dialects.ext import linalg
+from mlir_utils.dialects import linalg
+
+from mlir_utils.dialects.ext import memref
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
 from mlir_utils.dialects.ext.tensor import S
@@ -118,6 +125,39 @@ def test_block_args(ctx: MLIRContext):
         tensor.yield %cst : f32
       } : tensor<?x3x?xf32>
       %rank = tensor.rank %generated : tensor<?x3x?xf32>
+    }
+    """
+        ),
+        ctx.module,
+    )
+
+
+def test_empty_results_list(ctx: MLIRContext):
+    one = constant(1, T.index)
+    two = constant(2, T.index)
+
+    @func
+    def demo_fun1():
+        mem1 = memref.alloc((10, 10), T.f32)
+        mem2 = memref.alloc((10, 10), T.f32)
+        x = linalg.copy(mem1, mem2)
+        assert isinstance(x, CopyOp)
+
+    demo_fun1.emit()
+
+    ctx.module.operation.verify()
+    filecheck(
+        dedent(
+            """\
+    module {
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      func.func @demo_fun1() {
+        %alloc = memref.alloc() : memref<10x10xf32>
+        %alloc_0 = memref.alloc() : memref<10x10xf32>
+        linalg.copy {cast = #linalg.type_fn<cast_signed>} ins(%alloc : memref<10x10xf32>) outs(%alloc_0 : memref<10x10xf32>)
+        return
+      }
     }
     """
         ),
