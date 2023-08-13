@@ -5,6 +5,7 @@ import pytest
 import mlir_utils.types as T
 from mlir_utils.ast.canonicalize import canonicalize
 from mlir_utils.dialects.ext import scf
+from mlir_utils.dialects.ext import tensor
 from mlir_utils.dialects.ext.arith import constant, Scalar
 from mlir_utils.dialects.ext.scf import (
     for_,
@@ -16,7 +17,6 @@ from mlir_utils.dialects.ext.scf import (
     if_ctx_manager,
     else_ctx_manager,
     forall_,
-    in_parallel,
     parange_,
     forall,
     parange,
@@ -24,7 +24,7 @@ from mlir_utils.dialects.ext.scf import (
     while__,
     while___,
 )
-from mlir_utils.dialects.ext.tensor import empty, parallel_insert_slice, Tensor
+from mlir_utils.dialects.ext.tensor import empty, Tensor
 from mlir_utils.dialects.memref import alloca_scope, alloca_scope_return
 
 # noinspection PyUnresolvedReferences
@@ -2312,10 +2312,6 @@ def test_forall_1(ctx: MLIRContext):
     def forfoo(ivs):
         one = constant(1.0)
 
-        @in_parallel
-        def term():
-            pass
-
     ctx.module.operation.verify()
     correct = dedent(
         """\
@@ -2336,10 +2332,6 @@ def test_forall_3(ctx: MLIRContext):
     @forall_([1, 1], [2, 2], [3, 3])
     def forfoo(iv1, iv2):
         one = constant(1.0)
-
-        @in_parallel
-        def term():
-            pass
 
     ctx.module.operation.verify()
     correct = dedent(
@@ -2367,15 +2359,13 @@ def test_forall_insert_slice(ctx: MLIRContext):
     def forfoo(i, j, shared_outs):
         one = constant(1.0)
 
-        @in_parallel
-        def term():
-            parallel_insert_slice(
-                ten,
-                shared_outs,
-                offsets=[i, j],
-                static_sizes=[10, 10],
-                static_strides=[1, 1],
-            )
+        return lambda: tensor.parallel_insert_slice(
+            ten,
+            shared_outs,
+            offsets=[i, j],
+            static_sizes=[10, 10],
+            static_strides=[1, 1],
+        )
 
     ctx.module.operation.verify()
     correct = dedent(
@@ -2407,7 +2397,7 @@ def test_forall_insert_slice_no_region(ctx: MLIRContext):
     def forfoo(i, j, shared_outs):
         one = constant(1.0)
 
-        scf.parallel_insert_slice(
+        return lambda: tensor.parallel_insert_slice(
             ten,
             shared_outs,
             offsets=[i, j],

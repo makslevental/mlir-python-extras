@@ -25,6 +25,7 @@ from mlir.ir import (
     OpView,
     IndexType,
     _denseI64ArrayAttr,
+    Attribute,
 )
 
 import mlir_utils.types as T
@@ -36,6 +37,7 @@ from mlir_utils.ast.canonicalize import (
 )
 from mlir_utils.ast.util import ast_call, set_lineno
 from mlir_utils.dialects.ext.arith import constant, index_cast
+from mlir_utils.dialects.ext.gpu import get_device_mapping_array_attr
 from mlir_utils.dialects.scf import yield_ as yield__, reduce_return, condition
 from mlir_utils.util import (
     region_op,
@@ -87,6 +89,7 @@ class ForallOp(ForallOp):
         steps,
         shared_outs: Optional[Union[Operation, OpView, Sequence[Value]]] = None,
         *,
+        device_mapping: Optional[list[Attribute]] = None,
         loc=None,
         ip=None,
     ):
@@ -105,6 +108,8 @@ class ForallOp(ForallOp):
             "staticUpperBound": _denseI64ArrayAttr(upper_bounds, context),
             "staticStep": _denseI64ArrayAttr(steps, context),
         }
+        if device_mapping is not None:
+            attributes["mapping"] = get_device_mapping_array_attr(device_mapping)
 
         super().__init__(
             self.build_generic(
@@ -153,11 +158,10 @@ class InParallelOp(InParallelOp):
         return self.regions[0].blocks[0]
 
 
-def _parfor(op_ctor, iter_args_name):
+def _parfor(op_ctor):
     def _base(
         lower_bounds, upper_bounds=None, steps=None, *, loc=None, ip=None, **kwargs
     ):
-        iter_args = kwargs.get(iter_args_name)
         if loc is None:
             loc = get_user_code_loc()
 
@@ -180,7 +184,7 @@ def _parfor(op_ctor, iter_args_name):
         if loc is None:
             loc = get_user_code_loc()
 
-        return op_ctor(*params, iter_args, loc=loc, ip=ip)
+        return op_ctor(*params, loc=loc, ip=ip, **kwargs)
 
     return _base
 
@@ -188,6 +192,23 @@ def _parfor(op_ctor, iter_args_name):
 @region_op
 def in_parallel():
     return InParallelOp()
+
+
+def in_parallel_(parallel_insert_slice=None):
+    if isinstance(parallel_insert_slice, (tuple, list)):
+        assert (
+            len(parallel_insert_slice) <= 1
+        ), "expected at most one parallel_insert_slice op"
+        if len(parallel_insert_slice) == 1:
+            parallel_insert_slice = parallel_insert_slice[0]
+        else:
+            parallel_insert_slice = None
+
+    @in_parallel
+    def foo():
+        if parallel_insert_slice is not None:
+            parallel_insert_slice()
+        return
 
 
 def parallel_insert_slice(
@@ -216,12 +237,12 @@ def parallel_insert_slice(
         )
 
 
-forall_ = region_op(_parfor(ForallOp, iter_args_name="shared_outs"))
+forall_ = region_op(_parfor(ForallOp), terminator=in_parallel_)
 
 
-def _parfor_cm(op_ctor, iter_args_name):
+def _parfor_cm(op_ctor):
     def _base(*args, **kwargs):
-        for_op = _parfor(op_ctor, iter_args_name=iter_args_name)(*args, **kwargs)
+        for_op = _parfor(op_ctor)(*args, **kwargs)
         block = for_op.regions[0].blocks[0]
         block_args = tuple(map(maybe_cast, block.arguments))
         with InsertionPoint(block):
@@ -230,7 +251,7 @@ def _parfor_cm(op_ctor, iter_args_name):
     return _base
 
 
-forall = _parfor_cm(ForallOp, iter_args_name="shared_outs")
+forall = _parfor_cm(ForallOp)
 
 
 def range_(
@@ -295,8 +316,8 @@ class ParallelOp(ParallelOp):
         return self.body.arguments
 
 
-parange_ = region_op(_parfor(ParallelOp, iter_args_name="inits"), terminator=yield__)
-parange = _parfor_cm(ParallelOp, iter_args_name="inits")
+parange_ = region_op(_parfor(ParallelOp), terminator=yield__)
+parange = _parfor_cm(ParallelOp)
 
 
 def while___(cond: Value, *, loc=None, ip=None):
