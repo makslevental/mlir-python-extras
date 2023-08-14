@@ -11,6 +11,7 @@ from mlir_utils.dialects.ext.scf import (
     ReplaceIfWithWith,
     ReplaceYieldWithSCFYield,
     InsertEmptyYield,
+    CanonicalizeWhile,
 )
 
 # noinspection PyUnresolvedReferences
@@ -3704,9 +3705,6 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
 
     dump = astpretty.pformat(mod, show_offsets=True)
 
-    print()
-    print(dump)
-
     correct = dedent(
         """\
     Module(
@@ -4209,6 +4207,93 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
                         ],
                     ),
                     Return(lineno=24, value=None),
+                ],
+                returns=None,
+            ),
+        ],
+    )
+    """
+    )
+
+    assert correct.strip() == dump
+
+
+def test_while_canonicalize(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    def foo():
+        while inits := one < two:
+            r = yield inits
+
+    foo()
+
+    mod = transform_func(
+        foo,
+        CanonicalizeElIfs,
+        InsertEmptyYield,
+        ReplaceYieldWithSCFYield,
+        ReplaceIfWithWith,
+        CanonicalizeWhile,
+    )
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='foo',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='w_2')],
+                        value=Call(
+                            lineno=2,
+                            func=Name(lineno=2, id='while__'),
+                            args=[
+                                Compare(
+                                    lineno=2,
+                                    left=Name(lineno=2, id='one'),
+                                    ops=[Lt()],
+                                    comparators=[Name(lineno=2, id='two')],
+                                ),
+                            ],
+                            keywords=[],
+                        ),
+                    ),
+                    While(
+                        lineno=2,
+                        test=NamedExpr(
+                            lineno=2,
+                            target=Name(lineno=2, id='inits'),
+                            value=Call(
+                                lineno=2,
+                                func=Name(lineno=2, id='next'),
+                                args=[
+                                    Name(lineno=2, id='w_2'),
+                                    Constant(lineno=2, value=False),
+                                ],
+                                keywords=[],
+                            ),
+                        ),
+                        body=[
+                            Assign(
+                                lineno=3,
+                                targets=[Name(lineno=3, id='r')],
+                                value=Call(
+                                    lineno=3,
+                                    func=Name(lineno=3, id='yield_'),
+                                    args=[Name(lineno=3, id='inits')],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                        orelse=[],
+                    ),
                 ],
                 returns=None,
             ),

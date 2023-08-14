@@ -340,6 +340,7 @@ def generate_all_upstream_trampolines():
                 f"mlir.dialects.{mod.name}",
                 Path(mlir_utils.dialects.__path__[0]),
                 mod.name,
+                skips={"1kOp"}
             )
         elif mod.name == "linalg":
             generate_linalg("mlir.dialects.linalg")

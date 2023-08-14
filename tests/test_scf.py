@@ -21,6 +21,8 @@ from mlir_utils.dialects.ext.scf import (
     forall,
     parange,
     reduce,
+    while__,
+    while___,
 )
 from mlir_utils.dialects.ext.tensor import empty, parallel_insert_slice, Tensor
 from mlir_utils.dialects.memref import alloca_scope, alloca_scope_return
@@ -2613,4 +2615,367 @@ def test_parange_inits_with_for_with_two_reduce(ctx: MLIRContext):
     }
     """
     )
+    filecheck(correct, ctx.module)
+
+
+def test_while_2(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    w = while__(one < two)
+    while inits := next(w, False):
+        r = yield_(*inits)
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        scf.condition(%1) %arg0, %arg1 : i32, i32
+      } do {
+      ^bb0(%arg0: i32, %arg1: i32):
+        scf.yield %c1_i32, %c2_i32 : i32, i32
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        while inits := one < two:
+            r = yield inits
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        scf.condition(%1) %arg0, %arg1 : i32, i32
+      } do {
+      ^bb0(%arg0: i32, %arg1: i32):
+        scf.yield %c1_i32, %c2_i32 : i32, i32
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_2(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    def foo():
+        cond = one < two
+        while inits := while___(cond):
+            r = yield_(inits)
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        scf.condition(%1) %arg0, %arg1 : i32, i32
+      } do {
+      ^bb0(%arg0: i32, %arg1: i32):
+        scf.yield %c1_i32, %c2_i32 : i32, i32
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_with_if(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        if one < two:
+            while inits := one < two:
+                r = yield inits
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      scf.if %0 {
+        %1:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %2 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%2) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_with_elif(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        if one < two:
+            while inits := one < two:
+                r = yield inits
+        elif one < two:
+            while inits := one < two:
+                r = yield inits
+        else:
+            while inits := one < two:
+                r = yield inits
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      scf.if %0 {
+        %1:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %2 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%2) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+      } else {
+        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        scf.if %1 {
+          %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+            %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+            scf.condition(%3) %arg0, %arg1 : i32, i32
+          } do {
+          ^bb0(%arg0: i32, %arg1: i32):
+            scf.yield %c1_i32, %c2_i32 : i32, i32
+          }
+        } else {
+          %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+            %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+            scf.condition(%3) %arg0, %arg1 : i32, i32
+          } do {
+          ^bb0(%arg0: i32, %arg1: i32):
+            scf.yield %c1_i32, %c2_i32 : i32, i32
+          }
+        }
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_with_if_with_results(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        if one < two:
+            while inits := one < two:
+                r1, r2 = yield inits
+            r1, r2 = yield r1, r2
+        else:
+            while inits := one < two:
+                r1, r2 = yield inits
+            r1, r2 = yield r1, r2
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %1:2 = scf.if %0 -> (i32, i32) {
+        %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%3) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+        scf.yield %2#0, %2#1 : i32, i32
+      } else {
+        %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%3) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+        scf.yield %2#0, %2#1 : i32, i32
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_with_if_with_results_2(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        if one < two:
+            while inits := one < two:
+                r = yield inits
+            r1, r2 = yield r
+        else:
+            while inits := one < two:
+                r = yield inits
+            r1, r2 = yield r
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %1:2 = scf.if %0 -> (i32, i32) {
+        %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%3) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+        scf.yield %2#0, %2#1 : i32, i32
+      } else {
+        %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%3) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+        scf.yield %2#0, %2#1 : i32, i32
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_with_if_with_results_3(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        if one < two:
+            while inits := one < two:
+                r1, r2 = yield inits
+            r = yield r1, r2
+        else:
+            while inits := one < two:
+                r1, r2 = yield inits
+            r = yield r1, r2
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %1:2 = scf.if %0 -> (i32, i32) {
+        %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%3) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+        scf.yield %2#0, %2#1 : i32, i32
+      } else {
+        %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          scf.condition(%3) %arg0, %arg1 : i32, i32
+        } do {
+        ^bb0(%arg0: i32, %arg1: i32):
+          scf.yield %c1_i32, %c2_i32 : i32, i32
+        }
+        scf.yield %2#0, %2#1 : i32, i32
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_while_canonicalize_nested_if(ctx: MLIRContext):
+    one = constant(1)
+    two = constant(2)
+
+    @canonicalize(using=canonicalizer)
+    def foo():
+        while inits := one < two:
+            if one < two:
+                three = constant(3)
+            yield inits
+
+    foo()
+
+    correct = dedent(
+        """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
+        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        scf.condition(%1) %arg0, %arg1 : i32, i32
+      } do {
+      ^bb0(%arg0: i32, %arg1: i32):
+        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        scf.if %1 {
+          %c3_i32 = arith.constant 3 : i32
+        }
+        scf.yield %c1_i32, %c2_i32 : i32, i32
+      }
+    }
+    """
+    )
+
     filecheck(correct, ctx.module)
