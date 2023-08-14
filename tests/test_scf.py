@@ -23,7 +23,7 @@ from mlir_utils.dialects.ext.scf import (
     reduce,
 )
 from mlir_utils.dialects.ext.tensor import empty, parallel_insert_slice, Tensor
-from mlir_utils.dialects.memref import alloca_scope, return_
+from mlir_utils.dialects.memref import alloca_scope, alloca_scope_return
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -1929,7 +1929,7 @@ def test_if_with_nested_region(
             @alloca_scope([one.type])
             def demo_scope1():
                 one = constant(1.0)
-                return_([one])
+                alloca_scope_return([one])
 
             res = yield demo_scope1
         else:

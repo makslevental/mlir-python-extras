@@ -78,7 +78,9 @@ def generate_op_trampoline(op_class):
     for a in args.args:
         a.arg = inflection.underscore(a.arg).lower()
 
-    fun_name = op_class.OPERATION_NAME.split(".")[-1].replace("-", "_")
+    fun_name = (
+        op_class.OPERATION_NAME.split(".", 1)[-1].replace(".", "_").replace("-", "_")
+    )
     if keyword.iskeyword(fun_name):
         fun_name = fun_name + "_"
     op_class_name = op_class.__name__

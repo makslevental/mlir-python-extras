@@ -13,7 +13,7 @@ from mlir_utils.dialects.ext import memref
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import func
 from mlir_utils.dialects.ext.tensor import S
-from mlir_utils.dialects.memref import alloca_scope, return_
+from mlir_utils.dialects.memref import alloca_scope, alloca_scope_return
 from mlir_utils.dialects.scf import execute_region, yield_ as scf_yield
 from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield
 from mlir_utils.dialects.tensor import rank
@@ -52,12 +52,12 @@ def test_no_args_decorator(ctx: MLIRContext):
     @alloca_scope([])
     def demo_scope1():
         one = constant(1)
-        return_()
+        alloca_scope_return()
 
     @alloca_scope
     def demo_scope2():
         one = constant(2)
-        return_()
+        alloca_scope_return()
 
     ctx.module.operation.verify()
     filecheck(

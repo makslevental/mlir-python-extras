@@ -28,7 +28,7 @@ from mlir_utils.ast.canonicalize import (
 )
 from mlir_utils.ast.util import ast_call, set_lineno
 from mlir_utils.dialects.ext.arith import constant, index_cast
-from mlir_utils.dialects.scf import yield_ as yield__, return_
+from mlir_utils.dialects.scf import yield_ as yield__, reduce_return
 from mlir_utils.util import (
     region_op,
     maybe_cast,
@@ -307,7 +307,7 @@ def reduce_(operand, *, loc=None, ip=None):
     return ReduceOp(operand, loc=loc, ip=ip)
 
 
-reduce = region_op(reduce_, terminator=lambda xs: return_(*xs))
+reduce = region_op(reduce_, terminator=lambda xs: reduce_return(*xs))
 
 
 def yield_(*args):
