@@ -7,7 +7,15 @@ from typing import Optional, Sequence, Union
 from bytecode import ConcreteBytecode, ConcreteInstr
 from mlir.dialects._ods_common import get_op_results_or_values, get_default_loc_context
 from mlir.dialects.linalg.opdsl.lang.emitter import _is_index_type
-from mlir.dialects.scf import IfOp, ForOp, ForallOp, ParallelOp, InParallelOp, ReduceOp
+from mlir.dialects.scf import (
+    IfOp,
+    ForOp,
+    ForallOp,
+    ParallelOp,
+    InParallelOp,
+    ReduceOp,
+    WhileOp,
+)
 from mlir.ir import (
     InsertionPoint,
     Value,
@@ -28,7 +36,7 @@ from mlir_utils.ast.canonicalize import (
 )
 from mlir_utils.ast.util import ast_call, set_lineno
 from mlir_utils.dialects.ext.arith import constant, index_cast
-from mlir_utils.dialects.scf import yield_ as yield__, reduce_return
+from mlir_utils.dialects.scf import yield_ as yield__, reduce_return, condition
 from mlir_utils.util import (
     region_op,
     maybe_cast,
@@ -291,6 +299,41 @@ parange_ = region_op(_parfor(ParallelOp, iter_args_name="inits"), terminator=yie
 parange = _parfor_cm(ParallelOp, iter_args_name="inits")
 
 
+def while___(cond: Value, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+
+    def wrapper():
+        nonlocal ip
+        inits = list(cond.owner.operands)
+        results_ = [i.type for i in inits]
+        while_op = WhileOp(results_, inits, loc=loc, ip=ip)
+        while_op.regions[0].blocks.append(*[i.type for i in inits])
+        before = while_op.regions[0].blocks[0]
+        while_op.regions[1].blocks.append(*[i.type for i in inits])
+        after = while_op.regions[1].blocks[0]
+        with InsertionPoint(before) as ip:
+            cond_ = condition(cond, list(before.arguments))
+            cond.owner.move_before(cond_)
+        with InsertionPoint(after):
+            yield inits
+
+    if hasattr(while___, "wrapper"):
+        # needed in order to exit the `after` insertion point
+        next(while___.wrapper, False)
+        del while___.wrapper
+        return False
+    else:
+        while___.wrapper = wrapper()
+        # enter `after` insertion point
+        return next(while___.wrapper)
+
+
+def while__(cond: Value, *, loc=None, ip=None):
+    yield while___(cond, loc=loc, ip=ip)
+    yield while___(cond, loc=loc, ip=ip)
+
+
 class ReduceOp(ReduceOp):
     def __init__(self, operand, *, loc=None, ip=None):
         super().__init__(
@@ -298,7 +341,7 @@ class ReduceOp(ReduceOp):
                 regions=1, results=[], operands=[operand], loc=loc, ip=ip
             )
         )
-        self.regions[0].blocks.append(*[operand.type, operand.type])
+        self.regions[0].blocks.append(operand.type, operand.type)
 
 
 def reduce_(operand, *, loc=None, ip=None):
@@ -311,7 +354,7 @@ reduce = region_op(reduce_, terminator=lambda xs: reduce_return(*xs))
 
 
 def yield_(*args):
-    if len(args) == 1 and isinstance(args[0], OpResultList):
+    if len(args) == 1 and isinstance(args[0], (list, OpResultList)):
         args = list(args[0])
     y = yield__(args)
     parent_op = y.operation.parent.opview
@@ -472,6 +515,41 @@ class CanonicalizeElIfs(StrictTransformer):
         return updated_node
 
 
+class CanonicalizeWhile(StrictTransformer):
+    def visit_While(self, updated_node: ast.While) -> list[ast.AST]:
+        # postorder
+        updated_node = self.generic_visit(updated_node)
+        if isinstance(updated_node.test, ast.NamedExpr):
+            test = updated_node.test.value
+        else:
+            test = updated_node.test
+        w = ast_call(while__.__name__, [test])
+        w = ast.copy_location(w, updated_node)
+        assign = ast.Assign(
+            targets=[ast.Name(f"w_{updated_node.lineno}", ctx=ast.Store())],
+            value=w,
+        )
+        assign = ast.fix_missing_locations(ast.copy_location(assign, updated_node))
+
+        next_ = ast_call(
+            next.__name__,
+            [
+                ast.Name(f"w_{updated_node.lineno}", ctx=ast.Load()),
+                ast.Constant(False),
+            ],
+        )
+        next_ = ast.fix_missing_locations(ast.copy_location(next_, updated_node))
+        if isinstance(updated_node.test, ast.NamedExpr):
+            updated_node.test.value = next_
+        else:
+            new_test = ast.NamedExpr(
+                target=ast.Name(f"__init__{updated_node.lineno}"), value=next_
+            )
+            new_test = ast.copy_location(new_test, updated_node)
+            updated_node.test = new_test
+        return [assign, updated_node]
+
+
 class ReplaceYieldWithSCFYield(StrictTransformer):
     def visit_Yield(self, node: ast.Yield) -> ast.Expr:
         if isinstance(node.value, ast.Tuple):
@@ -498,10 +576,15 @@ class ReplaceIfWithWith(StrictTransformer):
         ), f"{last_statement=}"
 
         test = updated_node.test
-        results = [
-            ast_call(T.placeholder_opaque.__name__)
-            for _ in range(len(last_statement.value.args))
-        ]
+        num_results = max(
+            len(last_statement.value.args),
+            # if lhs of assign is a tuple unpacking
+            len(last_statement.targets[0].elts)
+            if isinstance(last_statement, ast.Assign)
+            and isinstance(last_statement.targets[0], ast.Tuple)
+            else 0,
+        )
+        results = [ast_call(T.placeholder_opaque.__name__) for _ in range(num_results)]
         results = ast.fix_missing_locations(
             ast.copy_location(ast.Tuple(results, ctx=ast.Load()), test)
         )
@@ -567,6 +650,7 @@ class SCFCanonicalizer(Canonicalizer):
         InsertEmptyYield,
         ReplaceYieldWithSCFYield,
         ReplaceIfWithWith,
+        CanonicalizeWhile,
     ]
 
     bytecode_patchers = [RemoveJumpsAndInsertGlobals]
