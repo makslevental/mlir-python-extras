@@ -9,7 +9,7 @@ from typing import Optional
 from mlir.ir import StringAttr
 from mlir.passmanager import PassManager
 
-from mlir_utils.util import disable_multithreading
+from mlir_utils.context import disable_multithreading
 
 logger = logging.getLogger(__name__)
 

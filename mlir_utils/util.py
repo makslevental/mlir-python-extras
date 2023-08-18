@@ -257,29 +257,6 @@ def get_user_code_loc(user_base: Optional[Path] = None):
 
 
 @contextlib.contextmanager
-def enable_multithreading(context=None):
-    from mlir.ir import Context
-
-    if context is None:
-        context = Context.current
-    context.enable_multithreading(True)
-    yield
-    context.enable_multithreading(False)
-
-
-@contextlib.contextmanager
-def disable_multithreading(context=None):
-    from mlir.ir import Context
-
-    if context is None:
-        context = Context.current
-
-    context.enable_multithreading(False)
-    yield
-    context.enable_multithreading(True)
-
-
-@contextlib.contextmanager
 def enable_debug():
     ir._GlobalDebug.flag = True
     yield

@@ -1,3 +1,4 @@
+import contextlib
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Optional
@@ -38,3 +39,26 @@ def mlir_mod_ctx(
         stack.enter_context(ip)
         yield MLIRContext(context, module)
     context._clear_live_operations()
+
+
+@contextlib.contextmanager
+def enable_multithreading(context=None):
+    from mlir.ir import Context
+
+    if context is None:
+        context = Context.current
+    context.enable_multithreading(True)
+    yield
+    context.enable_multithreading(False)
+
+
+@contextlib.contextmanager
+def disable_multithreading(context=None):
+    from mlir.ir import Context
+
+    if context is None:
+        context = Context.current
+
+    context.enable_multithreading(False)
+    yield
+    context.enable_multithreading(True)
