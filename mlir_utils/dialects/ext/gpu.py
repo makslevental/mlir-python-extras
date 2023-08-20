@@ -2,20 +2,15 @@ from typing import Optional
 
 from mlir.ir import (
     Type,
-    register_attribute_builder,
     Attribute,
     UnitAttr,
+    register_attribute_builder,
     Context,
-    FlatSymbolRefAttr,
     ArrayAttr,
 )
 
+from mlir_utils.dialects.ext.gpu_enums import AddressSpace
 from mlir_utils.dialects.gpu import block_id
-
-
-@register_attribute_builder("GPU_DimensionAttr")
-def _dimAttr(dim, context=None):
-    return Attribute.parse(f"#gpu<dim {dim}>", context=context)
 
 
 def block_id_x():
@@ -24,6 +19,20 @@ def block_id_x():
 
 def block_id_y():
     return block_id("y")
+
+
+def warp_group_attr(dim):
+    assert dim in {"x", "y", "z"}
+    return Attribute.parse(f"#gpu.warpgroup<{dim}>")
+
+
+def warp_attr(dim):
+    assert dim in {"x", "y", "z"}
+    return Attribute.parse(f"#gpu.warp<{dim}>")
+
+
+def memory_space(address_space: AddressSpace):
+    return Attribute.parse(f"#gpu.memory_space<{address_space}>")
 
 
 def block_attr(dim):
@@ -43,18 +52,6 @@ def gpu_async_token():
 def set_container_module(module):
     module.operation.attributes["gpu.container_module"] = UnitAttr.get()
     return module
-
-
-@register_attribute_builder("GPU_AllReduceOperationAttr")
-def gpu_all_reduce_op_attr(
-    op: str, context: Optional[Context] = None
-) -> FlatSymbolRefAttr:
-    if context is None:
-        context = Context.current
-    ops = {"add", "and", "max", "min", "mul", "or", "xor"}
-    if op not in ops:
-        raise ValueError(f"{op=} not in {ops=}")
-    return Attribute.parse(f"#gpu<all_reduce_op {op}>", context)
 
 
 @register_attribute_builder("DeviceMappingArrayAttr")
