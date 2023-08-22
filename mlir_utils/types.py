@@ -25,6 +25,8 @@ from mlir.ir import (
     VectorType,
     StridedLayoutAttr,
 )
+from mlir.dialects import transform
+from mlir.dialects import pdl
 
 _index = lambda: IndexType.get()
 _bool = lambda: IntegerType.get_signless(1)
@@ -59,6 +61,8 @@ _cmp64 = lambda: ComplexType.get(_f64())
 
 _none = lambda: NoneType.get()
 
+_pdl_operation = lambda: pdl.OperationType.get()
+
 opaque = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
 
@@ -92,6 +96,7 @@ _name_to_type = {
     "cmp32": _cmp32,
     "cmp64": _cmp64,
     "none": _none,
+    "pdl_operation": _pdl_operation,
 }
 
 
@@ -163,13 +168,13 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return _bool()
     elif isinstance(py_val, int):
-        if -(2 ** 31) <= py_val < 2 ** 31:
+        if -(2**31) <= py_val < 2**31:
             return _i32()
-        elif 2 ** 31 <= py_val < 2 ** 32:
+        elif 2**31 <= py_val < 2**32:
             return _ui32()
-        elif -(2 ** 63) <= py_val < 2 ** 63:
+        elif -(2**63) <= py_val < 2**63:
             return _i64()
-        elif 2 ** 63 <= py_val < 2 ** 64:
+        elif 2**63 <= py_val < 2**64:
             return _ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
@@ -267,3 +272,11 @@ def memref_type_to_np_dtype(memref_type):
         memref(_i64()): np.int64,
     }
     return _memref_type_to_np_dtype.get(memref_type)
+
+
+def transform_op(name):
+    return transform.OperationType.get(name)
+
+
+def transform_any_op():
+    return transform.AnyOpType.get()
