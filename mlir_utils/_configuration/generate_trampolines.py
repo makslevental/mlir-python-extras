@@ -3,6 +3,7 @@ import ast
 import copy
 import inspect
 import keyword
+import os
 import pkgutil
 from pathlib import Path
 from textwrap import dedent
@@ -334,13 +335,36 @@ def generate_all_upstream_trampolines():
     import mlir.dialects
     import mlir_utils.dialects
 
+    mlir_mod_path = Path(mlir_utils.dialects.__path__[0])
+    if not mlir_mod_path.exists():
+        os.makedirs(mlir_mod_path)
+
     for mod in pkgutil.iter_modules(mlir.dialects.__path__):
-        if not mod.name.startswith("_") and mod.name != "linalg":
+        if not mod.name.startswith("_") and mod.name not in {"linalg", "transform"}:
             generate_trampolines(
-                f"mlir.dialects.{mod.name}",
-                Path(mlir_utils.dialects.__path__[0]),
+                f"{mlir.dialects.__name__}.{mod.name}",
+                mlir_mod_path,
                 mod.name,
-                skips={"1kOp"}
+                skips={"1kOp"},
             )
         elif mod.name == "linalg":
-            generate_linalg("mlir.dialects.linalg")
+            generate_linalg(f"{mlir.dialects.__name__}.linalg")
+        elif mod.name == "transform":
+            transform_module_path = Path(mlir.dialects.__path__[0]) / mod.name
+            transform_module_path_mlir_utils = mlir_mod_path / mod.name
+            if not transform_module_path_mlir_utils.exists():
+                os.makedirs(transform_module_path_mlir_utils)
+
+            generate_trampolines(
+                f"{mlir.dialects.__name__}.{mod.name}",
+                transform_module_path_mlir_utils,
+                "__init__",
+                skips={"1kOp"},
+            )
+            for mod in pkgutil.iter_modules([str(transform_module_path)]):
+                generate_trampolines(
+                    f"{mlir.dialects.__name__}.transform.{mod.name}",
+                    transform_module_path_mlir_utils,
+                    mod.name,
+                    skips={"1kOp"},
+                )

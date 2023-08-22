@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Union, Tuple, Sequence, Optional, Any
 
 import numpy as np
-from mlir.dialects._structured_transform_ops_ext import _get_int_int_array_attr
+from mlir.dialects._structured_transform_ops_ext import _get_int_array_array_attr
 from mlir.dialects.linalg.opdsl.lang.emitter import _is_index_type
 from mlir.ir import (
     Type,
@@ -311,7 +311,7 @@ def compute_result_shape_reassoc_list(inp_shape, newaxis_dims):
             d = 1
         reassoc_list[max(d - 1, 0)].extend(reassoc_list.pop(d))
 
-    reassoc_list = _get_int_int_array_attr(reassoc_list)
+    reassoc_list = _get_int_array_array_attr(reassoc_list)
     return result_shape, reassoc_list
 
 
