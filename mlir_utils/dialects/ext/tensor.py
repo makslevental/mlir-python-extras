@@ -23,6 +23,7 @@ from mlir_utils.util import (
     register_value_caster,
     _update_caller_vars,
     get_user_code_loc,
+    region_op,
 )
 
 S = ShapedType.get_dynamic_size()
@@ -659,3 +660,44 @@ def parallel_insert_slice(
         static_sizes,
         static_strides,
     )
+
+
+def pad_(
+    source: Value,
+    low: list[int],
+    high: list[int],
+    *,
+    nofold=None,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
+
+    assert all(
+        isinstance(l, int) for l in low
+    ), f"only literal pad values supported: {low=}"
+    assert all(
+        isinstance(l, int) for l in high
+    ), f"only literal pad values supported: {high=}"
+
+    dim_sizes = []
+    source_type = source.type
+    for dim in range(source_type.rank):
+        dim_sizes.append(source_type.get_dim_size(dim) + low[dim] + high[dim])
+    result_type = RankedTensorType.get(dim_sizes, source_type.element_type)
+
+    return tensor.PadOp(
+        result_type,
+        source,
+        [],
+        [],
+        low,
+        high,
+        nofold=nofold,
+        loc=loc,
+        ip=ip,
+    )
+
+
+pad = region_op(pad_, terminator=lambda args: tensor.YieldOp(args[0]))

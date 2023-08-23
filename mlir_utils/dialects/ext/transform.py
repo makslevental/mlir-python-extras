@@ -7,7 +7,7 @@ from mlir.dialects.transform import (
     YieldOp,
 )
 from mlir.dialects.transform.loop import GetParentForOp, LoopUnrollOp
-from mlir.dialects.transform.structured import MatchOp
+from mlir.dialects.transform.structured import MatchOp, TileToScfForOp
 from mlir.ir import (
     Type,
     Value,
@@ -103,7 +103,7 @@ def unroll(target: Value, factor=None, *, loc=None, ip=None):
     )
 
 
-def structured_match(
+def match(
     target: Value,
     ops=None,
     *,
@@ -129,3 +129,39 @@ def structured_match(
             )
         )
     )
+
+
+def tile_to_scf_for(
+    target: Value,
+    tile_sizes: list[int],
+    *,
+    interchange=None,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
+
+    tiled_linalg_op: Type = target.type
+    loops: list[Type] = [target.type] * len(tile_sizes)
+    dynamic_sizes: list[Value] = []
+    static_sizes = tile_sizes
+
+    t = tuple(
+        maybe_cast(
+            get_result_or_results(
+                TileToScfForOp(
+                    tiled_linalg_op,
+                    loops,
+                    target,
+                    dynamic_sizes,
+                    static_sizes=static_sizes,
+                    interchange=interchange,
+                    loc=loc,
+                    ip=ip,
+                )
+            )
+        )
+    )
+
+    return t[0], t[1:]
