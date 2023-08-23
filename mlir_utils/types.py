@@ -1,4 +1,5 @@
 import ctypes
+import warnings
 from functools import partial
 from typing import Union
 
@@ -25,8 +26,13 @@ from mlir.ir import (
     VectorType,
     StridedLayoutAttr,
 )
-from mlir.dialects import transform
-from mlir.dialects import pdl
+
+try:
+    from mlir.dialects import transform
+    from mlir.dialects import pdl
+except ImportError:
+    warnings.warn("no transform dialect registered; transform extensions won't work")
+
 
 _index = lambda: IndexType.get()
 _bool = lambda: IntegerType.get_signless(1)
@@ -168,13 +174,13 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return _bool()
     elif isinstance(py_val, int):
-        if -(2**31) <= py_val < 2**31:
+        if -(2 ** 31) <= py_val < 2 ** 31:
             return _i32()
-        elif 2**31 <= py_val < 2**32:
+        elif 2 ** 31 <= py_val < 2 ** 32:
             return _ui32()
-        elif -(2**63) <= py_val < 2**63:
+        elif -(2 ** 63) <= py_val < 2 ** 63:
             return _i64()
-        elif 2**63 <= py_val < 2**64:
+        elif 2 ** 63 <= py_val < 2 ** 64:
             return _ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
