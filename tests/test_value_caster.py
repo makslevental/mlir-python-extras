@@ -7,7 +7,7 @@ from mlir_utils.dialects.ext.tensor import S, empty
 
 # noinspection PyUnresolvedReferences
 from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.util import register_value_caster
+from mlir_utils.meta import register_value_caster
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

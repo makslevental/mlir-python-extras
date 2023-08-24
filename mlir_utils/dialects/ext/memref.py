@@ -11,12 +11,8 @@ from mlir_utils.dialects.ext.tensor import (
     _indices_to_indexer,
     compute_result_shape_reassoc_list,
 )
-from mlir_utils.util import (
-    register_value_caster,
-    get_user_code_loc,
-    maybe_cast,
-    get_result_or_results,
-)
+from mlir_utils.meta import register_value_caster, maybe_cast
+from mlir_utils.util import get_user_code_loc, get_result_or_results
 
 S = ShapedType.get_dynamic_size()
 

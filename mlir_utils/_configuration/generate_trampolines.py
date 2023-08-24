@@ -67,10 +67,9 @@ class FindOperands(ast.NodeVisitor):
 def generate_op_trampoline(op_class):
     from mlir_utils.util import (
         get_result_or_results,
-        maybe_cast,
-        region_op,
         get_user_code_loc,
     )
+    from mlir_utils.meta import maybe_cast, region_op
 
     _mod = ast.parse(dedent(inspect.getsource(op_class.__init__)))
     init_fn = next(n for n in _mod.body if isinstance(n, ast.FunctionDef))
@@ -132,12 +131,8 @@ def generate_op_trampoline(op_class):
 
 def generate_dialect_trampolines_from_module(input_module, skips: set):
     import mlir_utils
-    from mlir_utils.util import (
-        get_result_or_results,
-        maybe_cast,
-        region_op,
-        get_user_code_loc,
-    )
+    from mlir_utils.util import get_result_or_results, get_user_code_loc
+    from mlir_utils.meta import region_op, maybe_cast
     import mlir.dialects._ods_common
     from mlir_utils._configuration.configuration import _get_mlir_package_prefix
 
@@ -171,14 +166,21 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
         names=[ast.alias(i) for i in ["Value", "Attribute", "Type"]],
         level=0,
     )
-    ods_imports = ast.ImportFrom(
-        module=mlir_utils.util.__name__,
-        names=[
-            ast.alias(f.__name__)
-            for f in [get_result_or_results, maybe_cast, region_op, get_user_code_loc]
-        ],
-        level=0,
-    )
+    ods_imports = [
+        ast.ImportFrom(
+            module=mlir_utils.util.__name__,
+            names=[
+                ast.alias(f.__name__)
+                for f in [get_result_or_results, get_user_code_loc]
+            ],
+            level=0,
+        ),
+        ast.ImportFrom(
+            module=mlir_utils.meta.__name__,
+            names=[ast.alias(f.__name__) for f in [maybe_cast, region_op]],
+            level=0,
+        ),
+    ]
     op_imports = ast.ImportFrom(
         module=input_module.__name__,
         names=[ast.alias(n) for n in init_funs.keys()],
@@ -198,7 +200,7 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
     all = ast.parse(f"__all__ = [{', '.join(repr(f.name) for f in functions)}]")
 
     new_mod = ast.Module(
-        [ir_imports, op_imports, *linalg_imports, ods_imports] + functions + [all], []
+        [ir_imports, op_imports, *linalg_imports] + ods_imports + functions + [all], []
     )
     new_src = ast.unparse(new_mod)
     return black.format_file_contents(new_src, fast=False, mode=black.Mode())
@@ -260,12 +262,8 @@ def generate_linalg(mod_path):
     import mlir.dialects
     from mlir_utils._configuration.configuration import _add_file_to_sources_txt_file
     from mlir.dialects.linalg import DefinedOpCallable, OperandKind
-    from mlir_utils.util import (
-        get_result_or_results,
-        maybe_cast,
-        region_op,
-        get_user_code_loc,
-    )
+    from mlir_utils.util import get_result_or_results, get_user_code_loc
+    from mlir_utils.meta import maybe_cast
 
     linalg_modu = __import__(mod_path, fromlist=["*"])
 
@@ -278,11 +276,18 @@ def generate_linalg(mod_path):
             names=[ast.Name("linalg")],
             level=0,
         )
-        ods_imports = ast.ImportFrom(
-            module=mlir_utils.util.__name__,
-            names=[ast.alias(f.__name__) for f in [maybe_cast, get_user_code_loc]],
-            level=0,
-        )
+        ods_imports = [
+            ast.ImportFrom(
+                module=mlir_utils.util.__name__,
+                names=[ast.alias(f.__name__) for f in [get_user_code_loc]],
+                level=0,
+            ),
+            ast.ImportFrom(
+                module=mlir_utils.meta.__name__,
+                names=[ast.alias(f.__name__) for f in [maybe_cast]],
+                level=0,
+            ),
+        ]
         _keywords = [
             ast.keyword("loc", ast.Name("loc")),
             ast.keyword("ip", ast.Name("ip")),
@@ -324,7 +329,7 @@ def generate_linalg(mod_path):
             ast.fix_missing_locations(n)
             functions.append(n)
 
-        new_mod = ast.Module([linalg_import, ods_imports] + functions, [])
+        new_mod = ast.Module([linalg_import] + ods_imports + functions, [])
         new_src = ast.unparse(new_mod)
         generated = black.format_file_contents(new_src, fast=False, mode=black.Mode())
         f.write(generated)

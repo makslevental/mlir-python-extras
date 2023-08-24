@@ -43,12 +43,8 @@ from mlir.ir import (
     FloatAttr,
 )
 
-from mlir_utils.util import (
-    get_result_or_results,
-    maybe_cast,
-    get_user_code_loc,
-    register_value_caster,
-)
+from mlir_utils.util import get_result_or_results, get_user_code_loc
+from mlir_utils.meta import register_value_caster, maybe_cast
 
 try:
     from mlir_utils.dialects.arith import *
