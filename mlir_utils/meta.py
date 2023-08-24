@@ -16,7 +16,6 @@ except ImportError:
     )
     TypeID = object
 
-
 from mlir_utils.util import (
     get_user_code_loc,
     get_result_or_results,
@@ -198,3 +197,18 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
             ctypes.pythonapi.PyFrame_LocalsToFast(
                 ctypes.py_object(previous_frame), ctypes.c_int(1)
             )
+
+
+class ModuleMeta(type):
+    def __new__(cls, name, bases, classdict, **kwargs):
+        ip = classdict.pop("ip")
+        loc = classdict.pop("loc")
+        module_terminator = classdict.pop("module_terminator", None)
+        new = super().__new__(cls, name, bases, classdict)
+        if module_terminator is not None:
+            module_terminator(loc=loc, ip=ip)
+        for k, v in classdict.items():
+            if callable(v):
+                v.qualname = name
+        ip.__exit__(None, None, None)
+        return new
