@@ -4,13 +4,13 @@ from mlir.dialects._structured_transform_ops_ext import (
     _get_value_list,
     _dispatch_mixed_values,
 )
+from mlir.dialects.transform import ApplyPatternsOp
 from mlir.dialects.transform import (
     SequenceOp,
     FailurePropagationMode,
     YieldOp,
 )
 from mlir.dialects.transform.loop import GetParentForOp, LoopUnrollOp
-from mlir.dialects.transform import ApplyPatternsOp
 from mlir.dialects.transform.structured import MatchOp, TileToScfForOp, TileToForallOp
 from mlir.ir import (
     Type,
@@ -23,14 +23,8 @@ from mlir.ir import (
 )
 
 import mlir_utils.types as T
-from mlir_utils.util import (
-    get_user_code_loc,
-    maybe_cast,
-    get_result_or_results,
-)
-from mlir_utils.util import (
-    region_op,
-)
+from mlir_utils.meta import region_op, maybe_cast
+from mlir_utils.util import get_user_code_loc, get_result_or_results
 
 
 def sequence_(

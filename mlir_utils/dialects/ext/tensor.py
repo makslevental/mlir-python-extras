@@ -17,14 +17,13 @@ from mlir.ir import (
 import mlir_utils.types as T
 from mlir_utils.dialects import tensor
 from mlir_utils.dialects.ext.arith import ArithValue, Scalar, constant
-from mlir_utils.util import (
-    get_result_or_results,
-    maybe_cast,
+from mlir_utils.meta import (
     register_value_caster,
-    _update_caller_vars,
-    get_user_code_loc,
     region_op,
+    _update_caller_vars,
+    maybe_cast,
 )
+from mlir_utils.util import get_result_or_results, get_user_code_loc
 
 S = ShapedType.get_dynamic_size()
 

@@ -39,14 +39,8 @@ from mlir_utils.ast.util import ast_call, set_lineno
 from mlir_utils.dialects.ext.arith import constant, index_cast
 from mlir_utils.dialects.ext.gpu import get_device_mapping_array_attr
 from mlir_utils.dialects.scf import yield_ as yield__, reduce_return, condition
-from mlir_utils.util import (
-    region_op,
-    maybe_cast,
-    get_result_or_results,
-    get_user_code_loc,
-    region_adder,
-    is_311,
-)
+from mlir_utils.meta import region_adder, region_op, maybe_cast
+from mlir_utils.util import get_result_or_results, get_user_code_loc, is_311
 
 logger = logging.getLogger(__name__)
 

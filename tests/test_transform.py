@@ -2,12 +2,13 @@ import platform
 from textwrap import dedent
 
 import pytest
-from mlir.ir import Attribute
+from mlir.dialects.gpu import MappingId
 
 from mlir_utils import types as T
 from mlir_utils.ast.canonicalize import canonicalize
 from mlir_utils.dialects import linalg, arith
 from mlir_utils.dialects.ext.func import func
+from mlir_utils.dialects.ext.gpu import block_attr, thread_attr
 from mlir_utils.dialects.ext.scf import (
     range_,
     canonicalizer,
@@ -433,11 +434,6 @@ def test_common_extension_sugar(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def block_attr(dim):
-    assert dim in {"x", "y", "z"}
-    return Attribute.parse(f"#gpu.block<{dim}>")
-
-
 def test_apply_cse(ctx: MLIRContext):
     M, N, K = 3, 5, 3
 
@@ -457,7 +453,7 @@ def test_apply_cse(ctx: MLIRContext):
         matmul = match(variant_op, ["linalg.matmul"])
 
         forall_op, tiled_generic = tile_to_scf_forall(
-            matmul, tile_sizes=[2], mapping=[block_attr("x")]
+            matmul, tile_sizes=[2], mapping=[block_attr(MappingId.DimX)]
         )
 
         top_func = match(variant_op, ["func.func"])
@@ -525,11 +521,6 @@ def test_apply_cse(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def thread_attr(dim):
-    assert dim in {"x", "y", "z"}
-    return Attribute.parse(f"#gpu.thread<{dim}>")
-
-
 def test_two_schedules(ctx: MLIRContext):
     N, H, W = 1, 66, 66
     C_i, C_o = 1, 3
@@ -553,9 +544,9 @@ def test_two_schedules(ctx: MLIRContext):
             m,
             tile_sizes=[0, 1, 8, 8],
             mapping=[
-                block_attr("x"),
-                block_attr("y"),
-                block_attr("z"),
+                block_attr(MappingId.DimX),
+                block_attr(MappingId.DimY),
+                block_attr(MappingId.DimZ),
             ],
         )
 
@@ -566,9 +557,9 @@ def test_two_schedules(ctx: MLIRContext):
             m,
             tile_sizes=[0, 1, 1, 1],
             mapping=[
-                thread_attr("x"),
-                thread_attr("y"),
-                thread_attr("z"),
+                thread_attr(MappingId.DimX),
+                thread_attr(MappingId.DimY),
+                thread_attr(MappingId.DimZ),
             ],
         )
 

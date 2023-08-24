@@ -1,6 +1,6 @@
 from typing import Optional
 
-from mlir.dialects.gpu import AddressSpace
+from mlir.dialects.gpu import AddressSpace, MappingId
 from mlir.ir import (
     Type,
     Attribute,
@@ -19,30 +19,6 @@ def block_id_x():
 
 def block_id_y():
     return block_id("y")
-
-
-def warp_group_attr(dim):
-    assert dim in {"x", "y", "z"}
-    return Attribute.parse(f"#gpu.warpgroup<{dim}>")
-
-
-def warp_attr(dim):
-    assert dim in {"x", "y", "z"}
-    return Attribute.parse(f"#gpu.warp<{dim}>")
-
-
-def memory_space(address_space: AddressSpace):
-    return Attribute.parse(f"#gpu.memory_space<{address_space}>")
-
-
-def block_attr(dim):
-    assert dim in {"x", "y", "z"}
-    return Attribute.parse(f"#gpu.block<{dim}>")
-
-
-def thread_attr(dim):
-    assert dim in {"x", "y", "z"}
-    return Attribute.parse(f"#gpu.thread<{dim}>")
 
 
 def gpu_async_token():
@@ -64,3 +40,27 @@ def get_device_mapping_array_attr(
         return mapping
 
     return ArrayAttr.get(mapping, context=context)
+
+
+def device_mapping_attr(mnemonic, mapping_id_enum: MappingId):
+    return Attribute.parse(f"#gpu.{mnemonic}<{mapping_id_enum}>")
+
+
+def thread_attr(thread):
+    return device_mapping_attr("thread", thread)
+
+
+def block_attr(block):
+    return device_mapping_attr("block", block)
+
+
+def warp_attr(warp):
+    return device_mapping_attr("warp", warp)
+
+
+def warpgroup_attr(warpgroup):
+    return device_mapping_attr("warpgroup", warpgroup)
+
+
+def memory_space_attr(address_space: AddressSpace):
+    return device_mapping_attr("memory_space", address_space)

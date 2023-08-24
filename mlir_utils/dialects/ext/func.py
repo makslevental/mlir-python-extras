@@ -12,13 +12,8 @@ from mlir.ir import (
     Value,
 )
 
-from mlir_utils.util import (
-    get_result_or_results,
-    maybe_cast,
-    make_maybe_no_args_decorator,
-    get_user_code_loc,
-    is_311,
-)
+from mlir_utils.util import get_result_or_results, get_user_code_loc, is_311
+from mlir_utils.meta import make_maybe_no_args_decorator, maybe_cast
 
 
 def call(
