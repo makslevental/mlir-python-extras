@@ -1,3 +1,4 @@
+import inspect
 from functools import partial
 from typing import Optional, Any
 
@@ -8,7 +9,12 @@ from mlir.dialects.gpu import (
     GPUModuleOp,
     GPUFuncOp,
     LaunchFuncOp,
+    LaunchOp,
     ReturnOp,
+    AllReduceOp,
+    YieldOp,
+    TerminatorOp,
+    WaitOp,
 )
 from mlir.ir import (
     Type,
@@ -22,10 +28,16 @@ from mlir.ir import (
     Value,
 )
 
+from mlir_utils import types as T
 from mlir_utils.dialects.ext.arith import constant
 from mlir_utils.dialects.ext.func import FuncBase
 from mlir_utils.dialects.gpu import block_id, module_end
-from mlir_utils.meta import ModuleMeta, make_maybe_no_args_decorator, maybe_cast
+from mlir_utils.meta import (
+    ModuleMeta,
+    make_maybe_no_args_decorator,
+    maybe_cast,
+    region_op,
+)
 from mlir_utils.util import get_user_code_loc, get_result_or_results
 
 
@@ -241,6 +253,82 @@ class GPUFuncOp(GPUFuncOp):
             )
         )
 
+    pass
+
+
+class LaunchOp(LaunchOp):
+    def __init__(
+        self,
+        grid_size: tuple[Any, Any, Any],
+        block_size: tuple[Any, Any, Any],
+        async_dependencies=None,
+        dynamic_shared_memory_size: Optional[Value] = None,
+        *,
+        loc=None,
+        ip=None,
+    ):
+        if loc is None:
+            loc = get_user_code_loc()
+        _ods_context = get_default_loc_context(loc)
+        if async_dependencies is None:
+            async_dependencies = []
+        results = [gpu_async_token()] * len(async_dependencies)
+        grid_size_x, grid_size_y, grid_size_z = grid_size
+        block_size_x, block_size_y, block_size_z = block_size
+
+        regions = None
+        _ods_successors = None
+        super().__init__(
+            self.build_generic(
+                attributes={},
+                results=results,
+                operands=[
+                    async_dependencies,
+                    grid_size_x,
+                    grid_size_y,
+                    grid_size_z,
+                    block_size_x,
+                    block_size_y,
+                    block_size_z,
+                    dynamic_shared_memory_size,
+                ],
+                successors=_ods_successors,
+                regions=regions,
+                loc=loc,
+                ip=ip,
+            )
+        )
+
+
+def launch_(
+    grid_size: tuple[Any, Any, Any],
+    block_size: tuple[Any, Any, Any],
+    async_dependencies=None,
+    dynamic_shared_memory_size: Optional[Value] = None,
+    *,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
+        for size in [grid_size, block_size]:
+            for i, s in enumerate(size):
+                if isinstance(s, int):
+                    size[i] = constant(s, index=True)
+    launch_op = LaunchOp(
+        grid_size,
+        block_size,
+        async_dependencies,
+        dynamic_shared_memory_size,
+        loc=loc,
+        ip=ip,
+    )
+    launch_op.regions[0].blocks.append(*[T.index for _ in range(12)])
+    return launch_op
+
+
+launch = region_op(launch_, terminator=lambda *args: TerminatorOp())
+
 
 class LaunchFuncOp(LaunchFuncOp):
     def __init__(
@@ -251,6 +339,7 @@ class LaunchFuncOp(LaunchFuncOp):
         kernel_operands: list[Value] = None,
         async_dependencies=None,
         dynamic_shared_memory_size: Optional[Value] = None,
+        async_object=None,
         *,
         loc=None,
         ip=None,
@@ -272,7 +361,6 @@ class LaunchFuncOp(LaunchFuncOp):
         if async_dependencies is None:
             async_dependencies = []
         results = [gpu_async_token()] * len(async_dependencies)
-        async_object = None
         grid_size_x, grid_size_y, grid_size_z = grid_size
         block_size_x, block_size_y, block_size_z = block_size
 
@@ -310,6 +398,7 @@ class GPUFunc(FuncBase):
         block_size: tuple[Any, Any, Any],
         async_dependencies=None,
         dynamic_shared_memory_size: Optional[Value] = None,
+        stream=None,
     ):
         for size in [grid_size, block_size]:
             for i, s in enumerate(size):
@@ -328,6 +417,7 @@ class GPUFunc(FuncBase):
                     kernel_operands,
                     async_dependencies,
                     dynamic_shared_memory_size,
+                    async_object=stream,
                     loc=loc,
                 )
             )
@@ -339,10 +429,20 @@ class Grid:
         self.func = func
 
     def __getitem__(self, item):
+        previous_frame = inspect.currentframe().f_back
+        var_names = [
+            [
+                var_name
+                for var_name, var_val in previous_frame.f_locals.items()
+                if var_val is arg
+            ]
+            for arg in item
+        ]
         kwargs = {}
-        for it in item:
-            k, v = it.start, it.stop
-            kwargs[k] = v
+        for i, it in enumerate(item):
+            assert len(var_names[i]) == 1, "expected unique kwarg"
+            k = var_names[i][0]
+            kwargs[k] = it
 
         return partial(self.func, **kwargs)
 
@@ -388,3 +488,31 @@ def gpu_func(
     if emit:
         func.emit()
     return Grid(func)
+
+
+def all_reduce__(value: Value, *, op=None, uniform=None, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    return AllReduceOp(value, op=op, uniform=uniform, loc=loc, ip=ip)
+
+
+def all_reduce_(value: Value, *, op=None, uniform=None, loc=None, ip=None):
+    return maybe_cast(
+        get_result_or_results(
+            all_reduce__(value, op=op, uniform=uniform, loc=loc, ip=ip)
+        )
+    )
+
+
+all_reduce = region_op(all_reduce__, terminator=YieldOp)
+
+
+def wait(async_dependencies: Optional[list[Value]] = None, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    if async_dependencies is None:
+        async_dependencies = []
+    async_token = gpu_async_token()
+    return maybe_cast(
+        get_result_or_results(WaitOp(async_token, async_dependencies, loc=loc, ip=ip))
+    )

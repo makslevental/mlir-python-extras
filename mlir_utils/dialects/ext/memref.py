@@ -206,7 +206,7 @@ class MemRef(Value):
         if not self.has_rank():
             raise ValueError("only ranked memref slicing/indexing supported")
 
-        idx = list((idx,) if isinstance(idx, int) else idx)
+        idx = list((idx,) if isinstance(idx, (Scalar, int, Value)) else idx)
         for i, d in enumerate(idx):
             if isinstance(d, int):
                 idx[i] = constant(d, index=True, loc=loc)

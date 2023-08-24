@@ -33,7 +33,6 @@ try:
 except ImportError:
     warnings.warn("no transform dialect registered; transform extensions won't work")
 
-
 _index = lambda: IndexType.get()
 _bool = lambda: IntegerType.get_signless(1)
 
@@ -72,6 +71,14 @@ _pdl_operation = lambda: pdl.OperationType.get()
 opaque = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
 
+def _transform_any_op():
+    return transform.AnyOpType.get()
+
+
+def _llvm_ptr():
+    return Type.parse("!llvm.ptr")
+
+
 def placeholder_opaque():
     return opaque("scf", "placeholder")
 
@@ -103,6 +110,8 @@ _name_to_type = {
     "cmp64": _cmp64,
     "none": _none,
     "pdl_operation": _pdl_operation,
+    "transform_any_op": _transform_any_op,
+    "llvm_ptr": _llvm_ptr,
 }
 
 
@@ -174,13 +183,13 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return _bool()
     elif isinstance(py_val, int):
-        if -(2 ** 31) <= py_val < 2 ** 31:
+        if -(2**31) <= py_val < 2**31:
             return _i32()
-        elif 2 ** 31 <= py_val < 2 ** 32:
+        elif 2**31 <= py_val < 2**32:
             return _ui32()
-        elif -(2 ** 63) <= py_val < 2 ** 63:
+        elif -(2**63) <= py_val < 2**63:
             return _i64()
-        elif 2 ** 63 <= py_val < 2 ** 64:
+        elif 2**63 <= py_val < 2**64:
             return _ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
@@ -282,7 +291,3 @@ def memref_type_to_np_dtype(memref_type):
 
 def transform_op(name):
     return transform.OperationType.get(name)
-
-
-def transform_any_op():
-    return transform.AnyOpType.get()

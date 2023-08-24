@@ -119,7 +119,7 @@ def match(
     return maybe_cast(
         get_result_or_results(
             MatchOp(
-                T.transform_any_op(),
+                T.transform_any_op,
                 target,
                 ops=ops,
                 interface=interface,
