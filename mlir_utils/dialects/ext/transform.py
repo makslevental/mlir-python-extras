@@ -1,13 +1,17 @@
 from typing import Optional, Union, Sequence
 
-from mlir.dialects._structured_transform_ops_ext import _get_value_list
+from mlir.dialects._structured_transform_ops_ext import (
+    _get_value_list,
+    _dispatch_mixed_values,
+)
 from mlir.dialects.transform import (
     SequenceOp,
     FailurePropagationMode,
     YieldOp,
 )
 from mlir.dialects.transform.loop import GetParentForOp, LoopUnrollOp
-from mlir.dialects.transform.structured import MatchOp, TileToScfForOp
+from mlir.dialects.transform import ApplyPatternsOp
+from mlir.dialects.transform.structured import MatchOp, TileToScfForOp, TileToForallOp
 from mlir.ir import (
     Type,
     Value,
@@ -53,13 +57,16 @@ def sequence_(
     if extra_bindings is None:
         extra_bindings = []
     if failure_propagation_mode is None:
-        failure_propagation_mode = FailurePropagationMode.PROPAGATE
+        failure_propagation_mode = FailurePropagationMode.Propagate
 
     if isinstance(target, str):
         target = T.transform_op(target)
 
     seq_op = SequenceOp(
-        failure_propagation_mode, results_, target, extra_bindings  # , loc=loc, ip=ip
+        failure_propagation_mode,
+        results_,
+        target,
+        extra_bindings,  # loc=loc, ip=ip
     )
     seq_op.operation.attributes["transform.target_tag"] = StringAttr.get(target_tag)
 
@@ -136,15 +143,17 @@ def tile_to_scf_for(
     tile_sizes: list[int],
     *,
     interchange=None,
+    dynamic_sizes=None,
     loc=None,
     ip=None,
 ):
+    if dynamic_sizes is None:
+        dynamic_sizes = []
     if loc is None:
         loc = get_user_code_loc()
 
     tiled_linalg_op: Type = target.type
     loops: list[Type] = [target.type] * len(tile_sizes)
-    dynamic_sizes: list[Value] = []
     static_sizes = tile_sizes
 
     t = tuple(
@@ -165,3 +174,82 @@ def tile_to_scf_for(
     )
 
     return t[0], t[1:]
+
+
+def tile_to_scf_forall(
+    target,
+    tile_sizes,
+    num_threads=None,
+    *,
+    mapping=None,
+    loc=None,
+    ip=None,
+):
+    if num_threads is None:
+        num_threads = []
+    if loc is None:
+        loc = get_user_code_loc()
+    (
+        dynamic_num_threads,
+        packed_num_threads,
+        static_num_threads,
+    ) = _dispatch_mixed_values(num_threads)
+    (
+        dynamic_tile_sizes,
+        packed_tile_sizes,
+        static_tile_sizes,
+    ) = _dispatch_mixed_values(tile_sizes)
+
+    tiled_op = forall_op = target.type
+
+    t = tuple(
+        maybe_cast(
+            get_result_or_results(
+                TileToForallOp.__base__(
+                    forall_op,
+                    tiled_op,
+                    target,
+                    num_threads=dynamic_num_threads,
+                    tile_sizes=dynamic_num_threads,
+                    packed_num_threads=packed_num_threads,
+                    packed_tile_sizes=packed_tile_sizes,
+                    static_num_threads=static_num_threads,
+                    static_tile_sizes=static_tile_sizes,
+                    mapping=mapping,
+                    loc=loc,
+                    ip=ip,
+                )
+            )
+        )
+    )
+
+    return t[0], t[1:]
+
+
+def apply_patterns_(
+    target,
+    *,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
+    return ApplyPatternsOp(
+        target,
+        loc=loc,
+        ip=ip,
+    )
+
+
+apply_patterns = region_op(apply_patterns_)
+
+
+@register_attribute_builder("DeviceMappingArrayAttr")
+def _deviceMappingArrayAttr(
+    values: Optional[Union[ArrayAttr, StrOrAttrList]], context: Context
+):
+    if values is None:
+        return ArrayAttr.get([], context=context)
+
+    values = _get_value_list(values)
+    return ArrayAttr.get(values, context=context)
