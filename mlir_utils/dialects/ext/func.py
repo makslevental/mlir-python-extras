@@ -102,6 +102,7 @@ class FuncBase:
         func_attrs=None,
         loc=None,
         ip=None,
+        qualname=None,
     ):
         assert inspect.isfunction(body_builder), body_builder
         assert inspect.isclass(func_op_ctor), func_op_ctor
@@ -132,6 +133,8 @@ class FuncBase:
         self.loc = loc
         self.ip = ip or InsertionPoint.current
         self._func_op = None
+        # in case this function lives inside a class
+        self.qualname = qualname
 
         if self._is_decl():
             assert len(self.input_types) == len(
@@ -241,6 +244,7 @@ def func(
     arg_attrs=None,
     res_attrs=None,
     func_attrs=None,
+    emit=False,
     loc=None,
     ip=None,
 ) -> FuncBase:
@@ -259,4 +263,6 @@ def func(
         ip=ip,
     )
     func.__name__ = f.__name__
+    if emit:
+        func.emit()
     return func

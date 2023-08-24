@@ -50,7 +50,7 @@ def get_user_code_loc(user_base: Optional[Path] = None):
     if user_base is None:
         user_base = Path(prev_frame.f_code.co_filename)
 
-    while (
+    while prev_frame.f_back and (
         Path(prev_frame.f_code.co_filename).is_relative_to(mlir_utis_root_path)
         or Path(prev_frame.f_code.co_filename).is_relative_to(mlir_root_path)
         or Path(prev_frame.f_code.co_filename).is_relative_to(sys.prefix)
