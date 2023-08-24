@@ -226,7 +226,7 @@ class ArithValueMeta(type(Value)):
         return cls_obj
 
 
-@register_attribute_builder("Arith_CmpIPredicateAttr")
+@register_attribute_builder("Arith_CmpIPredicateAttr", replace=True)
 def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
     predicates = {
         "eq": 0,
@@ -248,7 +248,7 @@ def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
     )
 
 
-@register_attribute_builder("Arith_CmpFPredicateAttr")
+@register_attribute_builder("Arith_CmpFPredicateAttr", replace=True)
 def _arith_CmpFPredicateAttr(predicate: str | Attribute, context: Context):
     predicates = {
         "false": 0,

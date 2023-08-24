@@ -2,23 +2,27 @@ import platform
 from textwrap import dedent
 
 import pytest
+from mlir.ir import Attribute
 
 from mlir_utils import types as T
 from mlir_utils.ast.canonicalize import canonicalize
+from mlir_utils.dialects import linalg, arith
 from mlir_utils.dialects.ext.func import func
 from mlir_utils.dialects.ext.scf import (
     range_,
     canonicalizer,
 )
 from mlir_utils.dialects.ext.tensor import pad
-from mlir_utils.dialects import linalg
 from mlir_utils.dialects.ext.transform import (
     sequence,
     unroll,
     get_parent_for,
     match,
     tile_to_scf_for,
+    tile_to_scf_forall,
+    apply_patterns,
 )
+from mlir_utils.dialects.transform import apply_patterns_canonicalization, apply_cse
 from mlir_utils.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
@@ -239,7 +243,7 @@ def test_linalg_tile(ctx: MLIRContext):
     @sequence(target_tag="basic")
     def basic(target):
         m = match(target, ["linalg.matmul"])
-        tile_to_scf_for(m, tile_sizes=[2, 3])
+        tiled_linalg_op, loops = tile_to_scf_for(m, tile_sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -293,4 +297,344 @@ def test_linalg_tile(ctx: MLIRContext):
     }
     """
     )
+    filecheck(correct, ctx.module)
+
+
+def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
+    @func
+    @canonicalize(using=canonicalizer)
+    def matmul(
+        arg0: T.tensor(4, 16, T.f32),
+        arg1: T.tensor(16, 8, T.f32),
+        out: T.tensor(4, 8, T.f32),
+    ):
+        return linalg.matmul(arg0, arg1, out)
+
+    matmul.emit()
+
+    @sequence(target_tag="basic")
+    def basic(target):
+        m = match(target, ["linalg.matmul"])
+        tiled_linalg_op, loops = tile_to_scf_forall(m, tile_sizes=[2, 3])
+
+    correct = dedent(
+        """\
+    module {
+      func.func @matmul(%arg0: tensor<4x16xf32>, %arg1: tensor<16x8xf32>, %arg2: tensor<4x8xf32>) -> tensor<4x8xf32> {
+        %0 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<4x16xf32>, tensor<16x8xf32>) outs(%arg2 : tensor<4x8xf32>) -> tensor<4x8xf32>
+        return %0 : tensor<4x8xf32>
+      }
+      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
+      ^bb0(%arg0: !pdl.operation):
+        %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    run_pipeline(
+        ctx.module,
+        Pipeline()
+        .add_pass("test-transform-dialect-interpreter")
+        .add_pass("test-transform-dialect-erase-schedule")
+        .canonicalize(),
+    )
+
+    correct = dedent(
+        """\
+    #map = affine_map<(d0) -> (d0 * -3 + 8, 3)>
+    #map1 = affine_map<(d0) -> (d0 * 2)>
+    #map2 = affine_map<(d0) -> (d0 * 3)>
+    module {
+      func.func @matmul(%arg0: tensor<4x16xf32>, %arg1: tensor<16x8xf32>, %arg2: tensor<4x8xf32>) -> tensor<4x8xf32> {
+        %0 = scf.forall (%arg3, %arg4) in (2, 3) shared_outs(%arg5 = %arg2) -> (tensor<4x8xf32>) {
+          %1 = affine.min #map(%arg4)
+          %2 = affine.apply #map1(%arg3)
+          %3 = affine.apply #map2(%arg4)
+          %4 = affine.apply #map1(%arg3)
+          %5 = affine.apply #map2(%arg4)
+          %extracted_slice = tensor.extract_slice %arg0[%2, 0] [2, 16] [1, 1] : tensor<4x16xf32> to tensor<2x16xf32>
+          %extracted_slice_0 = tensor.extract_slice %arg1[0, %3] [16, %1] [1, 1] : tensor<16x8xf32> to tensor<16x?xf32>
+          %extracted_slice_1 = tensor.extract_slice %arg5[%4, %5] [2, %1] [1, 1] : tensor<4x8xf32> to tensor<2x?xf32>
+          %6 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%extracted_slice, %extracted_slice_0 : tensor<2x16xf32>, tensor<16x?xf32>) outs(%extracted_slice_1 : tensor<2x?xf32>) -> tensor<2x?xf32>
+          %7 = affine.apply #map1(%arg3)
+          %8 = affine.apply #map2(%arg4)
+          scf.forall.in_parallel {
+            tensor.parallel_insert_slice %6 into %arg5[%7, %8] [2, %1] [1, 1] : tensor<2x?xf32> into tensor<4x8xf32>
+          }
+        }
+        return %0 : tensor<4x8xf32>
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def test_common_extension_sugar(ctx: MLIRContext):
+    @func
+    @canonicalize(using=canonicalizer)
+    def select_cmp_eq_select(arg0: T.i64, arg1: T.i64):
+        a = arg0 == arg1
+        b = arith.select(a, arg0, arg1)
+        return b
+
+    select_cmp_eq_select.emit()
+
+    @sequence(target_tag="basic")
+    def basic(target):
+        m = match(target, ["func.func"])
+
+        @apply_patterns(m)
+        def pats():
+            apply_patterns_canonicalization()
+
+    correct = dedent(
+        """\
+    module {
+      func.func @select_cmp_eq_select(%arg0: i64, %arg1: i64) -> i64 {
+        %0 = arith.cmpi eq, %arg0, %arg1 : i64
+        %1 = arith.select %0, %arg0, %arg1 : i64
+        return %1 : i64
+      }
+      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
+      ^bb0(%arg0: !pdl.operation):
+        %0 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        apply_patterns to %0 {
+          transform.apply_patterns.canonicalization
+        } : !transform.any_op
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    run_pipeline(
+        ctx.module,
+        Pipeline()
+        .add_pass("test-transform-dialect-interpreter")
+        .add_pass("test-transform-dialect-erase-schedule")
+        .canonicalize(),
+    )
+
+    correct = dedent(
+        """\
+    module {
+      func.func @select_cmp_eq_select(%arg0: i64, %arg1: i64) -> i64 {
+        return %arg1 : i64
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+def block_attr(dim):
+    assert dim in {"x", "y", "z"}
+    return Attribute.parse(f"#gpu.block<{dim}>")
+
+
+def test_apply_cse(ctx: MLIRContext):
+    M, N, K = 3, 5, 3
+
+    @func
+    @canonicalize(using=canonicalizer)
+    def matmul(
+        A: T.tensor(M, N, T.f32),
+        B: T.tensor(N, K, T.f32),
+        C: T.tensor(M, K, T.f32),
+    ):
+        return linalg.matmul(A, B, C)
+
+    matmul.emit()
+
+    @sequence(target_tag="basic")
+    def basic(variant_op):
+        matmul = match(variant_op, ["linalg.matmul"])
+
+        forall_op, tiled_generic = tile_to_scf_forall(
+            matmul, tile_sizes=[2], mapping=[block_attr("x")]
+        )
+
+        top_func = match(variant_op, ["func.func"])
+
+        @apply_patterns(top_func)
+        def pats():
+            apply_patterns_canonicalization()
+
+        top_func = match(variant_op, ["func.func"])
+        apply_cse(top_func)
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      func.func @matmul(%arg0: tensor<3x5xf32>, %arg1: tensor<5x3xf32>, %arg2: tensor<3x3xf32>) -> tensor<3x3xf32> {
+        %0 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<3x5xf32>, tensor<5x3xf32>) outs(%arg2 : tensor<3x3xf32>) -> tensor<3x3xf32>
+        return %0 : tensor<3x3xf32>
+      }
+      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
+      ^bb0(%arg0: !pdl.operation):
+        %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [2](mapping = [#gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+        %1 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        apply_patterns to %1 {
+          transform.apply_patterns.canonicalization
+        } : !transform.any_op
+        %2 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        apply_cse to %2 : !transform.any_op
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    run_pipeline(
+        ctx.module,
+        Pipeline()
+        .transform_dialect_interpreter()
+        .transform_dialect_erase_schedule()
+        .canonicalize(),
+    )
+
+    correct = dedent(
+        """\
+    #map = affine_map<(d0) -> (d0 * -2 + 3, 2)>
+    #map1 = affine_map<(d0) -> (d0 * 2)>
+    module {
+      func.func @matmul(%arg0: tensor<3x5xf32>, %arg1: tensor<5x3xf32>, %arg2: tensor<3x3xf32>) -> tensor<3x3xf32> {
+        %0 = scf.forall (%arg3) in (2) shared_outs(%arg4 = %arg2) -> (tensor<3x3xf32>) {
+          %1 = affine.min #map(%arg3)
+          %2 = affine.apply #map1(%arg3)
+          %extracted_slice = tensor.extract_slice %arg0[%2, 0] [%1, 5] [1, 1] : tensor<3x5xf32> to tensor<?x5xf32>
+          %extracted_slice_0 = tensor.extract_slice %arg4[%2, 0] [%1, 3] [1, 1] : tensor<3x3xf32> to tensor<?x3xf32>
+          %3 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%extracted_slice, %arg1 : tensor<?x5xf32>, tensor<5x3xf32>) outs(%extracted_slice_0 : tensor<?x3xf32>) -> tensor<?x3xf32>
+          scf.forall.in_parallel {
+            tensor.parallel_insert_slice %3 into %arg4[%2, 0] [%1, 3] [1, 1] : tensor<?x3xf32> into tensor<3x3xf32>
+          }
+        } {mapping = [#gpu.block<x>]}
+        return %0 : tensor<3x3xf32>
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def thread_attr(dim):
+    assert dim in {"x", "y", "z"}
+    return Attribute.parse(f"#gpu.thread<{dim}>")
+
+
+def test_two_schedules(ctx: MLIRContext):
+    N, H, W = 1, 66, 66
+    C_i, C_o = 1, 3
+    K = 3
+
+    @func
+    @canonicalize(using=canonicalizer)
+    def conv_2d_nhwc_hwcf(
+        input: T.tensor(N, C_i, H, W, T.f32),
+        kernel: T.tensor(C_o, C_i, K, K, T.f32),
+        output: T.tensor(N, C_o, H - 2, W - 2, T.f32),
+    ):
+        return linalg.conv_2d_nchw_fchw(input, kernel, output)
+
+    conv_2d_nhwc_hwcf.emit()
+
+    @sequence(target_tag="tile_outer")
+    def tile_outer(target):
+        m = match(target, ["linalg.conv_2d_nchw_fchw"])
+        tiled = tile_to_scf_forall(
+            m,
+            tile_sizes=[0, 1, 8, 8],
+            mapping=[
+                block_attr("x"),
+                block_attr("y"),
+                block_attr("z"),
+            ],
+        )
+
+    @sequence(target_tag="tile_inner")
+    def tile_inner(target):
+        m = match(target, ["linalg.conv_2d_nchw_fchw"])
+        tiled = tile_to_scf_forall(
+            m,
+            tile_sizes=[0, 1, 1, 1],
+            mapping=[
+                thread_attr("x"),
+                thread_attr("y"),
+                thread_attr("z"),
+            ],
+        )
+
+    correct = dedent(
+        """\
+    module {
+      func.func @conv_2d_nhwc_hwcf(%arg0: tensor<1x1x66x66xf32>, %arg1: tensor<3x1x3x3xf32>, %arg2: tensor<1x3x64x64xf32>) -> tensor<1x3x64x64xf32> {
+        %0 = linalg.conv_2d_nchw_fchw ins(%arg0, %arg1 : tensor<1x1x66x66xf32>, tensor<3x1x3x3xf32>) outs(%arg2 : tensor<1x3x64x64xf32>) -> tensor<1x3x64x64xf32>
+        return %0 : tensor<1x3x64x64xf32>
+      }
+      transform.sequence  failures(propagate) attributes {transform.target_tag = "tile_outer"} {
+      ^bb0(%arg0: !pdl.operation):
+        %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [0, 1, 8, 8](mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+      }
+      transform.sequence  failures(propagate) attributes {transform.target_tag = "tile_inner"} {
+      ^bb0(%arg0: !pdl.operation):
+        %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!pdl.operation) -> !transform.any_op
+        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [0, 1, 1, 1](mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    run_pipeline(
+        ctx.module,
+        Pipeline()
+        .transform_dialect_interpreter(debug_transform_root_tag="tile_outer")
+        .transform_dialect_interpreter(debug_transform_root_tag="tile_inner")
+        .transform_dialect_erase_schedule()
+        .canonicalize(),
+    )
+
+    correct = dedent(
+        """\
+    #map = affine_map<(d0) -> (d0 * 8)>
+    module {
+      func.func @conv_2d_nhwc_hwcf(%arg0: tensor<1x1x66x66xf32>, %arg1: tensor<3x1x3x3xf32>, %arg2: tensor<1x3x64x64xf32>) -> tensor<1x3x64x64xf32> {
+        %0 = scf.forall (%arg3, %arg4, %arg5) in (3, 8, 8) shared_outs(%arg6 = %arg2) -> (tensor<1x3x64x64xf32>) {
+          %1 = affine.apply #map(%arg4)
+          %2 = affine.apply #map(%arg5)
+          %3 = affine.apply #map(%arg4)
+          %4 = affine.apply #map(%arg5)
+          %extracted_slice = tensor.extract_slice %arg0[0, 0, %1, %2] [1, 1, 10, 10] [1, 1, 1, 1] : tensor<1x1x66x66xf32> to tensor<1x1x10x10xf32>
+          %extracted_slice_0 = tensor.extract_slice %arg1[%arg3, 0, 0, 0] [1, 1, 3, 3] [1, 1, 1, 1] : tensor<3x1x3x3xf32> to tensor<1x1x3x3xf32>
+          %extracted_slice_1 = tensor.extract_slice %arg6[0, %arg3, %3, %4] [1, 1, 8, 8] [1, 1, 1, 1] : tensor<1x3x64x64xf32> to tensor<1x1x8x8xf32>
+          %5 = scf.forall (%arg7, %arg8, %arg9) in (1, 8, 8) shared_outs(%arg10 = %extracted_slice_1) -> (tensor<1x1x8x8xf32>) {
+            %extracted_slice_2 = tensor.extract_slice %extracted_slice[0, 0, %arg8, %arg9] [1, 1, 3, 3] [1, 1, 1, 1] : tensor<1x1x10x10xf32> to tensor<1x1x3x3xf32>
+            %extracted_slice_3 = tensor.extract_slice %extracted_slice_0[%arg7, 0, 0, 0] [1, 1, 3, 3] [1, 1, 1, 1] : tensor<1x1x3x3xf32> to tensor<1x1x3x3xf32>
+            %extracted_slice_4 = tensor.extract_slice %arg10[0, %arg7, %arg8, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x8x8xf32> to tensor<1x1x1x1xf32>
+            %8 = linalg.conv_2d_nchw_fchw ins(%extracted_slice_2, %extracted_slice_3 : tensor<1x1x3x3xf32>, tensor<1x1x3x3xf32>) outs(%extracted_slice_4 : tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
+            scf.forall.in_parallel {
+              tensor.parallel_insert_slice %8 into %arg10[0, %arg7, %arg8, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x8x8xf32>
+            }
+          } {mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]}
+          %6 = affine.apply #map(%arg4)
+          %7 = affine.apply #map(%arg5)
+          scf.forall.in_parallel {
+            tensor.parallel_insert_slice %5 into %arg6[0, %arg3, %6, %7] [1, 1, 8, 8] [1, 1, 1, 1] : tensor<1x1x8x8xf32> into tensor<1x3x64x64xf32>
+          }
+        } {mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]}
+        return %0 : tensor<1x3x64x64xf32>
+      }
+    }
+    """
+    )
+
     filecheck(correct, ctx.module)
