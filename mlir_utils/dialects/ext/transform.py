@@ -242,14 +242,3 @@ def apply_patterns_(
 
 
 apply_patterns = region_op(apply_patterns_)
-
-
-@register_attribute_builder("DeviceMappingArrayAttr")
-def _deviceMappingArrayAttr(
-    values: Optional[Union[ArrayAttr, StrOrAttrList]], context: Context
-):
-    if values is None:
-        return ArrayAttr.get([], context=context)
-
-    values = _get_value_list(values)
-    return ArrayAttr.get(values, context=context)

@@ -59,7 +59,7 @@ def test_dialect_trampolines_smoke():
     # noinspection PyUnresolvedReferences
     from mlir_utils.dialects import (
         builtin,
-        chlo,
+        # chlo,
         func,
         mhlo,
         ml_program,

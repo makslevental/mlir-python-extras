@@ -1,5 +1,6 @@
 from typing import Optional
 
+from mlir.dialects.gpu import AddressSpace
 from mlir.ir import (
     Type,
     Attribute,
@@ -9,7 +10,6 @@ from mlir.ir import (
     ArrayAttr,
 )
 
-from mlir_utils.dialects.ext.gpu_enums import AddressSpace
 from mlir_utils.dialects.gpu import block_id
 
 
