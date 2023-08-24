@@ -7,6 +7,12 @@ from typing import Union, Optional
 import numpy as np
 from mlir.dialects import arith as arith_dialect
 from mlir.dialects import complex as complex_dialect
+from mlir.dialects._arith_enum_gen import (
+    _arith_cmpfpredicateattr,
+    CmpFPredicate,
+    CmpIPredicate,
+    _arith_cmpipredicateattr,
+)
 from mlir.dialects._arith_ops_ext import _is_integer_like_type
 from mlir.dialects._ods_common import get_op_result_or_value
 from mlir.dialects.linalg.opdsl.lang.emitter import (
@@ -21,7 +27,6 @@ from mlir.ir import (
     DenseElementsAttr,
     IndexType,
     InsertionPoint,
-    IntegerAttr,
     IntegerType,
     Location,
     OpView,
@@ -229,58 +234,54 @@ class ArithValueMeta(type(Value)):
 @register_attribute_builder("Arith_CmpIPredicateAttr", replace=True)
 def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
     predicates = {
-        "eq": 0,
-        "ne": 1,
-        "slt": 2,
-        "sle": 3,
-        "sgt": 4,
-        "sge": 5,
-        "ult": 6,
-        "ule": 7,
-        "ugt": 8,
-        "uge": 9,
+        "eq": CmpIPredicate.eq,
+        "ne": CmpIPredicate.ne,
+        "slt": CmpIPredicate.slt,
+        "sle": CmpIPredicate.sle,
+        "sgt": CmpIPredicate.sgt,
+        "sge": CmpIPredicate.sge,
+        "ult": CmpIPredicate.ult,
+        "ule": CmpIPredicate.ule,
+        "ugt": CmpIPredicate.ugt,
+        "uge": CmpIPredicate.uge,
     }
     if isinstance(predicate, Attribute):
         return predicate
     assert predicate in predicates, f"{predicate=} not in predicates"
-    return IntegerAttr.get(
-        IntegerType.get_signless(64, context=context), predicates[predicate]
-    )
+    return _arith_cmpipredicateattr(predicates[predicate], context)
 
 
 @register_attribute_builder("Arith_CmpFPredicateAttr", replace=True)
 def _arith_CmpFPredicateAttr(predicate: str | Attribute, context: Context):
     predicates = {
-        "false": 0,
+        "false": CmpFPredicate.AlwaysFalse,
         # ordered comparison
         # An ordered comparison checks if neither operand is NaN.
-        "oeq": 1,
-        "ogt": 2,
-        "oge": 3,
-        "olt": 4,
-        "ole": 5,
-        "one": 6,
+        "oeq": CmpFPredicate.OEQ,
+        "ogt": CmpFPredicate.OGT,
+        "oge": CmpFPredicate.OGE,
+        "olt": CmpFPredicate.OLT,
+        "ole": CmpFPredicate.OLE,
+        "one": CmpFPredicate.ONE,
         # no clue what this one is
-        "ord": 7,
+        "ord": CmpFPredicate.ORD,
         # unordered comparison
         # Conversely, an unordered comparison checks if either operand is a NaN.
-        "ueq": 8,
-        "ugt": 9,
-        "uge": 10,
-        "ult": 11,
-        "ule": 12,
-        "une": 13,
+        "ueq": CmpFPredicate.UEQ,
+        "ugt": CmpFPredicate.UGT,
+        "uge": CmpFPredicate.UGE,
+        "ult": CmpFPredicate.ULT,
+        "ule": CmpFPredicate.ULE,
+        "une": CmpFPredicate.UNE,
         # no clue what this one is
-        "uno": 14,
+        "uno": CmpFPredicate.UNO,
         # return always true
-        "true": 15,
+        "true": CmpFPredicate.AlwaysTrue,
     }
     if isinstance(predicate, Attribute):
         return predicate
     assert predicate in predicates, f"{predicate=} not in predicates"
-    return IntegerAttr.get(
-        IntegerType.get_signless(64, context=context), predicates[predicate]
-    )
+    return _arith_cmpfpredicateattr(predicates[predicate], context)
 
 
 def _binary_op(
