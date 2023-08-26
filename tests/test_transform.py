@@ -32,9 +32,6 @@ from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
 
-if platform.system() == "Windows":
-    pytest.skip(allow_module_level=True, reason="windows sucks")
-
 
 def test_basic_unroll(ctx: MLIRContext):
     @func
