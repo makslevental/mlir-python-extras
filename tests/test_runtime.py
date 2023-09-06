@@ -65,7 +65,7 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
     )
     correct = dedent(
         """\
-    module attributes {llvm.data_layout = ""} {
+    module {
       llvm.func @printMemrefF32(i64, !llvm.ptr) attributes {sym_visibility = "private"}
       llvm.func @foo(%arg0: i64, %arg1: !llvm.ptr) attributes {llvm.emit_c_interface} {
         llvm.call @printMemrefF32(%arg0, %arg1) : (i64, !llvm.ptr) -> ()
