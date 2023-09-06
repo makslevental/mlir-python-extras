@@ -72,19 +72,6 @@ sequence = region_op(sequence_, terminator=YieldOp)
 StrOrAttrList = Sequence[Union[StringAttr, str]]
 
 
-@register_attribute_builder("StrArrayAttr")
-def _get_str_array_attr(
-    values: Optional[Union[ArrayAttr, StrOrAttrList]], context: Context
-) -> ArrayAttr:
-    if values is None:
-        return ArrayAttr.get([], context=context)
-
-    values = _get_value_list(values)
-    return ArrayAttr.get(
-        [StringAttr.get(v, context=context) for v in values], context=context
-    )
-
-
 def get_parent_for(target: Value, *, num_loops=None, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()

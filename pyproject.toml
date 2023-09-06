@@ -19,7 +19,7 @@ torch-mlir = ["torch-mlir-core"]
 jax = ["jax[cpu]", ]
 mlir = ["mlir-python-bindings"]
 
-[project.scripts]
+[project.entry-points.console_scripts]
 configure-mlir-python-utils = "mlir_utils:_configuration.configuration.configure_host_bindings"
 generate-trampolines = "mlir_utils:_configuration.generate_trampolines.generate_trampolines"
 
