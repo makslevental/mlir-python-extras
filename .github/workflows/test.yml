@@ -36,12 +36,7 @@ jobs:
         shell: bash
         run: |
           pip install .[test,mlir] -f https://makslevental.github.io/wheels
-          if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            # configure-mlir-python-utils.exe -y torch_mlir
-            pushd /tmp && python -m mlir_utils._configuration -y mlir && popd
-          else
-            configure-mlir-python-utils -y mlir
-          fi
+          configure-mlir-python-utils -y mlir
 
       - name: Test
         shell: bash
@@ -124,12 +119,7 @@ jobs:
         shell: bash
         run: |
           pip install .[test,torch-mlir] -f https://llvm.github.io/torch-mlir/package-index -f https://makslevental.github.io/wheels
-          if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            # configure-mlir-python-utils.exe -y torch_mlir
-            pushd /tmp && python -m mlir_utils._configuration -y torch_mlir && popd
-          else
-            configure-mlir-python-utils -y torch_mlir
-          fi
+          configure-mlir-python-utils -y torch_mlir
 
       - name: Test
         shell: bash
@@ -164,12 +154,7 @@ jobs:
         shell: bash
         run: |
           pip install .[test,jax] -f https://makslevental.github.io/wheels
-          if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            # configure-mlir-python-utils.exe -y jaxlib.mlir
-            pushd /tmp && python -m mlir_utils._configuration -y jaxlib.mlir && popd
-          else
-            configure-mlir-python-utils -y jaxlib.mlir
-          fi
+          configure-mlir-python-utils -y jaxlib.mlir
 
       - name: Test
         shell: bash

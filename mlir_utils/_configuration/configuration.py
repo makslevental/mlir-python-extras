@@ -72,11 +72,11 @@ def alias_upstream_bindings():
         )
         return True
     elif not (
-        sys.argv[0].endswith("configure-mlir-python-utils")
+        "configure-mlir-python-utils" in sys.argv[0]
         or ("-m" in sys.orig_argv and __package__ in sys.orig_argv)
     ):
         raise Exception(
-            "mlir-python-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set"
+            f"mlir-python-utils not configured and MLIR_PYTHON_PACKAGE_PREFIX env variable not set ({sys.argv=})"
         )
     return False
 
