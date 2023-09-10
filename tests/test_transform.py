@@ -1,33 +1,32 @@
-import platform
 from textwrap import dedent
 
 import pytest
 from mlir.dialects.gpu import MappingId
 
-from mlir_utils import types as T
-from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.dialects import linalg, arith
-from mlir_utils.dialects.ext.func import func
-from mlir_utils.dialects.ext.gpu import block_attr, thread_attr
-from mlir_utils.dialects.ext.scf import (
+from mlir.utils import types as T
+from mlir.utils.ast.canonicalize import canonicalize
+from mlir.utils.dialects import linalg, arith
+from mlir.utils.dialects.ext.func import func
+from mlir.utils.dialects.ext.gpu import block_attr, thread_attr
+from mlir.utils.dialects.ext.scf import (
     range_,
     canonicalizer,
 )
-from mlir_utils.dialects.ext.tensor import pad
-from mlir_utils.dialects.ext.transform import (
+from mlir.utils.dialects.ext.tensor import pad
+from mlir.utils.dialects.ext.transform import (
     sequence,
     unroll,
     get_parent_for,
     match,
-    tile_to_scf_for,
+    tile,
     tile_to_scf_forall,
     apply_patterns,
 )
-from mlir_utils.dialects.transform import apply_patterns_canonicalization, apply_cse
-from mlir_utils.runtime.passes import run_pipeline, Pipeline
+from mlir.utils.dialects.transform import apply_patterns_canonicalization, apply_cse
+from mlir.utils.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -126,7 +125,7 @@ def test_basic_tile(ctx):
     @sequence(target_tag="basic")
     def basic(target):
         m = match(target, ["tensor.pad"])
-        tiled_linalg_op, loops = tile_to_scf_for(m, tile_sizes=[2, 3])
+        tiled_linalg_op, loops = tile(m, sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -141,7 +140,7 @@ def test_basic_tile(ctx):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["tensor.pad"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_linalg_op, %loops:2 = transform.structured.tile_to_scf_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+        %tiled_linalg_op, %loops:2 = transform.structured.tile %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
       }
     }
     """
@@ -241,7 +240,7 @@ def test_linalg_tile(ctx: MLIRContext):
     @sequence(target_tag="basic")
     def basic(target):
         m = match(target, ["linalg.matmul"])
-        tiled_linalg_op, loops = tile_to_scf_for(m, tile_sizes=[2, 3])
+        tiled_linalg_op, loops = tile(m, sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -253,7 +252,7 @@ def test_linalg_tile(ctx: MLIRContext):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_linalg_op, %loops:2 = transform.structured.tile_to_scf_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+        %tiled_linalg_op, %loops:2 = transform.structured.tile %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
       }
     }
     """

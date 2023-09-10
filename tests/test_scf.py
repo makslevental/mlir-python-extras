@@ -2,12 +2,12 @@ from textwrap import dedent
 
 import pytest
 
-import mlir_utils.types as T
-from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.dialects.ext import scf
-from mlir_utils.dialects.ext import tensor
-from mlir_utils.dialects.ext.arith import constant, Scalar
-from mlir_utils.dialects.ext.scf import (
+import mlir.utils.types as T
+from mlir.utils.ast.canonicalize import canonicalize
+from mlir.utils.dialects.ext import scf
+from mlir.utils.dialects.ext import tensor
+from mlir.utils.dialects.ext.arith import constant, Scalar
+from mlir.utils.dialects.ext.scf import (
     for_,
     range_,
     yield_,
@@ -24,11 +24,11 @@ from mlir_utils.dialects.ext.scf import (
     while__,
     while___,
 )
-from mlir_utils.dialects.ext.tensor import empty, Tensor
-from mlir_utils.dialects.memref import alloca_scope, alloca_scope_return
+from mlir.utils.dialects.ext.tensor import empty, Tensor
+from mlir.utils.dialects.memref import alloca_scope, alloca_scope_return
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -373,7 +373,6 @@ def test_if_explicit_yield_with_for(ctx: MLIRContext):
             for i in range_(0, 10):
                 four = constant(4.0)
                 five = constant(5.0)
-        print("hello")
         return
 
     iffoo()

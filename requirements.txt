@@ -1,0 +1,5 @@
+PyYAML
+black
+bytecode
+inflection
+numpy

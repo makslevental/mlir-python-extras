@@ -1,13 +1,13 @@
 import pytest
 from mlir.ir import OpResult, RankedTensorType
 
-import mlir_utils.types as T
-from mlir_utils.dialects.ext.arith import constant, Scalar
-from mlir_utils.dialects.ext.tensor import S, empty
+import mlir.utils.types as T
+from mlir.utils.dialects.ext.arith import constant, Scalar
+from mlir.utils.dialects.ext.tensor import S, empty
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.meta import register_value_caster
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.meta import register_value_caster
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

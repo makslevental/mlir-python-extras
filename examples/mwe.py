@@ -1,17 +1,17 @@
 import numpy as np
 
-import mlir_utils.types as T
-from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.context import MLIRContext, mlir_mod_ctx
-from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.dialects.ext.func import func
-from mlir_utils.dialects.ext.scf import canonicalizer as scf, range_ as range
-from mlir_utils.runtime.passes import Pipeline, run_pipeline
-from mlir_utils.runtime.refbackend import LLVMJITBackend
+import mlir.utils.types as T
+from mlir.utils.ast.canonicalize import canonicalize
+from mlir.utils.context import MLIRContext, mlir_mod_ctx
+from mlir.utils.dialects.ext.arith import constant
+from mlir.utils.dialects.ext.func import func
+from mlir.utils.dialects.ext.scf import canonicalizer as scf, range_ as range
+from mlir.utils.runtime.passes import Pipeline, run_pipeline
+from mlir.utils.runtime.refbackend import LLVMJITBackend
 
 # you need this to register the memref value caster
 # noinspection PyUnresolvedReferences
-import mlir_utils.dialects.ext.memref
+import mlir.utils.dialects.ext.memref
 
 
 def setting_memref(ctx: MLIRContext, backend: LLVMJITBackend):

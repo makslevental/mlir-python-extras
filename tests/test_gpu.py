@@ -3,11 +3,11 @@ from textwrap import dedent
 import pytest
 from mlir.dialects._gpu_enum_gen import AllReduceOperation
 
-import mlir_utils.types as T
-from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.dialects.ext.func import func
-from mlir_utils.dialects.ext.gpu import (
+import mlir.utils.types as T
+from mlir.utils.ast.canonicalize import canonicalize
+from mlir.utils.dialects.ext.arith import constant
+from mlir.utils.dialects.ext.func import func
+from mlir.utils.dialects.ext.gpu import (
     thread_attr as thread,
     block_id_x,
     block_id_y,
@@ -17,19 +17,19 @@ from mlir_utils.dialects.ext.gpu import (
     launch,
     all_reduce_,
 )
-from mlir_utils.dialects.ext.memref import alloc
-from mlir_utils.dialects.ext.memref import load, store
-from mlir_utils.dialects.ext.scf import canonicalizer
-from mlir_utils.dialects.ext.scf import forall, in_parallel_
-from mlir_utils.dialects.gpu import host_register
-from mlir_utils.dialects.ext.gpu import all_reduce, wait
-from mlir_utils.dialects.llvm import mlir_null
-from mlir_utils.dialects.math import fma
-from mlir_utils.dialects.memref import cast
-from mlir_utils.runtime.passes import run_pipeline, Pipeline
+from mlir.utils.dialects.ext.memref import alloc
+from mlir.utils.dialects.ext.memref import load, store
+from mlir.utils.dialects.ext.scf import canonicalizer
+from mlir.utils.dialects.ext.scf import forall, in_parallel_
+from mlir.utils.dialects.gpu import host_register
+from mlir.utils.dialects.ext.gpu import all_reduce, wait
+from mlir.utils.dialects.llvm import mlir_null
+from mlir.utils.dialects.math import fma
+from mlir.utils.dialects.memref import cast
+from mlir.utils.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

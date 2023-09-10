@@ -13,7 +13,7 @@ on:
 
 jobs:
 
-  mlir-bindings:
+  test-all:
 
     runs-on: ${{ matrix.os }}
 
@@ -35,22 +35,55 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[test,mlir] -f https://makslevental.github.io/wheels
-          configure-mlir-python-utils -y mlir
+          pip install .[test,mlir] -v -f https://makslevental.github.io/wheels 
+          mlir-python-utils-generate-all-upstream-trampolines
+          
+          MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[jax] -v
+          jaxlib-mlir-python-utils-generate-all-upstream-trampolines
+          
+          pip install aie -f https://github.com/Xilinx/mlir-aie/releases/expanded_assets/latest-wheels --no-index
+          MLIR_PYTHON_PACKAGE_PREFIX=aie.mlir pip install . -v
+          aie-mlir-python-utils-generate-all-upstream-trampolines
+          aie-mlir-python-utils-generate-trampolines aie.dialects.aie
 
       - name: Test
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -s --ignore-glob=*test_smoke* tests
+            pytest -s tests
           else
-            pytest --capture=tee-sys --ignore-glob=*test_smoke* tests
+            pytest --capture=tee-sys tests
           fi
 
       - name: Test mwe
         shell: bash
         run: |
           python examples/mwe.py
+
+  test-jupyter:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04 ]
+        py_version: [ "3.10", "3.11" ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.py_version }}
+
+      - name: Run notebook
+        shell: bash
+        run: |
+          pip install jupyter
+          BRANCH=${{ github.ref_name }} jupyter run examples/mlir_python_utils.ipynb
 
   mlir-bindings-aarch64:
 
@@ -91,76 +124,7 @@ jobs:
             cd /workspace
             
             pip install .[test,mlir] -f https://makslevental.github.io/wheels
-            configure-mlir-python-utils -y mlir
+            mlir-python-utils-generate-all-upstream-trampolines
             
             pytest --capture=tee-sys --ignore-glob=*test_smoke* tests
             python examples/mwe.py
-
-  torch-mlir-bindings:
-
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-22.04, macos-11, windows-2022 ]
-        py_version: [ "3.11" ]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.py_version }}
-
-      - name: Install and configure
-        shell: bash
-        run: |
-          pip install .[test,torch-mlir] -f https://llvm.github.io/torch-mlir/package-index -f https://makslevental.github.io/wheels
-          configure-mlir-python-utils -y torch_mlir
-
-      - name: Test
-        shell: bash
-        run: |
-          if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest --capture=tee-sys tests/test_smoke.py
-          else
-            pytest --capture=tee-sys tests/test_smoke.py
-          fi
-
-
-  jax-bindings:
-
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-22.04, macos-11, windows-2022 ]
-        py_version: [ "3.10", "3.11" ]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Setup Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.py_version }}
-
-      - name: Install and configure
-        shell: bash
-        run: |
-          pip install .[test,jax] -f https://makslevental.github.io/wheels
-          configure-mlir-python-utils -y jaxlib.mlir
-
-      - name: Test
-        shell: bash
-        run: |
-          if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest --capture=tee-sys tests/test_smoke.py
-          else
-            pytest --capture=tee-sys tests/test_smoke.py
-          fi
