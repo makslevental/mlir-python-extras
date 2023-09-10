@@ -2,12 +2,12 @@ from textwrap import dedent
 
 import pytest
 
-import mlir_utils.types as T
-from mlir_utils.dialects.ext.arith import constant, Scalar
-from mlir_utils.dialects.ext.tensor import Tensor, empty
+import mlir.utils.types as T
+from mlir.utils.dialects.ext.arith import constant, Scalar
+from mlir.utils.dialects.ext.tensor import Tensor, empty
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

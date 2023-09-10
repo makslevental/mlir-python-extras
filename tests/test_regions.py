@@ -3,24 +3,24 @@ from textwrap import dedent
 import pytest
 from mlir.dialects._linalg_ops_gen import CopyOp
 
-import mlir_utils.types as T
+import mlir.utils.types as T
 
 # this has to be above the next one
-from mlir_utils.dialects.ext import linalg
-from mlir_utils.dialects import linalg
+from mlir.utils.dialects.ext import linalg
+from mlir.utils.dialects import linalg
 
-from mlir_utils.dialects.ext import memref
-from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.dialects.ext.func import func
-from mlir_utils.dialects.ext.tensor import S
-from mlir_utils.dialects.memref import alloca_scope, alloca_scope_return
-from mlir_utils.dialects.scf import execute_region, yield_ as scf_yield
-from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield
-from mlir_utils.dialects.tensor import rank
+from mlir.utils.dialects.ext import memref
+from mlir.utils.dialects.ext.arith import constant
+from mlir.utils.dialects.ext.func import func
+from mlir.utils.dialects.ext.tensor import S
+from mlir.utils.dialects.memref import alloca_scope, alloca_scope_return
+from mlir.utils.dialects.scf import execute_region, yield_ as scf_yield
+from mlir.utils.dialects.tensor import generate, yield_ as tensor_yield
+from mlir.utils.dialects.tensor import rank
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.types import tensor
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.types import tensor
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

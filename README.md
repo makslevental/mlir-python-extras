@@ -74,15 +74,6 @@ This is **not a Python compiler**, but just a (hopefully) nice way to emit MLIR 
 
 The few main features/affordances:
 
-1. Generated bindings wrappers (like `constant` above)
-   \
-   &nbsp;
-   1. During "configuration" of this package (see [Install](#install)), wrappers for all available host ops are generated. These wrappers don't do much except fetch the result `ir.Value` from the `ir.Operation`; so `constant` in the example above is actually the result of `arith.ConstantOp`.
-      \
-      \
-      See [mlir_utils._configuration.generate_trampolines](https://github.com/makslevental/mlir-python-utils/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_utils/_configuration/generate_trampolines.py) for details.
-      \
-      &nbsp;
 1. `region_op`s (like `@func` above)
    \
    &nbsp;
@@ -151,33 +142,32 @@ But, open an issue if something isn't clear.
 First
 
 ```shell
-$ pip install mlir-python-utils -f https://makslevental.github.io/wheels/
+$ MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_MLIR_PYTHON_PACKAGE_PREFIX> pip install git+https://github.com/makslevental/mlir-python-utils
 ```
 
 This package is meant to work in concert with host bindings.
-Practically speaking that means you need to have *some* package installed that includes mlir python bindings, **and you need to `configure-mlir-python-utils`**.
+Practically speaking that means you need to have *some* package installed that includes mlir python bindings, **and you need to `mlir-python-utils-generate-all-upstream-trampolines`**.
 So after pip-installing you need to
 ```shell
-$ configure-mlir-python-utils -y <YOUR_MLIR_PYTHON_PACKAGE_PREFIX>
+$ <YOUR_MLIR_PYTHON_PACKAGE_PREFIX>-mlir-python-utils-generate-all-upstream-trampolines
 ```
 where `YOUR_MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the package prefix for your chosen host bindings.
 **When in doubt about this prefix**, it is everything up until `ir` when you import your bindings, e.g., in `import torch_mlir.ir`, `torch_mlir` is the `MLIR_PYTHON_PACKAGE_PREFIX` for the torch-mlir bindings.
-Thus, for torch-mlir host bindings, you would execute `configure-mlir-python-utils -y torch_mlir`.
+Thus, for torch-mlir host bindings, you would execute `torch-mlir-mlir-python-utils-generate-all-upstream-trampolines`.
+Note, the underscore in `torch_mlir` becomes a dash in `torch-mlir-mlir-python-utils-generate-all-upstream-trampolines`.
 
-If you don't have any such package, but you want to experiment anyway, you can install this package with the "stock" upstream bindings:
-
-```shell
-$ pip install mlir-python-utils[mlir] -f https://makslevental.github.io/wheels/
-$ configure-mlir-python-utils -y mlir
-```
-
-Note, on Windows, you need to do
+If you don't have any such package, but you want to experiment anyway, you can install the "stock" upstream bindings first:
 
 ```shell
-python -m mlir_utils._configuration -y mlir
+$ pip install mlir-python-bindings -f https://makslevental.github.io/wheels/
 ```
 
-instead.
+and then
+
+```shell
+$ pip install git+https://github.com/makslevental/mlir-python-utils
+$ mlir-python-utils-generate-all-upstream-trampolines
+```
 
 ## Examples/Demo
 

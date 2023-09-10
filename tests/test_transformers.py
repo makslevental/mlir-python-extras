@@ -4,9 +4,9 @@ from textwrap import dedent
 import astpretty
 import pytest
 
-from mlir_utils.ast.canonicalize import transform_func
-from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.dialects.ext.scf import (
+from mlir.utils.ast.canonicalize import transform_func
+from mlir.utils.dialects.ext.arith import constant
+from mlir.utils.dialects.ext.scf import (
     CanonicalizeElIfs,
     ReplaceIfWithWith,
     ReplaceYieldWithSCFYield,
@@ -15,8 +15,8 @@ from mlir_utils.dialects.ext.scf import (
 )
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.util import is_311
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

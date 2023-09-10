@@ -3,18 +3,18 @@ from textwrap import dedent
 import numpy as np
 import pytest
 
-from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.dialects.ext.arith import Scalar, constant
-from mlir_utils.dialects.ext.scf import (
+from mlir.utils.ast.canonicalize import canonicalize
+from mlir.utils.dialects.ext.arith import Scalar, constant
+from mlir.utils.dialects.ext.scf import (
     range_,
     yield_,
     canonicalizer,
 )
-from mlir_utils.dialects.ext.tensor import Tensor, empty
+from mlir.utils.dialects.ext.tensor import Tensor, empty
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-import mlir_utils.types as T
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+import mlir.utils.types as T
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

@@ -4,16 +4,16 @@ from textwrap import dedent
 
 import pytest
 
-import mlir_utils.types as T
-from mlir_utils.ast.canonicalize import canonicalize
-from mlir_utils.dialects.ext.arith import constant
-from mlir_utils.dialects.ext.scf import canonicalizer
-from mlir_utils.dialects.ext.tensor import S
-from mlir_utils.dialects.tensor import generate, yield_ as tensor_yield, rank
+import mlir.utils.types as T
+from mlir.utils.ast.canonicalize import canonicalize
+from mlir.utils.dialects.ext.arith import constant
+from mlir.utils.dialects.ext.scf import canonicalizer
+from mlir.utils.dialects.ext.tensor import S
+from mlir.utils.dialects.tensor import generate, yield_ as tensor_yield, rank
 
 # noinspection PyUnresolvedReferences
-from mlir_utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir_utils.util import is_311
+from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
