@@ -6,7 +6,7 @@ import warnings
 from pathlib import Path
 
 import numpy as np
-from mlir import _mlir_libs
+from ... import _mlir_libs
 from ...dialects.func import FuncOp, CallOp
 from ...ir import UnitAttr, Module, MemRefType
 

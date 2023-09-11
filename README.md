@@ -142,17 +142,17 @@ But, open an issue if something isn't clear.
 First
 
 ```shell
-$ MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_MLIR_PYTHON_PACKAGE_PREFIX> pip install git+https://github.com/makslevental/mlir-python-utils
+$ HOST_MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX> pip install git+https://github.com/makslevental/mlir-python-utils
 ```
 
 This package is meant to work in concert with host bindings.
 Practically speaking that means you need to have *some* package installed that includes mlir python bindings, **and you need to `mlir-python-utils-generate-all-upstream-trampolines`**.
 So after pip-installing you need to
 ```shell
-$ <YOUR_MLIR_PYTHON_PACKAGE_PREFIX>-mlir-python-utils-generate-all-upstream-trampolines
+$ <YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX>-mlir-python-utils-generate-all-upstream-trampolines
 ```
-where `YOUR_MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the package prefix for your chosen host bindings.
-**When in doubt about this prefix**, it is everything up until `ir` when you import your bindings, e.g., in `import torch_mlir.ir`, `torch_mlir` is the `MLIR_PYTHON_PACKAGE_PREFIX` for the torch-mlir bindings.
+where `YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the package prefix for your chosen host bindings.
+**When in doubt about this prefix**, it is everything up until `ir` when you import your bindings, e.g., in `import torch_mlir.ir`, `torch_mlir` is the `HOST_MLIR_PYTHON_PACKAGE_PREFIX` for the torch-mlir bindings.
 Thus, for torch-mlir host bindings, you would execute `torch-mlir-mlir-python-utils-generate-all-upstream-trampolines`.
 Note, the underscore in `torch_mlir` becomes a dash in `torch-mlir-mlir-python-utils-generate-all-upstream-trampolines`.
 

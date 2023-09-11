@@ -11,10 +11,6 @@ jobs:
     runs-on: ubuntu-20.04
     outputs:
       VERSION: ${{ steps.build_sdist.outputs.version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-22.04, macos-11, windows-2022 ]
     steps:
     - uses: actions/checkout@v3
 
@@ -25,15 +21,16 @@ jobs:
     - name: Build sdist
       id: build_sdist
       run: |
-        pip install build
-        python -m build -s
         VERSION="$(python setup.py --version)"
+        python setup.py sdist --formats=zip
+        zip -d dist/mlir-python-utils-$VERSION.zip "/mlir-python-utils-$VERSION/PKG-INFO" 
+        zip -d dist/mlir-python-utils-$VERSION.zip "/mlir-python-utils-$VERSION/mlir_python_utils.egg-info/*" 
         echo "version=${VERSION}" | tee -a $GITHUB_OUTPUT
 
     - name: Upload sdist
       uses: actions/upload-artifact@v3
       with:
-        path: dist/mlir-python-utils-*.tar.gz
+        path: dist/mlir-python-utils-*.zip
         name: build_artifact
 
   upload_sdist:
@@ -63,7 +60,7 @@ jobs:
       - name: Release current commit
         uses: ncipollo/release-action@v1.12.0
         with:
-          artifacts: "dist/*.tar.gz,dist/*.zip"
+          artifacts: "dist/*.zip"
           bodyFile: body.md
           token: "${{ secrets.GITHUB_TOKEN }}"
           tag: "${{ steps.setup_release.outputs.tag_name }}"
@@ -76,7 +73,7 @@ jobs:
       - name: Release current commit
         uses: ncipollo/release-action@v1.12.0
         with:
-          artifacts: "dist/*.tar.gz,dist/*.zip"
+          artifacts: "dist/*.zip"
           bodyFile: body.md
           token: "${{ secrets.GITHUB_TOKEN }}"
           tag: "latest"
@@ -91,7 +88,7 @@ jobs:
         with:
           owner: makslevental
           repo: wheels
-          artifacts: "dist/*.tar.gz,dist/*.zip"
+          artifacts: "dist/*.zip"
           token: "${{ secrets.WHEELS_REPO }}"
           tag: "i"
           name: "i"

@@ -38,11 +38,11 @@ jobs:
           pip install .[test,mlir] -v -f https://makslevental.github.io/wheels 
           mlir-python-utils-generate-all-upstream-trampolines
           
-          MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[jax] -v
+          HOST_MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[jax] -v
           jaxlib-mlir-python-utils-generate-all-upstream-trampolines
           
           pip install aie -f https://github.com/Xilinx/mlir-aie/releases/expanded_assets/latest-wheels --no-index
-          MLIR_PYTHON_PACKAGE_PREFIX=aie.mlir pip install . -v
+          HOST_MLIR_PYTHON_PACKAGE_PREFIX=aie.mlir pip install . -v
           aie-mlir-python-utils-generate-all-upstream-trampolines
           aie-mlir-python-utils-generate-trampolines aie.dialects.aie
 
