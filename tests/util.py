@@ -1,16 +1,6 @@
-def skip_torch_mlir_not_installed():
-    try:
-        from torch_mlir.dialects import torch
-
-        # don't skip
-        return False
-
-    except ImportError:
-        # skip
-        return True
 
 
-def skip_jax_not_installed():
+def jax_not_installed():
     try:
         from jaxlib import mlir
 
@@ -22,7 +12,7 @@ def skip_jax_not_installed():
         return True
 
 
-def mlir_bindings_installed():
+def mlir_bindings_not_installed():
     try:
         import mlir
 
@@ -34,7 +24,7 @@ def mlir_bindings_installed():
         return True
 
 
-def aie_bindings_installed():
+def aie_bindings_not_installed():
     try:
         import aie
 

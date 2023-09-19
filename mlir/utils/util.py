@@ -3,11 +3,22 @@ import inspect
 import platform
 import sys
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
 from ..dialects._ods_common import get_op_result_or_value, get_op_results_or_values
-from ..ir import Value, OpResultList, Location, OpResult, OpView, _GlobalDebug
+from ..ir import (
+    Block,
+    Context,
+    Location,
+    OpResult,
+    OpResultList,
+    OpView,
+    Operation,
+    Value,
+    _GlobalDebug,
+)
 
 try:
     from ..ir import TypeID
@@ -36,6 +47,12 @@ def get_result_or_results(
 
 def get_user_code_loc(user_base: Optional[Path] = None):
     from .. import utils
+
+    try:
+        Context.current
+    except ValueError as e:
+        assert e.args[0] == "No current Context"
+        return None
 
     mlir_utils_root_path = Path(utils.__path__[0])
 
@@ -108,3 +125,11 @@ def find_ops(op, pred: Callable[[OpView], bool], single=False):
     if single:
         matching = matching[0]
     return matching
+
+
+@dataclass
+class Successor:
+    op: OpView | Operation
+    operands: list[Value]
+    block: Block
+    pos: int

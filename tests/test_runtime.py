@@ -12,8 +12,8 @@ from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descr
 
 import mlir.utils.types as T
 from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects.arith import sitofp, index_cast
 from mlir.utils.dialects import linalg
+from mlir.utils.dialects.arith import sitofp, index_cast
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.func import func
 from mlir.utils.dialects.ext.memref import load, store, S
@@ -109,7 +109,12 @@ def test_munge_calling_conventions(ctx: MLIRContext, backend: LLVMJITBackend, ca
 
     foo.emit()
 
-    @func
+    @func(
+        func_attrs={
+            "llvm.emit_c_interface": UnitAttr.get(),
+            refback_cb_attr: UnitAttr.get(),
+        }
+    )
     def refbackend_consume_return_callback_first(x: unranked_memref_f32):
         ...
 
@@ -128,7 +133,7 @@ def test_munge_calling_conventions(ctx: MLIRContext, backend: LLVMJITBackend, ca
       func.func @foo(%arg0: memref<2x2xf32>) -> memref<2x2xf32> {
         return %arg0 : memref<2x2xf32>
       }
-      func.func private @refbackend_consume_return_callback_first(memref<*xf32>)
+      func.func private @refbackend_consume_return_callback_first(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
       func.func @foo_wrapper(%arg0: memref<*xf32>) {
         %cast = memref.cast %arg0 : memref<*xf32> to memref<2x2xf32>
         %0 = call @foo(%cast) : (memref<2x2xf32>) -> memref<2x2xf32>
@@ -641,6 +646,8 @@ def _memref_tiled_add(K, D, ctx: MLIRContext, backend: LLVMJITBackend):
             for j in range_(0, D):
                 C[i, j] = A[i, j] + B[i, j]
 
+    tile.emit()
+
     @func
     @canonicalize(using=canonicalizer)
     def memfoo(
@@ -662,6 +669,20 @@ def _memref_tiled_add(K, D, ctx: MLIRContext, backend: LLVMJITBackend):
     correct = dedent(
         f"""\
     module {{
+      func.func @tile(%arg0: memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>, %arg1: memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>, %arg2: memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>) {{
+        %c0 = arith.constant 0 : index
+        %c{D} = arith.constant {D} : index
+        %c1 = arith.constant 1 : index
+        scf.for %arg3 = %c0 to %c{D} step %c1 {{
+          scf.for %arg4 = %c0 to %c{D} step %c1 {{
+            %0 = memref.load %arg0[%arg3, %arg4] : memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
+            %1 = memref.load %arg1[%arg3, %arg4] : memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
+            %2 = arith.addf %0, %1 : f32
+            memref.store %2, %arg2[%arg3, %arg4] : memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
+          }}
+        }}
+        return
+      }}
       func.func @memfoo(%arg0: memref<{K}x{K}xf32>, %arg1: memref<{K}x{K}xf32>, %arg2: memref<{K}x{K}xf32>) {{
         %c0 = arith.constant 0 : index
         %c{F} = arith.constant {F} : index
@@ -677,20 +698,6 @@ def _memref_tiled_add(K, D, ctx: MLIRContext, backend: LLVMJITBackend):
             %subview_0 = memref.subview %arg1[%0, %2] [{D}, {D}] [1, 1] : memref<{K}x{K}xf32> to memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
             %subview_1 = memref.subview %arg2[%0, %2] [{D}, {D}] [1, 1] : memref<{K}x{K}xf32> to memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
             func.call @tile(%subview, %subview_0, %subview_1) : (memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>, memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>, memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>) -> ()
-          }}
-        }}
-        return
-      }}
-      func.func @tile(%arg0: memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>, %arg1: memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>, %arg2: memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>) {{
-        %c0 = arith.constant 0 : index
-        %c{D} = arith.constant {D} : index
-        %c1 = arith.constant 1 : index
-        scf.for %arg3 = %c0 to %c{D} step %c1 {{
-          scf.for %arg4 = %c0 to %c{D} step %c1 {{
-            %0 = memref.load %arg0[%arg3, %arg4] : memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
-            %1 = memref.load %arg1[%arg3, %arg4] : memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
-            %2 = arith.addf %0, %1 : f32
-            memref.store %2, %arg2[%arg3, %arg4] : memref<{D}x{D}xf32, strided<[{K}, 1], offset: ?>>
           }}
         }}
         return
