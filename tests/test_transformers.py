@@ -33,7 +33,10 @@ def _fields(n: ast.AST, show_offsets: bool = True) -> tuple[str, ...]:
 astpretty._fields = _fields
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
+if sys.version_info.minor != 12:
+    pytest.skip("only check latest", allow_module_level=True)
+
+
 def test_if_handle_yield_1():
     def iffoo():
         one = constant(1.0)
@@ -131,7 +134,6 @@ def test_if_handle_yield_1():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_2():
     def iffoo():
         one = constant(1.0)
@@ -223,7 +225,6 @@ def test_if_handle_yield_2():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_3():
     def iffoo():
         one = constant(1.0)
@@ -323,7 +324,6 @@ def test_if_handle_yield_3():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_4():
     def iffoo():
         one = constant(1.0)
@@ -450,7 +450,6 @@ def test_if_handle_yield_4():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_nested_no_else_no_yield():
     def iffoo():
         one = constant(1.0)
@@ -574,7 +573,6 @@ def test_if_nested_no_else_no_yield():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_cond_1():
     def iffoo():
         one = constant(1.0)
@@ -686,7 +684,6 @@ def test_if_replace_cond_1():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_cond_2():
     def iffoo():
         one = constant(1.0)
@@ -809,7 +806,6 @@ def test_if_replace_cond_2():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_cond_3():
     def iffoo():
         one = constant(1.0)
@@ -963,7 +959,6 @@ def test_if_replace_cond_3():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_nested_with_else_no_yield():
     def iffoo():
         one = constant(1.0)
@@ -1106,7 +1101,6 @@ def test_if_nested_with_else_no_yield():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_insert_end_ifs_yield():
     def iffoo():
         one = constant(1.0)
@@ -1261,7 +1255,6 @@ def test_insert_end_ifs_yield():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_else_with_nested_no_yields_yield_results():
     def iffoo():
         one = constant(1.0)
@@ -1478,7 +1471,6 @@ def test_if_else_with_nested_no_yields_yield_results():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_else_with_nested_no_yields_yield_multiple_results():
     def iffoo():
         one = constant(1.0)
@@ -1707,7 +1699,6 @@ def test_if_else_with_nested_no_yields_yield_multiple_results():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_with_else_else_with_yields():
     def iffoo():
         one = constant(1.0)
@@ -1941,7 +1932,6 @@ def test_if_with_else_else_with_yields():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_canonicalize_elif_elif():
     def iffoo():
         one = constant(1.0)
@@ -2263,7 +2253,6 @@ def test_if_canonicalize_elif_elif():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_1():
     def iffoo():
         one = constant(1.0)
@@ -2520,7 +2509,6 @@ def test_elif_1():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_2():
     def iffoo():
         one = constant(1.0)
@@ -2864,7 +2852,6 @@ def test_elif_2():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_3():
     def iffoo():
         one = constant(1.0)
@@ -3272,7 +3259,6 @@ def test_elif_3():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_nested_else_branch():
     def iffoo():
         one = constant(1.0)
@@ -3711,7 +3697,6 @@ def test_elif_nested_else_branch():
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
@@ -4262,7 +4247,6 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
     assert correct.strip() == dump
 
 
-@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_while_canonicalize(ctx: MLIRContext):
     one = constant(1)
     two = constant(2)

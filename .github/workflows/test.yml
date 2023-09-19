@@ -46,9 +46,9 @@ jobs:
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -s --ignore-glob=*test_other_hosts* tests
+            pytest -s tests
           else
-            pytest --capture=tee-sys --ignore-glob=*test_other_hosts* tests
+            pytest --capture=tee-sys tests
           fi
 
       - name: Test mwe
@@ -167,5 +167,5 @@ jobs:
             pip install -q .[test,mlir] -f https://makslevental.github.io/wheels
             mlir-python-utils-generate-all-upstream-trampolines
             
-            pytest --capture=tee-sys --ignore-glob=*test_other_hosts* tests
+            pytest --capture=tee-sys tests
             python examples/mwe.py

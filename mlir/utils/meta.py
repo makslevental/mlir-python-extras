@@ -1,3 +1,4 @@
+import contextlib
 import ctypes
 import inspect
 import warnings
@@ -5,7 +6,7 @@ from collections import defaultdict
 from functools import wraps
 from typing import Callable, Sequence
 
-from ..ir import Value, Type, InsertionPoint, OpResultList, OpResult
+from ..ir import Value, Type, InsertionPoint, OpResultList, OpResult, Block, OpView
 
 try:
     from ..ir import TypeID
@@ -18,6 +19,7 @@ except ImportError:
 from .util import (
     get_user_code_loc,
     get_result_or_results,
+    Successor,
 )
 
 __VALUE_CASTERS: defaultdict[
@@ -93,6 +95,35 @@ def get_value_caster(typeid: TypeID):
     return __VALUE_CASTERS[typeid]
 
 
+@contextlib.contextmanager
+def bb(*preds: tuple[Successor | OpView]):
+    current_ip = InsertionPoint.current
+    op = current_ip.block.owner
+    op_region = op.regions[0]
+    args = []
+    if len(preds):
+        if isinstance(preds[0], OpView):
+            args = preds[0].operands
+        elif isinstance(preds[0], Successor):
+            args = preds[0].operands
+        else:
+            raise NotImplementedError(f"{preds[0]=} not supported.")
+    arg_locs = list(filter(None, [get_user_code_loc()] * len(args)))
+    if len(arg_locs) == 0:
+        arg_locs = None
+    block = op_region.blocks.append(*[a.type for a in args], arg_locs=arg_locs)
+    for p in preds:
+        if isinstance(p, OpView):
+            p.operation.successors[0] = block
+        elif isinstance(p, Successor):
+            for i, b in enumerate(p.block.owner.successors):
+                if i == p.pos:
+                    p.op.successors[i] = block
+                    break
+    with InsertionPoint(block):
+        yield block, [maybe_cast(a) for a in block.arguments]
+
+
 def op_region_builder(op, op_region, terminator=None):
     def builder_wrapper(body_builder):
         # add a block with block args having types ...
@@ -107,12 +138,17 @@ def op_region_builder(op, op_region, terminator=None):
                     f"for {body_builder=} either missing a type annotation or type annotation isn't a mlir type: {sig}"
                 )
 
-            arg_locs = [get_user_code_loc()] * len(sig.parameters)
+            arg_locs = list(filter(None, [get_user_code_loc()] * len(sig.parameters)))
+            if len(arg_locs) == 0:
+                arg_locs = None
             op_region.blocks.append(*types, arg_locs=arg_locs)
+
         with InsertionPoint(op_region.blocks[0]):
             results = body_builder(
                 *[maybe_cast(a) for a in op_region.blocks[0].arguments]
             )
+
+        with InsertionPoint(list(op_region.blocks)[-1]):
             if terminator is not None:
                 res = []
                 if isinstance(results, (tuple, list)):

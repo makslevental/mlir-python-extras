@@ -5,6 +5,7 @@ from textwrap import dedent
 import pytest
 
 import mlir.utils.types as T
+from mlir.utils.context import mlir_mod_ctx
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.func import func
 
@@ -99,7 +100,6 @@ def test_func_base_meta(ctx: MLIRContext):
         one = constant(1)
         return one
 
-    # print("wrapped foo", foo1)
     foo1.emit()
     correct = dedent(
         """\
@@ -129,8 +129,6 @@ def test_func_base_meta(ctx: MLIRContext):
 
 
 def test_func_base_meta2(ctx: MLIRContext):
-    print()
-
     @func
     def foo1():
         one = constant(1)
@@ -149,3 +147,25 @@ def test_func_base_meta2(ctx: MLIRContext):
     """
     )
     filecheck(correct, ctx.module)
+
+
+def test_func_no_context():
+    @func
+    def foo1():
+        one = constant(1)
+        return one
+
+    with mlir_mod_ctx() as mod_ctx:
+        foo1()
+    correct = dedent(
+        """\
+    module {
+      func.func @foo1() -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
+      }
+      %0 = func.call @foo1() : () -> i32
+    }
+    """
+    )
+    filecheck(correct, mod_ctx.module)
