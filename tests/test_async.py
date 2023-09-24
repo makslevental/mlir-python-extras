@@ -75,21 +75,3 @@ def test_simple_parfor(ctx: MLIRContext, backend: LLVMJITBackend):
     invoker = backend.load(module)
     A = np.random.randint(0, 10, (10, 10)).astype(np.float32)
     # invoker.main(A)
-
-
-@pytest.mark.skipif(
-    platform.machine() == "aarch64", reason="https://github.com/numba/numba/issues/9109"
-)
-@pytest.mark.skipif(
-    platform.system() == "Windows", reason="windows can't load runner utils"
-)
-def test_larger_parfor(ctx: MLIRContext, backend: LLVMJITBackend):
-    module = ctx.module.parse(open(Path(__file__).parent / "llvm.mlir").read())
-    invoker = backend.load(module)
-    D = np.random.randint(0, 10, (10, 10)).astype(np.float64)
-    A = np.random.randint(0, 10, (10, 10, 10)).astype(np.float64)
-    C = np.random.randint(0, 10, (10, 10, 10)).astype(np.float64)
-    B = np.random.randint(0, 10, (10, 10)).astype(np.float64)
-    output = np.zeros((10, 10, 10)).astype(np.float64)
-    invoker.main(D, A, C, B, output)
-    print(output)

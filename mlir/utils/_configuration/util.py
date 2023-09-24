@@ -13,6 +13,7 @@ else:
 
 def add_file_to_sources_txt_file(file_path: Path):
     package = __package__.split(".")[0]
+    return
     package_root_path = files(package)
     if isinstance(package_root_path, MultiplexedPath):
         package_root_path = package_root_path._paths[0]

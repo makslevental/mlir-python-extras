@@ -10,6 +10,9 @@ on:
   workflow_dispatch:
     branches:
       - main
+  schedule:
+    # At minute 0 past hour 6. (see https://crontab.guru)
+    - cron: '00 06 * * *'
 
 jobs:
 

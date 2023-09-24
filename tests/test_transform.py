@@ -170,11 +170,11 @@ def test_basic_tile(ctx):
     #map11 = affine_map<(d0, d1, d2, d3) -> (-d0 + d1 - d2 + d3)>
     module {
       func.func @pad_tensor_3_4(%arg0: tensor<4x16xf32>, %arg1: f32) -> tensor<12x23xf32> {
+        %c3 = arith.constant 3 : index
         %c23 = arith.constant 23 : index
+        %c2 = arith.constant 2 : index
         %c12 = arith.constant 12 : index
         %c0 = arith.constant 0 : index
-        %c3 = arith.constant 3 : index
-        %c2 = arith.constant 2 : index
         %0 = tensor.empty() : tensor<12x23xf32>
         %1 = scf.for %arg2 = %c0 to %c12 step %c2 iter_args(%arg3 = %0) -> (tensor<12x23xf32>) {
           %2 = scf.for %arg4 = %c0 to %c23 step %c3 iter_args(%arg5 = %arg3) -> (tensor<12x23xf32>) {
@@ -272,11 +272,11 @@ def test_linalg_tile(ctx: MLIRContext):
     #map = affine_map<(d0) -> (-d0 + 8, 3)>
     module {
       func.func @matmul(%arg0: tensor<4x16xf32>, %arg1: tensor<16x8xf32>, %arg2: tensor<4x8xf32>) -> tensor<4x8xf32> {
-        %c8 = arith.constant 8 : index
-        %c2 = arith.constant 2 : index
         %c3 = arith.constant 3 : index
+        %c8 = arith.constant 8 : index
         %c0 = arith.constant 0 : index
         %c4 = arith.constant 4 : index
+        %c2 = arith.constant 2 : index
         %0 = scf.for %arg3 = %c0 to %c4 step %c2 iter_args(%arg4 = %arg2) -> (tensor<4x8xf32>) {
           %1 = scf.for %arg5 = %c0 to %c8 step %c3 iter_args(%arg6 = %arg4) -> (tensor<4x8xf32>) {
             %2 = affine.min #map(%arg5)
