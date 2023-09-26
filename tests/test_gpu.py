@@ -23,7 +23,7 @@ from mlir.utils.dialects.ext.scf import canonicalizer
 from mlir.utils.dialects.ext.scf import forall, in_parallel_
 from mlir.utils.dialects.gpu import host_register
 from mlir.utils.dialects.ext.gpu import all_reduce, wait
-from mlir.utils.dialects.llvm import mlir_null
+from mlir.utils.dialects.llvm import mlir_zero
 from mlir.utils.dialects.math import fma
 from mlir.utils.dialects.memref import cast
 from mlir.utils.runtime.passes import run_pipeline, Pipeline
@@ -297,7 +297,7 @@ def test_async_object(ctx: MLIRContext):
         c = alloc((M, K), T.f32)
 
         w = wait()
-        stream = mlir_null(T.llvm_ptr)
+        stream = mlir_zero(T.llvm_ptr)
         MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](
             a,
             b,
@@ -325,7 +325,7 @@ def test_async_object(ctx: MLIRContext):
         %alloc_0 = memref.alloc() : memref<16x8xf32>
         %alloc_1 = memref.alloc() : memref<4x8xf32>
         %0 = gpu.wait async
-        %1 = llvm.mlir.null : !llvm.ptr
+        %1 = llvm.mlir.zero : !llvm.ptr
         %c4 = arith.constant 4 : index
         %c4_2 = arith.constant 4 : index
         %c1 = arith.constant 1 : index
