@@ -1,10 +1,15 @@
 from typing import Optional, Union, Sequence
 
-
-from ....dialects._structured_transform_ops_gen import TileOp
+from ... import types as T
+from ...meta import region_op, maybe_cast
+from ...util import get_user_code_loc, get_result_or_results
 from ....dialects._structured_transform_ops_ext import (
-    _get_value_list,
     _dispatch_mixed_values,
+)
+from ....dialects._structured_transform_ops_gen import (
+    TileUsingForOp,
+    TileUsingForallOp,
+    MatchOp,
 )
 from ....dialects.transform import ApplyPatternsOp
 from ....dialects.transform import (
@@ -13,20 +18,12 @@ from ....dialects.transform import (
     YieldOp,
 )
 from ....dialects.transform.loop import GetParentForOp, LoopUnrollOp
-from ....dialects.transform.structured import MatchOp, TileToForallOp
 from ....ir import (
     Type,
     Value,
     Operation,
     StringAttr,
-    ArrayAttr,
-    register_attribute_builder,
-    Context,
 )
-
-from ... import types as T
-from ...meta import region_op, maybe_cast
-from ...util import get_user_code_loc, get_result_or_results
 
 
 def sequence_(
@@ -135,7 +132,7 @@ def tile(
     t = tuple(
         maybe_cast(
             get_result_or_results(
-                TileOp(
+                TileUsingForOp(
                     target,
                     sizes=sizes,
                     interchange=interchange,
@@ -178,7 +175,7 @@ def tile_to_scf_forall(
     t = tuple(
         maybe_cast(
             get_result_or_results(
-                TileToForallOp.__base__(
+                TileUsingForallOp.__base__(
                     forall_op,
                     tiled_op,
                     target,

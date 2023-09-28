@@ -140,7 +140,7 @@ def test_basic_tile(ctx):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["tensor.pad"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_linalg_op, %loops:2 = transform.structured.tile %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+        %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
       }
     }
     """
@@ -252,7 +252,7 @@ def test_linalg_tile(ctx: MLIRContext):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_linalg_op, %loops:2 = transform.structured.tile %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+        %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
       }
     }
     """
@@ -324,7 +324,7 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+        %forall_op, %tiled_op = transform.structured.tile_using_forall %0   num_threads [] tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
       }
     }
     """
@@ -472,7 +472,7 @@ def test_apply_cse(ctx: MLIRContext):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [2](mapping = [#gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+        %forall_op, %tiled_op = transform.structured.tile_using_forall %0   num_threads [] tile_sizes [2](mapping = [#gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
         %1 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
         apply_patterns to %1 {
           transform.apply_patterns.canonicalization
@@ -569,12 +569,12 @@ def test_two_schedules(ctx: MLIRContext):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "tile_outer"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [0, 1, 8, 8](mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+        %forall_op, %tiled_op = transform.structured.tile_using_forall %0   num_threads [] tile_sizes [0, 1, 8, 8](mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
       }
       transform.sequence  failures(propagate) attributes {transform.target_tag = "tile_inner"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %forall_op, %tiled_op = transform.structured.tile_to_forall_op %0   num_threads [] tile_sizes [0, 1, 1, 1](mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+        %forall_op, %tiled_op = transform.structured.tile_using_forall %0   num_threads [] tile_sizes [0, 1, 1, 1](mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
       }
     }
     """
