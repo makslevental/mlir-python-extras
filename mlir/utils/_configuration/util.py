@@ -13,7 +13,11 @@ else:
 
 def add_file_to_sources_txt_file(file_path: Path):
     package = __package__.split(".")[0]
-    package_root_path = files(package)
+    try:
+        package_root_path = files(package)
+    except NotADirectoryError:
+        # editable install hack
+        return
     if isinstance(package_root_path, MultiplexedPath):
         package_root_path = package_root_path._paths[0]
     dist = distribution(packages_distributions()[package][0])
