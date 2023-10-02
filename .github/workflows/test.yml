@@ -16,7 +16,47 @@ on:
 
 jobs:
 
-  test-all:
+  test-mlir-bindings:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-11, windows-2022 ]
+        py_version: [ "3.10", "3.11", "3.12" ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.py_version }}
+          allow-prereleases: true
+
+      - name: Install and configure
+        shell: bash
+        run: |
+          pip install .[test,mlir] -v -f https://makslevental.github.io/wheels 
+          mlir-python-utils-generate-all-upstream-trampolines
+
+      - name: Test
+        shell: bash
+        run: |
+          if [ ${{ matrix.os }} == 'windows-2022' ]; then
+            pytest -s --ignore-glob=*test_other_hosts* tests
+          else
+            pytest --capture=tee-sys --ignore-glob=*test_other_hosts* tests
+          fi
+
+      - name: Test mwe
+        shell: bash
+        run: |
+          python examples/mwe.py
+
+  test-other-host-bindings:
 
     runs-on: ${{ matrix.os }}
 
@@ -34,14 +74,13 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.py_version }}
+          allow-prereleases: true
 
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[test,mlir] -v -f https://makslevental.github.io/wheels 
-          mlir-python-utils-generate-all-upstream-trampolines
-          
-          HOST_MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[jax] -v
+          export PIP_FIND_LINKS=https://makslevental.github.io/wheels 
+          HOST_MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[test,jax] -v
           jaxlib-mlir-python-utils-generate-all-upstream-trampolines
           
           pip install aie -f https://github.com/Xilinx/mlir-aie/releases/expanded_assets/latest-wheels --no-index
@@ -53,15 +92,10 @@ jobs:
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -s tests
+            pytest -s tests/test_other_hosts.py
           else
-            pytest --capture=tee-sys tests
+            pytest --capture=tee-sys tests/test_other_hosts.py
           fi
-
-      - name: Test mwe
-        shell: bash
-        run: |
-          python examples/mwe.py
 
   test-jupyter:
 
@@ -81,6 +115,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.py_version }}
+          allow-prereleases: true
 
       - name: Run notebook
         shell: bash
@@ -98,7 +133,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04 ]
-        py_version: [ "3.10", "3.11" ]
+        py_version: [ "3.10", "3.11", "3.12" ]
 
     steps:
       - name: Checkout
@@ -120,16 +155,17 @@ jobs:
             bash miniconda.sh -b -u -p /root/miniconda3
             eval "$(/root/miniconda3/bin/conda shell.bash hook)"
             conda init
-            conda install -q -y python=${{ matrix.py_version }}
 
           run: |
             
             eval "$(/root/miniconda3/bin/conda shell.bash hook)"
+            conda create -n env -q -y -c conda-forge/label/python_rc python=${{ matrix.py_version }} 
+            conda activate env
             
             cd /workspace
             
-            pip install .[test,mlir] -f https://makslevental.github.io/wheels
+            pip install -q .[test,mlir] -f https://makslevental.github.io/wheels
             mlir-python-utils-generate-all-upstream-trampolines
             
-            pytest --capture=tee-sys --ignore-glob=*test_smoke* tests
+            pytest --capture=tee-sys --ignore-glob=*test_other_hosts* tests
             python examples/mwe.py

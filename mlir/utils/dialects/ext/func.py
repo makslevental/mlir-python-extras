@@ -1,6 +1,9 @@
 import inspect
+import sys
 from typing import Union, Optional
 
+from ...meta import make_maybe_no_args_decorator, maybe_cast
+from ...util import get_result_or_results, get_user_code_loc
 from ....dialects.func import FuncOp, ReturnOp, CallOp
 from ....ir import (
     InsertionPoint,
@@ -11,9 +14,6 @@ from ....ir import (
     Type,
     Value,
 )
-
-from ...util import get_result_or_results, get_user_code_loc, is_311
-from ...meta import make_maybe_no_args_decorator, maybe_cast
 
 
 def call(
@@ -145,10 +145,14 @@ class FuncBase:
 
     def _is_decl(self):
         # magic constant found from looking at the code for an empty fn
-        if is_311():
+        if sys.version_info.minor == 12:
+            return self.body_builder.__code__.co_code == b"\x97\x00y\x00"
+        elif sys.version_info.minor == 11:
             return self.body_builder.__code__.co_code == b"\x97\x00d\x00S\x00"
-        else:
+        elif sys.version_info.minor == 10:
             return self.body_builder.__code__.co_code == b"d\x00S\x00"
+        else:
+            raise NotImplementedError(f"{sys.version_info.minor} not supported.")
 
     def __str__(self):
         return str(f"{self.__class__} {self.__dict__}")

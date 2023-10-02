@@ -126,6 +126,7 @@ def generate_op_trampoline(op_class):
         args=args,
         body=body,
         decorator_list=decorator_list,
+        type_params=[],
     )
     ast.fix_missing_locations(n)
     return n
@@ -323,6 +324,7 @@ def generate_linalg(mod_path):
                 ),
                 body=body,
                 decorator_list=[],
+                type_params=[],
             )
             ast.fix_missing_locations(n)
             functions.append(n)
