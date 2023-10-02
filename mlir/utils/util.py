@@ -19,8 +19,8 @@ except ImportError:
 
 
 def get_result_or_results(
-    op: None | OpView | Value,
-) -> None | Value | OpResultList | OpResult | OpView:
+    op: type(None) | OpView | Value,
+) -> type(None) | Value | OpResultList | OpResult | OpView:
     if op is None:
         return
     if isinstance(op, Value):
