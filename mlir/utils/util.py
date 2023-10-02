@@ -34,10 +34,6 @@ def get_result_or_results(
     )
 
 
-def is_311():
-    return sys.version_info.minor > 10
-
-
 def get_user_code_loc(user_base: Optional[Path] = None):
     from .. import utils
 
@@ -54,12 +50,14 @@ def get_user_code_loc(user_base: Optional[Path] = None):
     ):
         prev_frame = prev_frame.f_back
     frame_info = inspect.getframeinfo(prev_frame)
-    if is_311():
+    if sys.version_info.minor >= 11:
         return Location.file(
             frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
         )
-    else:
+    elif sys.version_info.minor == 10:
         return Location.file(frame_info.filename, frame_info.lineno, col=0)
+    else:
+        raise NotImplementedError(f"{sys.version_info.minor} not supported.")
 
 
 @contextlib.contextmanager

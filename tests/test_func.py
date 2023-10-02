@@ -1,15 +1,15 @@
 import inspect
+import sys
 from textwrap import dedent
 
 import pytest
 
+import mlir.utils.types as T
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences
 from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-import mlir.utils.types as T
-from mlir.utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -41,10 +41,14 @@ def test_declare_byte_rep(ctx: MLIRContext):
     def demo_fun1():
         ...
 
-    if is_311():
+    if sys.version_info.minor == 12:
+        assert demo_fun1.__code__.co_code == b"\x97\x00y\x00"
+    elif sys.version_info.minor == 11:
         assert demo_fun1.__code__.co_code == b"\x97\x00d\x00S\x00"
-    else:
+    elif sys.version_info.minor == 10:
         assert demo_fun1.__code__.co_code == b"d\x00S\x00"
+    else:
+        raise NotImplementedError(f"{sys.version_info.minor} not supported.")
 
 
 def test_declare(ctx: MLIRContext):

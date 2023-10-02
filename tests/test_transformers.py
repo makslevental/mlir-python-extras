@@ -1,4 +1,5 @@
 import ast
+import sys
 from textwrap import dedent
 
 import astpretty
@@ -16,7 +17,6 @@ from mlir.utils.dialects.ext.scf import (
 
 # noinspection PyUnresolvedReferences
 from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir.utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -33,6 +33,7 @@ def _fields(n: ast.AST, show_offsets: bool = True) -> tuple[str, ...]:
 astpretty._fields = _fields
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_1():
     def iffoo():
         one = constant(1.0)
@@ -121,6 +122,7 @@ def test_if_handle_yield_1():
                     Return(lineno=7, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -129,6 +131,7 @@ def test_if_handle_yield_1():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_2():
     def iffoo():
         one = constant(1.0)
@@ -211,6 +214,7 @@ def test_if_handle_yield_2():
                     Return(lineno=6, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -219,6 +223,7 @@ def test_if_handle_yield_2():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_3():
     def iffoo():
         one = constant(1.0)
@@ -308,6 +313,7 @@ def test_if_handle_yield_3():
                     Return(lineno=7, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -317,6 +323,7 @@ def test_if_handle_yield_3():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_handle_yield_4():
     def iffoo():
         one = constant(1.0)
@@ -328,7 +335,7 @@ def test_if_handle_yield_4():
 
     mod = transform_func(iffoo, ReplaceYieldWithSCFYield)
 
-    if is_311():
+    if sys.version_info.minor >= 11:
         correct = dedent(
             """\
         def iffoo():
@@ -340,7 +347,7 @@ def test_if_handle_yield_4():
             return
         """
         )
-    else:
+    elif sys.version_info.minor == 10:
         correct = dedent(
             """\
         def iffoo():
@@ -352,6 +359,9 @@ def test_if_handle_yield_4():
             return
         """
         )
+    else:
+        raise NotImplementedError(f"{sys.version_info.minor} not supported.")
+
     assert correct.strip() == ast.unparse(mod)
 
     dump = astpretty.pformat(mod, show_offsets=True)
@@ -430,6 +440,7 @@ def test_if_handle_yield_4():
                     Return(lineno=7, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -439,6 +450,7 @@ def test_if_handle_yield_4():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_nested_no_else_no_yield():
     def iffoo():
         one = constant(1.0)
@@ -552,6 +564,7 @@ def test_if_nested_no_else_no_yield():
                     Return(lineno=8, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -561,6 +574,7 @@ def test_if_nested_no_else_no_yield():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_cond_1():
     def iffoo():
         one = constant(1.0)
@@ -662,6 +676,7 @@ def test_if_replace_cond_1():
                     Return(lineno=7, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -671,6 +686,7 @@ def test_if_replace_cond_1():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_cond_2():
     def iffoo():
         one = constant(1.0)
@@ -783,6 +799,7 @@ def test_if_replace_cond_2():
                     Return(lineno=7, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -792,6 +809,7 @@ def test_if_replace_cond_2():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_cond_3():
     def iffoo():
         one = constant(1.0)
@@ -803,7 +821,7 @@ def test_if_replace_cond_3():
 
     mod = transform_func(iffoo, ReplaceYieldWithSCFYield, ReplaceIfWithWith)
 
-    if is_311():
+    if sys.version_info.minor >= 11:
         correct = dedent(
             """\
         def iffoo():
@@ -815,7 +833,7 @@ def test_if_replace_cond_3():
             return
         """
         )
-    else:
+    elif sys.version_info.minor == 10:
         correct = dedent(
             """\
         def iffoo():
@@ -827,6 +845,9 @@ def test_if_replace_cond_3():
             return
         """
         )
+    else:
+        raise NotImplementedError(f"{sys.version_info.minor} not supported.")
+
     assert correct.strip() == ast.unparse(mod)
 
     dump = astpretty.pformat(mod, show_offsets=True)
@@ -933,6 +954,7 @@ def test_if_replace_cond_3():
                     Return(lineno=7, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -941,6 +963,7 @@ def test_if_replace_cond_3():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_nested_with_else_no_yield():
     def iffoo():
         one = constant(1.0)
@@ -1073,6 +1096,7 @@ def test_if_nested_with_else_no_yield():
                     Return(lineno=10, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -1082,6 +1106,7 @@ def test_if_nested_with_else_no_yield():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_insert_end_ifs_yield():
     def iffoo():
         one = constant(1.0)
@@ -1226,6 +1251,7 @@ def test_insert_end_ifs_yield():
                     Return(lineno=8, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -1235,6 +1261,7 @@ def test_insert_end_ifs_yield():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_else_with_nested_no_yields_yield_results():
     def iffoo():
         one = constant(1.0)
@@ -1441,6 +1468,7 @@ def test_if_else_with_nested_no_yields_yield_results():
                     Return(lineno=12, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -1450,6 +1478,7 @@ def test_if_else_with_nested_no_yields_yield_results():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_else_with_nested_no_yields_yield_multiple_results():
     def iffoo():
         one = constant(1.0)
@@ -1668,6 +1697,7 @@ def test_if_else_with_nested_no_yields_yield_multiple_results():
                     Return(lineno=12, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -1677,6 +1707,7 @@ def test_if_else_with_nested_no_yields_yield_multiple_results():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_with_else_else_with_yields():
     def iffoo():
         one = constant(1.0)
@@ -1901,6 +1932,7 @@ def test_if_with_else_else_with_yields():
                     Return(lineno=13, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -1909,6 +1941,7 @@ def test_if_with_else_else_with_yields():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_canonicalize_elif_elif():
     def iffoo():
         one = constant(1.0)
@@ -2220,6 +2253,7 @@ def test_if_canonicalize_elif_elif():
                     Return(lineno=17, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -2229,6 +2263,7 @@ def test_if_canonicalize_elif_elif():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_1():
     def iffoo():
         one = constant(1.0)
@@ -2475,6 +2510,7 @@ def test_elif_1():
                     Return(lineno=13, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -2484,6 +2520,7 @@ def test_elif_1():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_2():
     def iffoo():
         one = constant(1.0)
@@ -2817,6 +2854,7 @@ def test_elif_2():
                     Return(lineno=16, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -2826,6 +2864,7 @@ def test_elif_2():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_3():
     def iffoo():
         one = constant(1.0)
@@ -3223,6 +3262,7 @@ def test_elif_3():
                     Return(lineno=18, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -3232,6 +3272,7 @@ def test_elif_3():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_nested_else_branch():
     def iffoo():
         one = constant(1.0)
@@ -3660,6 +3701,7 @@ def test_elif_nested_else_branch():
                     Return(lineno=24, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -3669,6 +3711,7 @@ def test_elif_nested_else_branch():
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
     def iffoo():
         one = constant(1.0)
@@ -4209,6 +4252,7 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
                     Return(lineno=24, value=None),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )
@@ -4218,6 +4262,7 @@ def test_elif_nested_else_branch_multiple_yield(ctx: MLIRContext):
     assert correct.strip() == dump
 
 
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_while_canonicalize(ctx: MLIRContext):
     one = constant(1)
     two = constant(2)
@@ -4296,6 +4341,7 @@ def test_while_canonicalize(ctx: MLIRContext):
                     ),
                 ],
                 returns=None,
+                type_params=[],
             ),
         ],
     )

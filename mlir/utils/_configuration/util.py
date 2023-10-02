@@ -24,7 +24,7 @@ def add_file_to_sources_txt_file(file_path: Path):
 
     assert file_path.exists(), f"file being added doesn't exist at {file_path}"
     relative_file_path = Path(package) / file_path.relative_to(package_root_path)
-    if dist._read_files_egginfo() is not None:
+    if hasattr(dist, "_read_files_egginfo") and dist._read_files_egginfo() is not None:
         with open(dist._path / "SOURCES.txt", "a") as sources_file:
             sources_file.write(f"\n{relative_file_path}")
     if dist._read_files_distinfo():

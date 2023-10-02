@@ -5,6 +5,20 @@ from copy import deepcopy
 from typing import Optional, Sequence, Union
 
 from bytecode import ConcreteBytecode, ConcreteInstr
+
+from ... import types as T
+from ...ast.canonicalize import (
+    StrictTransformer,
+    Canonicalizer,
+    BytecodePatcher,
+    OpCode,
+)
+from ...ast.util import ast_call, set_lineno
+from ...dialects.ext.arith import constant, index_cast
+from ...dialects.ext.gpu import get_device_mapping_array_attr
+from ...dialects.scf import yield_ as yield__, reduce_return, condition
+from ...meta import region_adder, region_op, maybe_cast
+from ...util import get_result_or_results, get_user_code_loc
 from ....dialects._ods_common import get_op_results_or_values, get_default_loc_context
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
 from ....dialects.scf import (
@@ -27,20 +41,6 @@ from ....ir import (
     _denseI64ArrayAttr,
     Attribute,
 )
-
-from ... import types as T
-from ...ast.canonicalize import (
-    StrictTransformer,
-    Canonicalizer,
-    BytecodePatcher,
-    OpCode,
-)
-from ...ast.util import ast_call, set_lineno
-from ...dialects.ext.arith import constant, index_cast
-from ...dialects.ext.gpu import get_device_mapping_array_attr
-from ...dialects.scf import yield_ as yield__, reduce_return, condition
-from ...meta import region_adder, region_op, maybe_cast
-from ...util import get_result_or_results, get_user_code_loc, is_311
 
 logger = logging.getLogger(__name__)
 
@@ -633,25 +633,7 @@ class ReplaceIfWithWith(StrictTransformer):
 
 class RemoveJumpsAndInsertGlobals(BytecodePatcher):
     def patch_bytecode(self, code: ConcreteBytecode, f):
-        early_returns = []
-        for i, c in enumerate(code):
-            c: ConcreteInstr
-            if c.opcode == int(OpCode.RETURN_VALUE):
-                early_returns.append(i)
-
-            if c.opcode in {
-                # this is the first test condition jump from python <= 3.10
-                # "POP_JUMP_IF_FALSE",
-                # this is the test condition jump from python >= 3.11
-                int(OpCode.POP_JUMP_FORWARD_IF_FALSE)
-                if is_311()
-                else int(OpCode.POP_JUMP_IF_FALSE),
-            }:
-                code[i] = ConcreteInstr(
-                    str(OpCode.POP_TOP), lineno=c.lineno, location=c.location
-                )
-
-        # TODO(max): this is bad
+        # TODO(max): this is bad and should be in the closure rather than as a global
         f.__globals__[yield_.__name__] = yield_
         f.__globals__[if_ctx_manager.__name__] = if_ctx_manager
         f.__globals__[else_ctx_manager.__name__] = else_ctx_manager

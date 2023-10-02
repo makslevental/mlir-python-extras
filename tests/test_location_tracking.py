@@ -1,3 +1,4 @@
+import sys
 from os import sep
 from pathlib import Path
 from textwrap import dedent
@@ -13,7 +14,6 @@ from mlir.utils.dialects.tensor import generate, yield_ as tensor_yield, rank
 
 # noinspection PyUnresolvedReferences
 from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir.utils.util import is_311
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -27,7 +27,7 @@ def get_asm(operation):
     )
 
 
-@pytest.mark.skipif(not is_311(), reason="310 doesn't have col numbers")
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_if_replace_yield_5(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def iffoo():
@@ -72,7 +72,7 @@ module {
     filecheck(correct, asm)
 
 
-@pytest.mark.skipif(not is_311(), reason="310 doesn't have col numbers")
+@pytest.mark.skipif(sys.version_info.minor != 12, reason="only check latest")
 def test_block_args(ctx: MLIRContext):
     one = constant(1, T.index)
     two = constant(2, T.index)
