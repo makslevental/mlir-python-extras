@@ -1,3 +1,4 @@
+import re
 from enum import IntEnum
 from textwrap import dedent
 import pytest
