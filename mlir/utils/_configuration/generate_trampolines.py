@@ -147,7 +147,7 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
             and hasattr(obj, "OPERATION_NAME")
             and obj.__name__ not in skips
         ):
-            if obj.__module__ == _ods_common.__name__:
+            if obj.__base__ != ir.OpView:
                 # these are extension classes and we should wrap the generated class instead
                 obj = obj.__base__
             if not inspect.isfunction(obj.__init__):
