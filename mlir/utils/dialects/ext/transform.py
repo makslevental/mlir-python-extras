@@ -3,11 +3,8 @@ from typing import Optional, Union, Sequence
 from ... import types as T
 from ...meta import region_op, maybe_cast
 from ...util import get_user_code_loc, get_result_or_results
-from ....dialects._structured_transform_ops_ext import (
-    _dispatch_mixed_values,
-)
+from ....dialects.transform.structured import _dispatch_mixed_values, TileUsingForOp
 from ....dialects._structured_transform_ops_gen import (
-    TileUsingForOp,
     TileUsingForallOp,
     MatchOp,
 )
@@ -175,7 +172,7 @@ def tile_to_scf_forall(
     t = tuple(
         maybe_cast(
             get_result_or_results(
-                TileUsingForallOp.__base__(
+                TileUsingForallOp(
                     forall_op,
                     tiled_op,
                     target,

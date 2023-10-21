@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Union, Tuple, Sequence, Optional, Any
 
 import numpy as np
-from ....dialects._structured_transform_ops_ext import _get_int_array_array_attr
+from ....dialects.transform.structured import _get_int_array_array_attr
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
 from ....ir import (
     Type,

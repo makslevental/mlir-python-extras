@@ -2,7 +2,7 @@ import inspect
 from functools import partial
 from typing import Optional, Any
 
-from ....dialects._ods_common import get_default_loc_context
+from ....dialects._ods_common import get_default_loc_context, _cext
 from ....dialects.gpu import (
     AddressSpace,
     MappingId,
@@ -16,6 +16,7 @@ from ....dialects.gpu import (
     TerminatorOp,
     WaitOp,
 )
+from ....dialects._gpu_ops_gen import _Dialect
 from ....ir import (
     Type,
     Attribute,
@@ -94,6 +95,7 @@ def memory_space_attr(address_space: AddressSpace):
     return device_mapping_attr("memory_space", address_space)
 
 
+@_cext.register_operation(_Dialect, replace=True)
 class GPUModuleOp(GPUModuleOp):
     def __init__(
         self, sym_name, targets: Optional[list[Attribute]] = None, *, loc=None, ip=None
@@ -103,23 +105,16 @@ class GPUModuleOp(GPUModuleOp):
         if targets is None:
             targets = []
         _ods_context = get_default_loc_context(loc)
-        attributes = {
-            "targets": ArrayAttr.get(targets),
-            "sym_name": (
-                sym_name
-                if (
-                    issubclass(type(sym_name), Attribute)
-                    or not AttrBuilder.contains("SymbolNameAttr")
-                )
-                else AttrBuilder.get("SymbolNameAttr")(sym_name, context=_ods_context)
-            ),
-        }
-        super().__init__(
-            self.build_generic(
-                results=[], operands=[], attributes=attributes, loc=loc, ip=ip
-            )
-        )
+        super().__init__(targets=ArrayAttr.get(targets), loc=loc, ip=ip)
         self.regions[0].blocks.append()
+        self.operation.attributes["sym_name"] = (
+            sym_name
+            if (
+                issubclass(type(sym_name), Attribute)
+                or not AttrBuilder.contains("SymbolNameAttr")
+            )
+            else AttrBuilder.get("SymbolNameAttr")(sym_name, context=_ods_context)
+        )
 
     @property
     def body(self):
@@ -167,12 +162,18 @@ class GPUFuncOp(GPUFuncOp):
         loc=None,
         ip=None,
     ):
-        operands = []
-        results = []
-        attributes = {}
-        regions = None
+        super().__init__(
+            function_type=function_type,
+            arg_attrs=arg_attrs,
+            res_attrs=res_attrs,
+            workgroup_attrib_attrs=workgroup_attrib_attrs,
+            private_attrib_attrs=private_attrib_attrs,
+            loc=loc,
+            ip=ip,
+        )
+        self.operation.attributes["gpu.kernel"] = UnitAttr.get()
         _ods_context = get_default_loc_context(loc)
-        attributes["sym_name"] = (
+        self.operation.attributes["sym_name"] = (
             sym_name
             if (
                 issubclass(type(sym_name), Attribute)
@@ -180,16 +181,8 @@ class GPUFuncOp(GPUFuncOp):
             )
             else AttrBuilder.get("SymbolNameAttr")(sym_name, context=_ods_context)
         )
-        attributes["function_type"] = (
-            function_type
-            if (
-                issubclass(type(function_type), Attribute)
-                or not AttrBuilder.contains("anonymous_407")
-            )
-            else AttrBuilder.get("anonymous_407")(function_type, context=_ods_context)
-        )
         if sym_visibility is not None:
-            attributes["sym_visibility"] = (
+            self.operation.attributes["sym_visibility"] = (
                 sym_visibility
                 if (
                     issubclass(type(sym_visibility), Attribute)
@@ -197,63 +190,6 @@ class GPUFuncOp(GPUFuncOp):
                 )
                 else AttrBuilder.get("StrAttr")(sym_visibility, context=_ods_context)
             )
-        if arg_attrs is not None:
-            attributes["arg_attrs"] = (
-                arg_attrs
-                if (
-                    issubclass(type(arg_attrs), Attribute)
-                    or not AttrBuilder.contains("DictArrayAttr")
-                )
-                else AttrBuilder.get("DictArrayAttr")(arg_attrs, context=_ods_context)
-            )
-        if res_attrs is not None:
-            attributes["res_attrs"] = (
-                res_attrs
-                if (
-                    issubclass(type(res_attrs), Attribute)
-                    or not AttrBuilder.contains("DictArrayAttr")
-                )
-                else AttrBuilder.get("DictArrayAttr")(res_attrs, context=_ods_context)
-            )
-        if workgroup_attrib_attrs is not None:
-            attributes["workgroup_attrib_attrs"] = (
-                workgroup_attrib_attrs
-                if (
-                    issubclass(type(workgroup_attrib_attrs), Attribute)
-                    or not AttrBuilder.contains("DictArrayAttr")
-                )
-                else AttrBuilder.get("DictArrayAttr")(
-                    workgroup_attrib_attrs, context=_ods_context
-                )
-            )
-        if private_attrib_attrs is not None:
-            attributes["private_attrib_attrs"] = (
-                private_attrib_attrs
-                if (
-                    issubclass(type(private_attrib_attrs), Attribute)
-                    or not AttrBuilder.contains("DictArrayAttr")
-                )
-                else AttrBuilder.get("DictArrayAttr")(
-                    private_attrib_attrs, context=_ods_context
-                )
-            )
-
-        attributes["gpu.kernel"] = UnitAttr.get()
-
-        _ods_successors = None
-        super().__init__(
-            self.build_generic(
-                attributes=attributes,
-                results=results,
-                operands=operands,
-                successors=_ods_successors,
-                regions=regions,
-                loc=loc,
-                ip=ip,
-            )
-        )
-
-    pass
 
 
 class LaunchOp(LaunchOp):
@@ -272,32 +208,26 @@ class LaunchOp(LaunchOp):
         _ods_context = get_default_loc_context(loc)
         if async_dependencies is None:
             async_dependencies = []
-        results = [gpu_async_token()] * len(async_dependencies)
+        async_token = None
+        if len(async_dependencies):
+            async_token = gpu_async_token()
         grid_size_x, grid_size_y, grid_size_z = grid_size
         block_size_x, block_size_y, block_size_z = block_size
 
-        regions = None
-        _ods_successors = None
         super().__init__(
-            self.build_generic(
-                attributes={},
-                results=results,
-                operands=[
-                    async_dependencies,
-                    grid_size_x,
-                    grid_size_y,
-                    grid_size_z,
-                    block_size_x,
-                    block_size_y,
-                    block_size_z,
-                    dynamic_shared_memory_size,
-                ],
-                successors=_ods_successors,
-                regions=regions,
-                loc=loc,
-                ip=ip,
-            )
+            async_token,
+            async_dependencies,
+            grid_size_x,
+            grid_size_y,
+            grid_size_z,
+            block_size_x,
+            block_size_y,
+            block_size_z,
+            dynamicSharedMemorySize=dynamic_shared_memory_size,
+            loc=loc,
+            ip=ip,
         )
+        self.regions[0].blocks.append(*[T.index for _ in range(12)])
 
 
 def launch_(
@@ -323,7 +253,6 @@ def launch_(
         loc=loc,
         ip=ip,
     )
-    launch_op.regions[0].blocks.append(*[T.index for _ in range(12)])
     return launch_op
 
 
@@ -347,46 +276,29 @@ class LaunchFuncOp(LaunchFuncOp):
         if loc is None:
             loc = get_user_code_loc()
         _ods_context = get_default_loc_context(loc)
-        attributes = {
-            "kernel": (
-                kernel
-                if (
-                    issubclass(type(kernel), Attribute)
-                    or not AttrBuilder.contains("SymbolRefAttr")
-                )
-                else AttrBuilder.get("SymbolRefAttr")(kernel, context=_ods_context)
-            )
-        }
-
         if async_dependencies is None:
             async_dependencies = []
-        results = [gpu_async_token()] * len(async_dependencies)
+        async_token = None
+        if len(async_dependencies):
+            async_token = gpu_async_token()
         grid_size_x, grid_size_y, grid_size_z = grid_size
         block_size_x, block_size_y, block_size_z = block_size
 
-        regions = None
-        _ods_successors = None
         super().__init__(
-            self.build_generic(
-                attributes=attributes,
-                results=results,
-                operands=[
-                    async_dependencies,
-                    grid_size_x,
-                    grid_size_y,
-                    grid_size_z,
-                    block_size_x,
-                    block_size_y,
-                    block_size_z,
-                    dynamic_shared_memory_size,
-                    kernel_operands,
-                    async_object,
-                ],
-                successors=_ods_successors,
-                regions=regions,
-                loc=loc,
-                ip=ip,
-            )
+            async_token,
+            async_dependencies,
+            kernel,
+            grid_size_x,
+            grid_size_y,
+            grid_size_z,
+            block_size_x,
+            block_size_y,
+            block_size_z,
+            kernel_operands,
+            dynamicSharedMemorySize=dynamic_shared_memory_size,
+            asyncObject=async_object,
+            loc=loc,
+            ip=ip,
         )
 
 

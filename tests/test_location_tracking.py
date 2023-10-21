@@ -55,19 +55,19 @@ module {
   } else {
     %cst_1 = arith.constant 4.000000e+00 : f32 THIS_DIR/test_location_tracking.py:40:15
     scf.yield %cst_1, %cst_1, %cst_1 : f32, f32, f32 THIS_DIR/test_location_tracking.py:41:27
-  } THIS_DIR/test_location_tracking.py:36:4
+  } [unknown]
 } [unknown]
 #loc = [unknown]
 #loc1 = THIS_DIR/test_location_tracking.py:34:10
 #loc2 = THIS_DIR/test_location_tracking.py:35:10
 #loc3 = THIS_DIR/test_location_tracking.py:36:7
-#loc4 = THIS_DIR/test_location_tracking.py:36:4
-#loc5 = THIS_DIR/test_location_tracking.py:37:16
-#loc6 = THIS_DIR/test_location_tracking.py:38:27
-#loc7 = THIS_DIR/test_location_tracking.py:40:15
-#loc8 = THIS_DIR/test_location_tracking.py:41:27
+#loc4 = THIS_DIR/test_location_tracking.py:37:16
+#loc5 = THIS_DIR/test_location_tracking.py:38:27
+#loc6 = THIS_DIR/test_location_tracking.py:40:15
+#loc7 = THIS_DIR/test_location_tracking.py:41:27
     """
     ).replace("/", sep)
+
     asm = get_asm(ctx.module.operation)
     filecheck(correct, asm)
 

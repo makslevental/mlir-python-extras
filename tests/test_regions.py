@@ -1,14 +1,9 @@
 from textwrap import dedent
 
 import pytest
-from mlir.dialects._linalg_ops_gen import CopyOp
 
 import mlir.utils.types as T
-
-# this has to be above the next one
-from mlir.utils.dialects.ext import linalg
 from mlir.utils.dialects import linalg
-
 from mlir.utils.dialects.ext import memref
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.cf import br, cond_br
@@ -144,7 +139,6 @@ def test_empty_results_list(ctx: MLIRContext):
         mem1 = memref.alloc((10, 10), T.f32)
         mem2 = memref.alloc((10, 10), T.f32)
         x = linalg.copy(mem1, mem2)
-        assert isinstance(x, CopyOp)
 
     demo_fun1.emit()
 

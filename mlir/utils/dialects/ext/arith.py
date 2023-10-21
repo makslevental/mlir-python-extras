@@ -13,7 +13,7 @@ from ....dialects._arith_enum_gen import (
     CmpIPredicate,
     _arith_cmpipredicateattr,
 )
-from ....dialects._arith_ops_ext import _is_integer_like_type
+from ....dialects.arith import _is_integer_like_type
 from ....dialects._ods_common import get_op_result_or_value
 from ....dialects.linalg.opdsl.lang.emitter import (
     _is_floating_point_type,

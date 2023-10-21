@@ -196,23 +196,21 @@ def test_basic_tile(ctx):
             %18 = arith.cmpi eq, %17, %c0 : index
             %19 = arith.ori %18, %10 : i1
             %20 = affine.apply #map11(%12, %3, %16, %14)
-            %21 = scf.if %19 -> (tensor<?x?xf32>) {
+            %21 = scf.if %19 -> (tensor<2x?xf32>) {
               %generated = tensor.generate %3 {
               ^bb0(%arg6: index, %arg7: index):
                 tensor.yield %arg1 : f32
               } : tensor<2x?xf32>
-              %cast_0 = tensor.cast %generated : tensor<2x?xf32> to tensor<?x?xf32>
-              scf.yield %cast_0 : tensor<?x?xf32>
+              scf.yield %generated : tensor<2x?xf32>
             } else {
               %extracted_slice = tensor.extract_slice %arg0[%6, %14] [%9, %17] [1, 1] : tensor<4x16xf32> to tensor<?x?xf32>
               %padded = tensor.pad %extracted_slice low[%4, %12] high[%11, %20] {
               ^bb0(%arg6: index, %arg7: index):
                 tensor.yield %arg1 : f32
-              } : tensor<?x?xf32> to tensor<?x?xf32>
-              scf.yield %padded : tensor<?x?xf32>
+              } : tensor<?x?xf32> to tensor<2x?xf32>
+              scf.yield %padded : tensor<2x?xf32>
             }
-            %cast = tensor.cast %21 : tensor<?x?xf32> to tensor<2x?xf32>
-            %inserted_slice = tensor.insert_slice %cast into %arg5[%arg2, %arg4] [2, %3] [1, 1] : tensor<2x?xf32> into tensor<12x23xf32>
+            %inserted_slice = tensor.insert_slice %21 into %arg5[%arg2, %arg4] [2, %3] [1, 1] : tensor<2x?xf32> into tensor<12x23xf32>
             scf.yield %inserted_slice : tensor<12x23xf32>
           }
           scf.yield %2 : tensor<12x23xf32>

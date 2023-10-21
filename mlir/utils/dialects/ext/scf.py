@@ -11,7 +11,6 @@ from ...ast.canonicalize import (
     StrictTransformer,
     Canonicalizer,
     BytecodePatcher,
-    OpCode,
 )
 from ...ast.util import ast_call, set_lineno
 from ...dialects.ext.arith import constant, index_cast
@@ -19,9 +18,14 @@ from ...dialects.ext.gpu import get_device_mapping_array_attr
 from ...dialects.scf import yield_ as yield__, reduce_return, condition
 from ...meta import region_adder, region_op, maybe_cast
 from ...util import get_result_or_results, get_user_code_loc
-from ....dialects._ods_common import get_op_results_or_values, get_default_loc_context
+from ....dialects._ods_common import (
+    get_op_results_or_values,
+    get_default_loc_context,
+    _cext,
+)
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
 from ....dialects.scf import (
+    _Dialect,
     IfOp,
     ForOp,
     ForallOp,
@@ -75,6 +79,7 @@ def _for(
 for_ = region_op(_for, terminator=yield__)
 
 
+@_cext.register_operation(_Dialect, replace=True)
 class ForallOp(ForallOp):
     def __init__(
         self,
@@ -93,38 +98,23 @@ class ForallOp(ForallOp):
         else:
             results = shared_outs = []
         iv_types = [IndexType.get()] * len(lower_bounds)
-        dynamic_lower_bounds = []
-        dynamic_upper_bounds = []
-        dynamic_steps = []
         context = get_default_loc_context(loc)
-        attributes = {
-            "staticLowerBound": _denseI64ArrayAttr(lower_bounds, context),
-            "staticUpperBound": _denseI64ArrayAttr(upper_bounds, context),
-            "staticStep": _denseI64ArrayAttr(steps, context),
-        }
+        mapping = None
         if device_mapping is not None:
-            attributes["mapping"] = get_device_mapping_array_attr(device_mapping)
+            mapping = get_device_mapping_array_attr(device_mapping)
 
         super().__init__(
-            self.build_generic(
-                regions=1,
-                results=results,
-                operands=[
-                    get_op_results_or_values(o)
-                    for o in [
-                        dynamic_lower_bounds,
-                        dynamic_upper_bounds,
-                        dynamic_steps,
-                        # lower_bounds,
-                        # upper_bounds,
-                        # steps,
-                        shared_outs,
-                    ]
-                ],
-                attributes=attributes,
-                loc=loc,
-                ip=ip,
-            )
+            results_=results,
+            dynamicLowerBound=[],
+            dynamicUpperBound=[],
+            dynamicStep=[],
+            staticLowerBound=_denseI64ArrayAttr(lower_bounds, context),
+            staticUpperBound=_denseI64ArrayAttr(upper_bounds, context),
+            staticStep=_denseI64ArrayAttr(steps, context),
+            outputs=shared_outs,
+            mapping=mapping,
+            loc=loc,
+            ip=ip,
         )
         self.regions[0].blocks.append(*iv_types, *results)
 
@@ -139,11 +129,10 @@ class ForallOp(ForallOp):
         return self.body.arguments
 
 
+@_cext.register_operation(_Dialect, replace=True)
 class InParallelOp(InParallelOp):
     def __init__(self, *, loc=None, ip=None):
-        super().__init__(
-            self.build_generic(regions=1, results=[], operands=[], loc=loc, ip=ip)
-        )
+        super().__init__(loc=loc, ip=ip)
         self.regions[0].blocks.append(*[])
 
     @property
@@ -288,16 +277,13 @@ class ParallelOp(ParallelOp):
         results = [i.type for i in inits]
         iv_types = [IndexType.get()] * len(lower_bounds)
         super().__init__(
-            self.build_generic(
-                regions=1,
-                results=results,
-                operands=[
-                    get_op_results_or_values(o)
-                    for o in [lower_bounds, upper_bounds, steps, inits]
-                ],
-                loc=loc,
-                ip=ip,
-            )
+            results,
+            lower_bounds,
+            upper_bounds,
+            steps,
+            inits,
+            loc=loc,
+            ip=ip,
         )
         self.regions[0].blocks.append(*iv_types)
 
@@ -351,11 +337,7 @@ def while__(cond: Value, *, loc=None, ip=None):
 
 class ReduceOp(ReduceOp):
     def __init__(self, operand, *, loc=None, ip=None):
-        super().__init__(
-            self.build_generic(
-                regions=1, results=[], operands=[operand], loc=loc, ip=ip
-            )
-        )
+        super().__init__(operand, loc=loc, ip=ip)
         self.regions[0].blocks.append(operand.type, operand.type)
 
 

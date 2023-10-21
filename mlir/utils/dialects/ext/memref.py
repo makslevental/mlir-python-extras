@@ -64,7 +64,7 @@ def load(mem: Value, indices: Sequence[Value | int], *, loc=None, ip=None):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
     return maybe_cast(
-        get_result_or_results(memref.LoadOp.__base__(mem, indices, loc=loc, ip=ip))
+        get_result_or_results(memref.LoadOp(mem, indices, loc=loc, ip=ip))
     )
 
 
