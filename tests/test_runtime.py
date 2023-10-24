@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from mlir.ir import (
     UnitAttr,
+    Module
 )
 from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
@@ -81,7 +82,7 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
     }
     """
     )
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
     A = np.ones((4, 4)).astype(np.float32)
     AA = ctypes.pointer(ctypes.pointer(get_unranked_memref_descriptor(A)))
@@ -707,6 +708,8 @@ def _memref_tiled_add(K, D, ctx: MLIRContext, backend: LLVMJITBackend):
     )
     filecheck(correct, module)
 
+    module = Module.parse(str(module))
+
     module = backend.compile(
         module,
         kernel_name=memfoo.__name__,
@@ -797,7 +800,7 @@ def test_linalg(ctx: MLIRContext, backend: LLVMJITBackend):
         }
         return
       }
-    } 
+    }
     """
     )
     filecheck(correct, module)

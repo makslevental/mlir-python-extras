@@ -6,7 +6,7 @@ from contextlib import ExitStack
 from io import StringIO
 from typing import Optional
 
-from ...ir import StringAttr
+from ...ir import StringAttr, Module
 from ...passmanager import PassManager
 
 from ..context import disable_multithreading
@@ -32,6 +32,8 @@ def run_pipeline(
     print_pipeline=False,
     verify=True,
 ):
+    module = Module.parse(str(module))
+
     if isinstance(pipeline, Pipeline):
         pipeline = str(pipeline)
     """Runs `pipeline` on `module`, with a nice repro report if it fails."""
