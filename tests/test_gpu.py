@@ -372,7 +372,7 @@ def test_launch_op(ctx: MLIRContext):
             sum[bx] = reduced
             return
 
-    run_pipeline(ctx.module, Pipeline().cse())
+    module = run_pipeline(ctx.module, Pipeline().cse())
     correct = dedent(
         """\
     module {
@@ -428,7 +428,7 @@ def test_launch_op(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_launch_op_reduce_op(ctx: MLIRContext):
@@ -460,7 +460,7 @@ def test_launch_op_reduce_op(ctx: MLIRContext):
             sum[bx] = reduced
             return
 
-    run_pipeline(ctx.module, Pipeline().cse())
+    module = run_pipeline(ctx.module, Pipeline().cse())
 
     correct = dedent(
         """\
@@ -515,4 +515,4 @@ def test_launch_op_reduce_op(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)

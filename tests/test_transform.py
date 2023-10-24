@@ -70,7 +70,7 @@ def test_basic_unroll(ctx: MLIRContext):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .add_pass("test-transform-dialect-interpreter")
@@ -107,7 +107,7 @@ def test_basic_unroll(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_basic_tile(ctx):
@@ -147,7 +147,7 @@ def test_basic_tile(ctx):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .add_pass("test-transform-dialect-interpreter")
@@ -220,7 +220,7 @@ def test_basic_tile(ctx):
     }
     """
     )
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_linalg_tile(ctx: MLIRContext):
@@ -257,7 +257,7 @@ def test_linalg_tile(ctx: MLIRContext):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .add_pass("test-transform-dialect-interpreter")
@@ -292,7 +292,7 @@ def test_linalg_tile(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
@@ -329,7 +329,7 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .add_pass("test-transform-dialect-interpreter")
@@ -366,7 +366,7 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_common_extension_sugar(ctx: MLIRContext):
@@ -407,7 +407,7 @@ def test_common_extension_sugar(ctx: MLIRContext):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .add_pass("test-transform-dialect-interpreter")
@@ -425,7 +425,7 @@ def test_common_extension_sugar(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_apply_cse(ctx: MLIRContext):
@@ -483,7 +483,7 @@ def test_apply_cse(ctx: MLIRContext):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .transform_dialect_interpreter()
@@ -512,7 +512,7 @@ def test_apply_cse(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)
 
 
 def test_two_schedules(ctx: MLIRContext):
@@ -579,7 +579,7 @@ def test_two_schedules(ctx: MLIRContext):
     )
     filecheck(correct, ctx.module)
 
-    run_pipeline(
+    module = run_pipeline(
         ctx.module,
         Pipeline()
         .transform_dialect_interpreter(debug_transform_root_tag="tile_outer")
@@ -622,4 +622,4 @@ def test_two_schedules(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, ctx.module)
+    filecheck(correct, module)

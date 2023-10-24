@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 from ... import _mlir_libs
 from ...dialects.func import FuncOp, CallOp
-from ...ir import UnitAttr, Module, MemRefType
+from ...ir import UnitAttr, Module, MemRefType, InsertionPoint
 
 try:
     from ...execution_engine import ExecutionEngine
@@ -233,7 +233,8 @@ class LLVMJITBackend:
         kernel_func = find_ops(module.operation, cb, single=True)
 
         if generate_return_consumer:
-            return_consumer = make_return_consumer(kernel_func)
+            with InsertionPoint(module.body):
+                return_consumer = make_return_consumer(kernel_func)
         else:
 
             def find_return_consumer(module):
@@ -245,7 +246,8 @@ class LLVMJITBackend:
 
         kernel_func.attributes["llvm.emit_c_interface"] = UnitAttr.get()
         if generate_kernel_wrapper:
-            make_kernel_wrapper(kernel_func, return_consumer)
+            with InsertionPoint(module.body):
+                make_kernel_wrapper(kernel_func, return_consumer)
 
         if return_consumer:
             self.return_func_name = return_consumer.attributes["sym_name"].value
