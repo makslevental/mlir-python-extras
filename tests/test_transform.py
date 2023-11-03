@@ -16,7 +16,7 @@ from mlir.utils.dialects.ext.tensor import pad
 from mlir.utils.dialects.ext.transform import (
     sequence,
     unroll,
-    get_parent_for,
+    get_parent,
     match,
     tile,
     tile_to_scf_forall,
@@ -44,7 +44,7 @@ def test_basic_unroll(ctx: MLIRContext):
     @sequence(target_tag="basic")
     def basic(target):
         m = match(target, ["arith.addi"])
-        loop = get_parent_for(m)
+        loop = get_parent(m, op_name="scf.for")
         unroll(loop, 4)
 
     correct = dedent(
@@ -62,7 +62,7 @@ def test_basic_unroll(ctx: MLIRContext):
       transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
       ^bb0(%arg0: !pdl.operation):
         %0 = transform.structured.match ops{["arith.addi"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %1 = transform.loop.get_parent_for %0 : (!transform.any_op) -> !pdl.operation
+        %1 = get_parent_op %0 {op_name = "scf.for"} : (!transform.any_op) -> !pdl.operation
         transform.loop.unroll %1 {factor = 4 : i64} : !pdl.operation
       }
     }

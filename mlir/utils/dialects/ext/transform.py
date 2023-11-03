@@ -14,7 +14,8 @@ from ....dialects.transform import (
     FailurePropagationMode,
     YieldOp,
 )
-from ....dialects.transform.loop import GetParentForOp, LoopUnrollOp
+from ....dialects.transform.loop import LoopUnrollOp
+from ....dialects.transform import GetParentOp
 from ....ir import (
     Type,
     Value,
@@ -68,13 +69,31 @@ sequence = region_op(sequence_, terminator=YieldOp)
 StrOrAttrList = Sequence[Union[StringAttr, str]]
 
 
-def get_parent_for(target: Value, *, num_loops=None, loc=None, ip=None):
+def get_parent(
+    target: Value,
+    *,
+    isolated_from_above: bool = False,
+    op_name: Optional[str] = None,
+    deduplicate: bool = False,
+    nth_parent: int = 1,
+    loc=None,
+    ip=None,
+):
     if loc is None:
         loc = get_user_code_loc()
 
     return maybe_cast(
         get_result_or_results(
-            GetParentForOp(T.pdl_operation, target, num_loops=num_loops, loc=loc, ip=ip)
+            GetParentOp(
+                T.pdl_operation,
+                target,
+                isolated_from_above=isolated_from_above,
+                op_name=op_name,
+                deduplicate=deduplicate,
+                nth_parent=nth_parent,
+                loc=loc,
+                ip=ip,
+            )
         )
     )
 
