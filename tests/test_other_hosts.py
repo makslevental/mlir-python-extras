@@ -1,4 +1,3 @@
-import re
 from enum import IntEnum
 from textwrap import dedent
 import pytest
@@ -44,8 +43,9 @@ if aie_bindings_not_installed():
     pytest.skip("aie not install", allow_module_level=True)
 
 
-import aie.mlir.utils.types as T
-from aie.mlir.ir import (
+import aie.utils.types as T
+from aie.ir import (
+    Attribute,
     AttrBuilder,
     IntegerAttr,
     IntegerType,
@@ -57,11 +57,13 @@ from aie.mlir.ir import (
     TypeAttr,
     Value,
     register_attribute_builder,
+    _i8Attr,
+    _i32Attr,
 )
-from aie.mlir.utils.dialects.ext.cf import br
-from aie.mlir.utils.runtime.passes import run_pipeline, Pipeline
-from aie.mlir.utils.context import mlir_mod_ctx
-from aie.mlir.utils.dialects.aie import (
+from aie.utils.dialects.ext.cf import br
+from aie.utils.runtime.passes import run_pipeline, Pipeline
+from aie.utils.context import mlir_mod_ctx
+from aie.utils.dialects.aie import (
     CoreOp,
     ObjectFifoCreateOp,
     ObjectFifoLinkOp,
@@ -73,18 +75,18 @@ from aie.mlir.utils.dialects.aie import (
     device,
     end,
 )
-from aie.mlir.utils.dialects.ext.arith import constant
-from aie.mlir.utils.dialects.ext.memref import load
-from aie.mlir.utils.dialects.memref import store
-from aie.mlir.utils.dialects.ext.func import func
-from aie.mlir.utils.meta import region_op, maybe_cast, bb
+from aie.utils.dialects.ext.arith import constant
+from aie.utils.dialects.ext.memref import load
+from aie.utils.dialects.memref import store
+from aie.utils.dialects.ext.func import func
+from aie.utils.meta import region_op, maybe_cast, bb
 
 # noinspection PyUnresolvedReferences
-from aie.mlir.utils.testing import filecheck, MLIRContext
-from aie.mlir.utils.util import get_user_code_loc, get_result_or_results
+from aie.utils.testing import filecheck, MLIRContext
+from aie.utils.util import get_user_code_loc, get_result_or_results
 
-from aie.mlir.utils.ast.canonicalize import canonicalize
-from aie.mlir.utils.dialects.ext.scf import range_, canonicalizer
+from aie.utils.ast.canonicalize import canonicalize
+from aie.utils.dialects.ext.scf import range_, canonicalizer
 import aie
 
 
@@ -164,7 +166,9 @@ def object_fifo(
                 producer_tile,
                 consumer_tiles,
                 elem_number,
-                elem_type,
+                TypeAttr.get(elem_type),
+                [],
+                [[]],
                 loc=loc,
                 ip=ip,
             )
@@ -250,6 +254,30 @@ def object_fifo_port(x, context):
 @register_attribute_builder("anonymous_459")
 def object_fifo_type_attr(x, context):
     return TypeAttr.get(x)
+
+
+register_attribute_builder("AIEI32Attr")(_i32Attr)
+register_attribute_builder("AIEI8Attr")(_i8Attr)
+
+
+def dim_tuple_attr_builder(wrap, stepsize):
+    return Attribute.parse(f"#AIE.DimTuple<{wrap}, {stepsize}>")
+
+
+@register_attribute_builder("AIE_DimTupleArrayAttr")
+def dim_tuple_array_attr_builder(tups: list[tuple], context=None):
+    tups = list(map(lambda t: dim_tuple_attr_builder(*t), tups))
+    return Attribute.parse(
+        f'#AIE<DimTupleArray[{", ".join(map(str, tups))}]>', context=context
+    )
+
+
+@register_attribute_builder("AIE_DimTupleArrayArrayAttr")
+def dim_tuple_array_array_attr_builder(tup_arrs: list[list[tuple]], context=None):
+    tup_arrs = list(map(dim_tuple_array_attr_builder, tup_arrs))
+    return Attribute.parse(
+        f'#AIE<DimTupleArrayArray[{", ".join(map(str, tup_arrs))}]>', context=context
+    )
 
 
 def test_basic(ctx: MLIRContext):
@@ -424,5 +452,5 @@ def test_bbs(ctx: MLIRContext):
     """
     )
 
-    run_pipeline(ctx.module, Pipeline().cse())
-    filecheck(correct, ctx.module)
+    module = run_pipeline(ctx.module, Pipeline().cse())
+    filecheck(correct, module)
