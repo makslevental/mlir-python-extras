@@ -48,11 +48,8 @@ def get_result_or_results(
 def get_user_code_loc(user_base: Optional[Path] = None):
     from .. import utils
 
-    try:
-        Context.current
-    except ValueError as e:
-        assert e.args[0] == "No current Context"
-        return None
+    if Context.current is None:
+        return
 
     mlir_utils_root_path = Path(utils.__path__[0])
 
