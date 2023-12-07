@@ -31,7 +31,6 @@ def test_jax_trampolines_smoke():
         math,
         memref,
         mhlo,
-        ml_program,
         scf,
         sparse_tensor,
         stablehlo,
