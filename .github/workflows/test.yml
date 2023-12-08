@@ -83,11 +83,6 @@ jobs:
           HOST_MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[test,jax] -v
           jaxlib-mlir-python-utils-generate-all-upstream-trampolines
 
-          pip install aie -f https://github.com/Xilinx/mlir-aie/releases/expanded_assets/latest-wheels --no-index
-          HOST_MLIR_PYTHON_PACKAGE_PREFIX=aie pip install . -v
-          aie-python-utils-generate-all-upstream-trampolines
-          aie-python-utils-generate-trampolines aie.dialects.aie
-
       - name: Test
         shell: bash
         run: |
