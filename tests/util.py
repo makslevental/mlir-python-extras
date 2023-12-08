@@ -1,5 +1,3 @@
-
-
 def jax_not_installed():
     try:
         from jaxlib import mlir
@@ -15,18 +13,6 @@ def jax_not_installed():
 def mlir_bindings_not_installed():
     try:
         import mlir.utils
-
-        # don't skip
-        return False
-
-    except ImportError:
-        # skip
-        return True
-
-
-def aie_bindings_not_installed():
-    try:
-        import aie
 
         # don't skip
         return False
