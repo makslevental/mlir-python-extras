@@ -4,10 +4,10 @@ from pip._internal.req import parse_requirements
 from setuptools import setup
 
 # TODO: find from extras maybe
-HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get("HOST_MLIR_PYTHON_PACKAGE_PREFIX", "mlir")
-PACKAGE_NAME = (
-    f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-utils"
+HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
+    "HOST_MLIR_PYTHON_PACKAGE_PREFIX", "mlir"
 )
+PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-utils"
 
 
 def load_requirements(fname):
@@ -32,11 +32,5 @@ setup(
     package_dir={
         # lhs is package namespace, rhs is path (relative to this setup.py)
         f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.utils": "mlir/utils",
-    },
-    entry_points={
-        "console_scripts": [
-            f"{PACKAGE_NAME}-generate-trampolines = {HOST_MLIR_PYTHON_PACKAGE_PREFIX}.utils._configuration:generate_trampolines.generate_trampolines",
-            f"{PACKAGE_NAME}-generate-all-upstream-trampolines = {HOST_MLIR_PYTHON_PACKAGE_PREFIX}.utils._configuration:generate_trampolines.generate_all_upstream_trampolines",
-        ],
     },
 )
