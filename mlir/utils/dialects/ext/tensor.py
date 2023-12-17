@@ -224,7 +224,11 @@ class Tensor(ArithValue):
                 return self, other
             elif isinstance(other, Scalar):
                 other = tensor.splat(
-                    RankedTensorType.get(self.shape, other.dtype), other, loc=loc, ip=ip
+                    RankedTensorType.get(self.shape, other.dtype),
+                    other,
+                    [],
+                    loc=loc,
+                    ip=ip,
                 )
                 return self, other
 
