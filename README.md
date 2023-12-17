@@ -108,18 +108,6 @@ The few main features/affordances:
       See [mlir_utils.types](https://github.com/makslevental/mlir-python-utils/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_utils/types.py) for details.
       \
       &nbsp;
-4. `register_value_caster` (enables `C[i, j]` above)
-   \
-   &nbsp;
-   1. This is a mechanism for registering a python wrapper class that should wrap an `ir.Value` when that `ir.Value` is fetched using `ir.Operation.results`.
-      They are primarily called by the generated wrappers.
-      They enable you to associate "creative" methods with the `ir.Value` (like `__add__` or `__getitem__`). 
-      They are keyed on the `mlir::TypeID` of the `ir.Type` of the `ir.Value` (through `ir.Type.typeid`, or more robustly, through `ir.Type.static_typeid`).
-      \
-      \
-      See [mlir_utils.types](https://github.com/makslevental/mlir-python-utils/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_utils/types.py) for details.
-      \
-      &nbsp;
 4. `Pipeline()`
    \
    &nbsp;
@@ -139,22 +127,17 @@ But, open an issue if something isn't clear.
 
 ## Install
 
-First
-
-```shell
-$ HOST_MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX> pip install git+https://github.com/makslevental/mlir-python-utils
-```
-
 This package is meant to work in concert with host bindings.
-Practically speaking that means you need to have *some* package installed that includes mlir python bindings, **and you need to `mlir-python-utils-generate-all-upstream-trampolines`**.
-So after pip-installing you need to
+Practically speaking that means you need to have *some* package installed that includes mlir python bindings.
+
+So
+
 ```shell
-$ <YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX>-mlir-python-utils-generate-all-upstream-trampolines
+$ YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX> pip install git+https://github.com/makslevental/mlir-python-utils
 ```
+
 where `YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the package prefix for your chosen host bindings.
 **When in doubt about this prefix**, it is everything up until `ir` when you import your bindings, e.g., in `import torch_mlir.ir`, `torch_mlir` is the `HOST_MLIR_PYTHON_PACKAGE_PREFIX` for the torch-mlir bindings.
-Thus, for torch-mlir host bindings, you would execute `torch-mlir-mlir-python-utils-generate-all-upstream-trampolines`.
-Note, the underscore in `torch_mlir` becomes a dash in `torch-mlir-mlir-python-utils-generate-all-upstream-trampolines`.
 
 If you don't have any such package, but you want to experiment anyway, you can install the "stock" upstream bindings first:
 
@@ -166,7 +149,6 @@ and then
 
 ```shell
 $ pip install git+https://github.com/makslevental/mlir-python-utils
-$ mlir-python-utils-generate-all-upstream-trampolines
 ```
 
 ## Examples/Demo
