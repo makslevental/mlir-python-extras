@@ -28,9 +28,8 @@ setup(
         "mlir": ["mlir-python-bindings"],
     },
     python_requires=">=3.10",
-    ###
+    # lhs is package namespace, rhs is path (relative to this setup.py)
     package_dir={
-        # lhs is package namespace, rhs is path (relative to this setup.py)
         f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.utils": "mlir/utils",
     },
 )
