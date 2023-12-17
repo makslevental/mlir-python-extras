@@ -4,9 +4,7 @@ from pip._internal.req import parse_requirements
 from setuptools import setup
 
 # TODO: find from extras maybe
-HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
-    "HOST_MLIR_PYTHON_PACKAGE_PREFIX", "mlir"
-)
+HOST_MLIR_PYTHON_PACKAGE_PREFIX = "aie"
 PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-extras"
 
 
