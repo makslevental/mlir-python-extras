@@ -6,8 +6,8 @@ import mlir.utils.types as T
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.func import func
 from mlir.utils.dialects.ext.nvgpu import tensormap_descriptor
-from mlir.utils.dialects.memref import cast
-from mlir.utils.dialects.nvgpu import tma_create_descriptor
+from mlir.dialects.memref import cast
+from mlir.dialects.nvgpu import tma_create_descriptor
 
 # noinspection PyUnresolvedReferences
 from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext

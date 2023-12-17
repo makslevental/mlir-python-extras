@@ -13,7 +13,7 @@ from mlir.utils.dialects.ext.scf import (
     yield_,
     canonicalizer,
 )
-from mlir.utils.dialects.memref import subview
+from mlir.dialects.memref import subview
 
 # noinspection PyUnresolvedReferences
 from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext

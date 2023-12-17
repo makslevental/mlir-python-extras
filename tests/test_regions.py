@@ -3,17 +3,20 @@ from textwrap import dedent
 import pytest
 
 import mlir.utils.types as T
-from mlir.utils.dialects import linalg
+from mlir.utils.dialects.ext import linalg
 from mlir.utils.dialects.ext import memref
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.cf import br, cond_br
 from mlir.utils.dialects.ext.func import func
 from mlir.utils.dialects.ext.tensor import S
-from mlir.utils.dialects.func import return_
-from mlir.utils.dialects.memref import alloca_scope, alloca_scope_return
-from mlir.utils.dialects.scf import execute_region, yield_ as scf_yield
-from mlir.utils.dialects.tensor import generate, yield_ as tensor_yield
-from mlir.utils.dialects.tensor import rank
+from mlir.dialects.func import return_
+from mlir.dialects.memref import alloca_scope, alloca_scope_return
+from mlir.utils.dialects.ext.memref import alloca_scope
+from mlir.dialects.scf import yield_ as scf_yield
+from mlir.utils.dialects.ext.scf import execute_region
+from mlir.dialects.tensor import yield_ as tensor_yield
+from mlir.utils.dialects.ext.tensor import generate
+from mlir.dialects.tensor import rank
 from mlir.utils.meta import bb
 
 # noinspection PyUnresolvedReferences
@@ -28,7 +31,7 @@ def test_simple_region_op(ctx: MLIRContext):
     @execute_region([])
     def demo_region():
         one = constant(1)
-        scf_yield()
+        scf_yield([])
 
     ctx.module.operation.verify()
     filecheck(
@@ -50,12 +53,12 @@ def test_no_args_decorator(ctx: MLIRContext):
     @alloca_scope([])
     def demo_scope1():
         one = constant(1)
-        alloca_scope_return()
+        alloca_scope_return([])
 
-    @alloca_scope
+    @alloca_scope([])
     def demo_scope2():
         one = constant(2)
-        alloca_scope_return()
+        alloca_scope_return([])
 
     ctx.module.operation.verify()
     filecheck(

@@ -5,7 +5,8 @@ from mlir.dialects.gpu import MappingId
 
 from mlir.utils import types as T
 from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects import linalg, arith
+from mlir.dialects import linalg, arith
+from mlir.utils.dialects.ext import linalg
 from mlir.utils.dialects.ext.func import func
 from mlir.utils.dialects.ext.gpu import block_attr, thread_attr
 from mlir.utils.dialects.ext.scf import (
@@ -22,7 +23,7 @@ from mlir.utils.dialects.ext.transform import (
     tile_to_scf_forall,
     apply_patterns,
 )
-from mlir.utils.dialects.transform import apply_patterns_canonicalization, apply_cse
+from mlir.dialects.transform import apply_patterns_canonicalization, apply_cse
 from mlir.utils.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences

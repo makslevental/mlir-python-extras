@@ -2,11 +2,11 @@ import contextlib
 import ctypes
 import inspect
 import warnings
-from collections import defaultdict
 from functools import wraps
-from typing import Callable, Sequence
+from typing import Sequence
 
-from ..ir import Value, Type, InsertionPoint, OpResultList, OpResult, Block, OpView
+from ..ir import Type, InsertionPoint, OpResultList, OpView
+from ..dialects._ods_common import get_op_result_or_op_results
 
 try:
     from ..ir import TypeID
@@ -16,35 +16,7 @@ except ImportError:
     )
     TypeID = object
 
-from .util import (
-    get_user_code_loc,
-    get_result_or_results,
-    Successor,
-)
-
-__VALUE_CASTERS: defaultdict[
-    TypeID, list[Callable[[Value], Value | None]]
-] = defaultdict(list)
-
-
-def maybe_cast(val: Value | list[Value]):
-    """Maybe cast an ir.Value to one of Tensor, Scalar.
-
-    Args:
-      val: The ir.Value to maybe cast.
-    """
-    if isinstance(val, (tuple, list)):
-        return list(map(maybe_cast, val))
-
-    if not isinstance(val, Value) and not isinstance(val, OpResult):
-        return val
-
-    if has_value_caster(val.type.typeid):
-        for caster in get_value_caster(val.type.typeid):
-            if casted := caster(val):
-                return casted
-        warnings.warn(f"no successful casts for {val=}")
-    return val
+from .util import get_user_code_loc, Successor
 
 
 # builds the decorator
@@ -66,33 +38,6 @@ def make_maybe_no_args_decorator(decorator):
             return lambda realf: decorator(realf, *args, **kwargs)
 
     return new_dec
-
-
-def register_value_caster(typeid: TypeID, priority: int = None):
-    def wrapper(caster: Callable[[Value], Value]):
-        if not isinstance(typeid, TypeID):
-            raise ValueError(f"{typeid=} is not a TypeID")
-        if priority is None:
-            __VALUE_CASTERS[typeid].append(caster)
-        else:
-            __VALUE_CASTERS[typeid].insert(priority, caster)
-        return caster
-
-    return wrapper
-
-
-def has_value_caster(typeid: TypeID):
-    if not isinstance(typeid, TypeID):
-        raise ValueError(f"{typeid=} is not a TypeID")
-    if not typeid in __VALUE_CASTERS:
-        return False
-    return True
-
-
-def get_value_caster(typeid: TypeID):
-    if not has_value_caster(typeid):
-        raise ValueError(f"no registered caster for {typeid=}")
-    return __VALUE_CASTERS[typeid]
 
 
 @contextlib.contextmanager
@@ -119,9 +64,10 @@ def bb(*preds: tuple[Successor | OpView]):
             for i, b in enumerate(p.block.owner.successors):
                 if i == p.pos:
                     p.op.successors[i] = block
+                    p.block = block
                     break
     with InsertionPoint(block):
-        yield block, [maybe_cast(a) for a in block.arguments]
+        yield block, list(block.arguments)
 
 
 def op_region_builder(op, op_region, terminator=None):
@@ -144,9 +90,7 @@ def op_region_builder(op, op_region, terminator=None):
             op_region.blocks.append(*types, arg_locs=arg_locs)
 
         with InsertionPoint(op_region.blocks[0]):
-            results = body_builder(
-                *[maybe_cast(a) for a in op_region.blocks[0].arguments]
-            )
+            results = body_builder(*list(op_region.blocks[0].arguments))
 
         with InsertionPoint(list(op_region.blocks)[-1]):
             if terminator is not None:
@@ -157,11 +101,11 @@ def op_region_builder(op, op_region, terminator=None):
                     res.append(results)
                 terminator(res)
 
-        res = get_result_or_results(op)
+        res = get_op_result_or_op_results(op)
         if isinstance(res, (OpResultList, list, tuple)):
-            return tuple(map(maybe_cast, res))
+            return tuple(res)
         else:
-            return maybe_cast(res)
+            return res
 
     return builder_wrapper
 

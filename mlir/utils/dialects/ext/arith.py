@@ -14,7 +14,7 @@ from ....dialects._arith_enum_gen import (
     _arith_cmpipredicateattr,
 )
 from ....dialects.arith import _is_integer_like_type
-from ....dialects._ods_common import get_op_result_or_value
+from ....dialects._ods_common import get_op_result_or_value, get_op_result_or_op_results
 from ....dialects.linalg.opdsl.lang.emitter import (
     _is_floating_point_type,
     _is_integer_type,
@@ -43,14 +43,8 @@ from ....ir import (
     FloatAttr,
 )
 
-from ...util import get_result_or_results, get_user_code_loc
-from ...meta import register_value_caster, maybe_cast
-
-try:
-    from ...dialects.arith import *
-except ModuleNotFoundError:
-    pass
-
+from ...util import get_user_code_loc
+from ...._mlir_libs._mlir import register_value_caster
 from ...types import infer_mlir_type, mlir_type_to_np_dtype
 
 
@@ -87,19 +81,17 @@ def constant(
 
     if _is_complex_type(type):
         value = complex(value)
-        return maybe_cast(
-            get_result_or_results(
-                complex_dialect.ConstantOp(
-                    type,
-                    list(
-                        map(
-                            lambda x: FloatAttr.get(type.element_type, x),
-                            [value.real, value.imag],
-                        )
-                    ),
-                    loc=loc,
-                    ip=ip,
-                )
+        return get_op_result_or_op_results(
+            complex_dialect.ConstantOp(
+                type,
+                list(
+                    map(
+                        lambda x: FloatAttr.get(type.element_type, x),
+                        [value.real, value.imag],
+                    )
+                ),
+                loc=loc,
+                ip=ip,
             )
         )
 
@@ -120,8 +112,8 @@ def constant(
             type=type,
         )
 
-    return maybe_cast(
-        get_result_or_results(arith_dialect.ConstantOp(type, value, loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        arith_dialect.ConstantOp(type, value, loc=loc, ip=ip)
     )
 
 
@@ -136,8 +128,8 @@ def index_cast(
         loc = get_user_code_loc()
     if to is None:
         to = IndexType.get()
-    return maybe_cast(
-        get_result_or_results(arith_dialect.IndexCastOp(to, value, loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        arith_dialect.IndexCastOp(to, value, loc=loc, ip=ip)
     )
 
 
