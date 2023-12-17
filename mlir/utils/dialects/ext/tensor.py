@@ -15,15 +15,12 @@ from ....ir import (
 )
 
 from ... import types as T
-from ...dialects import tensor
+from ....dialects import tensor
 from ...dialects.ext.arith import ArithValue, Scalar, constant
-from ...meta import (
-    register_value_caster,
-    region_op,
-    _update_caller_vars,
-    maybe_cast,
-)
-from ...util import get_result_or_results, get_user_code_loc
+from ...meta import region_op, _update_caller_vars
+from ...._mlir_libs._mlir import register_value_caster
+from ...util import get_user_code_loc
+from ....dialects._ods_common import get_op_result_or_op_results
 
 S = ShapedType.get_dynamic_size()
 
@@ -31,8 +28,8 @@ S = ShapedType.get_dynamic_size()
 def empty(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-    return maybe_cast(
-        get_result_or_results(tensor.EmptyOp(sizes, element_type, loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        tensor.EmptyOp(sizes, element_type, loc=loc, ip=ip)
     )
 
 
@@ -247,6 +244,8 @@ class _Indexer:
     def is_full(self):
         return all(
             isinstance(idx, slice)
+            # TODO(max): could also work for constant Scalar
+            and all([isinstance(x, int) for x in [idx.start, idx.stop, idx.step]])
             and len(range(*idx.indices(self.in_shape[i]))) == self.in_shape[i]
             for i, idx in enumerate(self.indices)
         )
@@ -704,3 +703,7 @@ def pad_(
 
 
 pad = region_op(pad_, terminator=lambda args: tensor.YieldOp(args[0]))
+
+generate = region_op(
+    lambda result, dynamic_extents: tensor.GenerateOp(result, dynamic_extents)
+)

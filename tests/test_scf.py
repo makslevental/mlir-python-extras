@@ -25,7 +25,8 @@ from mlir.utils.dialects.ext.scf import (
     while___,
 )
 from mlir.utils.dialects.ext.tensor import empty, Tensor
-from mlir.utils.dialects.memref import alloca_scope, alloca_scope_return
+from mlir.dialects.memref import alloca_scope_return
+from mlir.utils.dialects.ext.memref import alloca_scope
 
 # noinspection PyUnresolvedReferences
 from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext

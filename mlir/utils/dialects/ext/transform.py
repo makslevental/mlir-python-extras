@@ -1,8 +1,8 @@
 from typing import Optional, Union, Sequence
 
 from ... import types as T
-from ...meta import region_op, maybe_cast
-from ...util import get_user_code_loc, get_result_or_results
+from ...meta import region_op
+from ...util import get_user_code_loc
 from ....dialects.transform.structured import _dispatch_mixed_values, TileUsingForOp
 from ....dialects._structured_transform_ops_gen import (
     TileUsingForallOp,
@@ -22,6 +22,7 @@ from ....ir import (
     Operation,
     StringAttr,
 )
+from ....dialects._ods_common import get_op_result_or_op_results
 
 
 def sequence_(
@@ -82,18 +83,16 @@ def get_parent(
     if loc is None:
         loc = get_user_code_loc()
 
-    return maybe_cast(
-        get_result_or_results(
-            GetParentOp(
-                T.pdl_operation,
-                target,
-                isolated_from_above=isolated_from_above,
-                op_name=op_name,
-                deduplicate=deduplicate,
-                nth_parent=nth_parent,
-                loc=loc,
-                ip=ip,
-            )
+    return get_op_result_or_op_results(
+        GetParentOp(
+            T.pdl_operation,
+            target,
+            isolated_from_above=isolated_from_above,
+            op_name=op_name,
+            deduplicate=deduplicate,
+            nth_parent=nth_parent,
+            loc=loc,
+            ip=ip,
         )
     )
 
@@ -101,8 +100,8 @@ def get_parent(
 def unroll(target: Value, factor=None, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-    return maybe_cast(
-        get_result_or_results(LoopUnrollOp(target, factor=factor, loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        LoopUnrollOp(target, factor=factor, loc=loc, ip=ip)
     )
 
 
@@ -118,18 +117,16 @@ def match(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return maybe_cast(
-        get_result_or_results(
-            MatchOp(
-                T.transform_any_op,
-                target,
-                ops=ops,
-                interface=interface,
-                op_attrs=op_attrs,
-                filter_result_type=filter_result_type,
-                loc=loc,
-                ip=ip,
-            )
+    return get_op_result_or_op_results(
+        MatchOp(
+            T.transform_any_op,
+            target,
+            ops=ops,
+            interface=interface,
+            op_attrs=op_attrs,
+            filter_result_type=filter_result_type,
+            loc=loc,
+            ip=ip,
         )
     )
 
@@ -146,8 +143,8 @@ def tile(
         loc = get_user_code_loc()
 
     t = tuple(
-        maybe_cast(
-            get_result_or_results(
+        (
+            get_op_result_or_op_results(
                 TileUsingForOp(
                     target,
                     sizes=sizes,
@@ -189,8 +186,8 @@ def tile_to_scf_forall(
     tiled_op = forall_op = target.type
 
     t = tuple(
-        maybe_cast(
-            get_result_or_results(
+        (
+            get_op_result_or_op_results(
                 TileUsingForallOp(
                     forall_op,
                     tiled_op,

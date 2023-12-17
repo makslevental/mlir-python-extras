@@ -67,11 +67,9 @@ class FindOperands(ast.NodeVisitor):
 # TODO(max): ops that have symboltables need to be classes but that requires some upstream support for statically
 # identifying such ops
 def generate_op_trampoline(op_class):
-    from ..util import (
-        get_result_or_results,
-        get_user_code_loc,
-    )
-    from ..meta import maybe_cast, region_op
+    from ..util import get_user_code_loc
+    from ...dialects._ods_common import get_op_result_or_op_results
+    from ..meta import region_op
 
     _mod = ast.parse(dedent(inspect.getsource(op_class.__init__)))
     init_fn = next(n for n in _mod.body if isinstance(n, ast.FunctionDef))
@@ -106,7 +104,7 @@ def generate_op_trampoline(op_class):
         decorator_list = []
         body += [
             ast.parse(
-                f"return {maybe_cast.__name__}({get_result_or_results.__name__}({ast.unparse(ast_call(op_class_name, args.args, keywords))}))"
+                f"return {get_op_result_or_op_results.__name__}({ast.unparse(ast_call(op_class_name, args.args, keywords))})"
             ).body[0]
         ]
 
@@ -134,9 +132,9 @@ def generate_op_trampoline(op_class):
 
 def generate_dialect_trampolines_from_module(input_module, skips: set):
     from .. import util, meta
-    from ..util import get_result_or_results, get_user_code_loc
-    from ..meta import region_op, maybe_cast
-    from ...dialects import _ods_common
+    from ..util import get_user_code_loc
+    from ..meta import region_op
+    from ...dialects._ods_common import get_op_result_or_op_results
     from ... import ir
 
     skips.update({"_Dialect"})
@@ -174,13 +172,13 @@ def generate_dialect_trampolines_from_module(input_module, skips: set):
             module=util.__name__,
             names=[
                 ast.alias(f.__name__)
-                for f in [get_result_or_results, get_user_code_loc]
+                for f in [get_op_result_or_op_results, get_user_code_loc]
             ],
             level=0,
         ),
         ast.ImportFrom(
             module=meta.__name__,
-            names=[ast.alias(f.__name__) for f in [maybe_cast, region_op]],
+            names=[ast.alias(f.__name__) for f in [region_op]],
             level=0,
         ),
     ]
@@ -259,10 +257,10 @@ def generate_trampolines(
 def generate_linalg(mod_path):
     from ... import dialects as mlir_dialects
 
-    from .. import dialects, util, meta
+    from .. import dialects, util
     from ...dialects.linalg import DefinedOpCallable, OperandKind
+    from ...dialects._ods_common import get_op_result_or_op_results
     from ..util import get_user_code_loc
-    from ..meta import maybe_cast
 
     linalg_modu = __import__(mod_path, fromlist=["*"])
 
@@ -279,11 +277,6 @@ def generate_linalg(mod_path):
             ast.ImportFrom(
                 module=util.__name__,
                 names=[ast.alias(f.__name__) for f in [get_user_code_loc]],
-                level=0,
-            ),
-            ast.ImportFrom(
-                module=meta.__name__,
-                names=[ast.alias(f.__name__) for f in [maybe_cast]],
                 level=0,
             ),
         ]
@@ -306,11 +299,10 @@ def generate_linalg(mod_path):
             ]
 
             keywords = _keywords + [ast.keyword("outs", ast.List(outputs))]
-            # body = [ast.Str(op_callable.op_def.metadata.doc)]
             body = [ast.parse(f"if loc is None: loc = {get_user_code_loc.__name__}()")]
             body += [
                 ast.parse(
-                    f"return {maybe_cast.__name__}({ast.unparse(ast_call('linalg.' + name, inputs, keywords))})"
+                    f"return {ast.unparse(ast_call('linalg.' + name, inputs, keywords))}"
                 ).body[0]
             ]
             n = ast.FunctionDef(

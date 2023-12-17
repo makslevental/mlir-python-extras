@@ -29,22 +29,6 @@ except ImportError:
     TypeID = object
 
 
-def get_result_or_results(
-    op: type(None) | OpView | Value,
-) -> type(None) | Value | OpResultList | OpResult | OpView:
-    if op is None:
-        return
-    if isinstance(op, Value):
-        return op
-    return (
-        list(get_op_results_or_values(op))
-        if len(op.operation.results) > 1
-        else get_op_result_or_value(op)
-        if len(op.operation.results) > 0
-        else op
-    )
-
-
 def get_user_code_loc(user_base: Optional[Path] = None):
     from .. import utils
 

@@ -5,14 +5,16 @@ from typing import Tuple, Sequence, Optional, Union
 from ....ir import Type, Value, MemRefType, ShapedType, MLIRError
 
 from ... import types as T
-from ...dialects import memref, arith
+from ....dialects import memref, arith
 from ...dialects.ext.arith import Scalar, constant
 from ...dialects.ext.tensor import (
     _indices_to_indexer,
     compute_result_shape_reassoc_list,
 )
-from ...meta import register_value_caster, maybe_cast
-from ...util import get_user_code_loc, get_result_or_results
+from ...meta import region_op
+from ...._mlir_libs._mlir import register_value_caster
+from ...util import get_user_code_loc
+from ....dialects._ods_common import get_op_result_or_op_results
 
 S = ShapedType.get_dynamic_size()
 
@@ -29,19 +31,15 @@ def _alloc(
         loc = get_user_code_loc()
     dynamic_sizes = []
     result_type = T.memref(*sizes, element_type)
-    return maybe_cast(
-        get_result_or_results(op_ctor(result_type, dynamic_sizes, [], loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        op_ctor(result_type, dynamic_sizes, [], loc=loc, ip=ip)
     )
 
 
 def alloc(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-    return maybe_cast(
-        get_result_or_results(
-            _alloc(memref.AllocOp, sizes, element_type, loc=loc, ip=ip)
-        )
-    )
+    return _alloc(memref.AllocOp, sizes, element_type, loc=loc, ip=ip)
 
 
 def alloca(
@@ -49,10 +47,8 @@ def alloca(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return maybe_cast(
-        get_result_or_results(
-            _alloc(memref.AllocaOp, sizes, element_type, loc=loc, ip=ip)
-        )
+    return get_op_result_or_op_results(
+        _alloc(memref.AllocaOp, sizes, element_type, loc=loc, ip=ip)
     )
 
 
@@ -63,9 +59,7 @@ def load(mem: Value, indices: Sequence[Value | int], *, loc=None, ip=None):
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
-    return maybe_cast(
-        get_result_or_results(memref.LoadOp(mem, indices, loc=loc, ip=ip))
-    )
+    return get_op_result_or_op_results(memref.LoadOp(mem, indices, loc=loc, ip=ip))
 
 
 def store(
@@ -77,8 +71,8 @@ def store(
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
-    return maybe_cast(
-        get_result_or_results(memref.StoreOp(value, mem, indices, loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        memref.StoreOp(value, mem, indices, loc=loc, ip=ip)
     )
 
 
@@ -286,7 +280,7 @@ def _subview(
         static_sizes = [None] * len(indexer.in_shape)
         static_strides = [None] * len(indexer.in_shape)
         for i, ind in enumerate(indexer.indices):
-            maybe_size = maybe_cast(ind.stop.owner.operands[1])
+            maybe_size = ind.stop.owner.operands[1]
             if (
                 isinstance(ind.start.owner.opview, arith.MulIOp)
                 and isinstance(ind.stop.owner.opview, arith.MulIOp)
@@ -349,3 +343,6 @@ def _copy_to_subview(
     ), f"Expected matching shape for dest subview {dest_subview.shape} and source {source.shape=}"
 
     return memref.copy(source, dest_subview, loc=loc, ip=ip)
+
+
+alloca_scope = region_op(memref.AllocaScopeOp)

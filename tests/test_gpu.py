@@ -21,11 +21,11 @@ from mlir.utils.dialects.ext.memref import alloc
 from mlir.utils.dialects.ext.memref import load, store
 from mlir.utils.dialects.ext.scf import canonicalizer
 from mlir.utils.dialects.ext.scf import forall, in_parallel_
-from mlir.utils.dialects.gpu import host_register
+from mlir.dialects.gpu import host_register
 from mlir.utils.dialects.ext.gpu import all_reduce, wait
-from mlir.utils.dialects.llvm import mlir_zero
-from mlir.utils.dialects.math import fma
-from mlir.utils.dialects.memref import cast
+from mlir.dialects.llvm import mlir_zero
+from mlir.dialects.math import fma
+from mlir.dialects.memref import cast
 from mlir.utils.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences

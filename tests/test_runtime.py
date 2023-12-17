@@ -5,16 +5,13 @@ from textwrap import dedent
 
 import numpy as np
 import pytest
-from mlir.ir import (
-    UnitAttr,
-    Module
-)
+from mlir.ir import UnitAttr, Module
 from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
 import mlir.utils.types as T
 from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects import linalg
-from mlir.utils.dialects.arith import sitofp, index_cast
+from mlir.utils.dialects.ext import linalg
+from mlir.dialects.arith import sitofp, index_cast
 from mlir.utils.dialects.ext.arith import constant
 from mlir.utils.dialects.ext.func import func
 from mlir.utils.dialects.ext.memref import load, store, S
@@ -22,7 +19,7 @@ from mlir.utils.dialects.ext.scf import (
     canonicalizer,
     range_,
 )
-from mlir.utils.dialects.memref import cast
+from mlir.dialects.memref import cast
 from mlir.utils.runtime.passes import Pipeline, run_pipeline
 from mlir.utils.runtime.refbackend import (
     LLVMJITBackend,
@@ -822,3 +819,54 @@ def test_linalg(ctx: MLIRContext, backend: LLVMJITBackend):
 
     invoker.memfoo_capi_wrapper(AA, BB, CC)
     assert np.array_equal(A + B, C)
+
+
+def test_linalg_tensor(ctx: MLIRContext, backend: LLVMJITBackend):
+    K = 256
+    D = 32
+    F = K // D
+    ranked_tensor_kxk_f32 = T.tensor(K, K, T.f32)
+
+    @func
+    @canonicalize(using=canonicalizer)
+    def tenfoo(
+        A: ranked_tensor_kxk_f32, B: ranked_tensor_kxk_f32, C: ranked_tensor_kxk_f32
+    ):
+        x = linalg.add(A, B, C)
+        print(x)
+
+    tenfoo.emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @tenfoo(%arg0: tensor<256x256xf32>, %arg1: tensor<256x256xf32>, %arg2: tensor<256x256xf32>) {
+        %0 = linalg.add ins(%arg0, %arg1 : tensor<256x256xf32>, tensor<256x256xf32>) outs(%arg2 : tensor<256x256xf32>) -> tensor<256x256xf32>
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+    # TODO(max)
+    # module = backend.compile(
+    #     ctx.module,
+    #     kernel_name=tenfoo.__name__,
+    #     pipeline=Pipeline()
+    #     .bufferize()
+    #     .convert_linalg_to_loops()
+    #     .bufferize()
+    #     .lower_to_llvm(),
+    #     generate_kernel_wrapper=True,
+    #     generate_return_consumer=True,
+    # )
+    # invoker = backend.load(module)
+    # A = np.random.randint(0, 10, (K, K)).astype(np.float32)
+    # AA = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(A)))
+    # B = np.random.randint(0, 10, (K, K)).astype(np.float32)
+    # BB = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(B)))
+    # C = np.zeros((K, K)).astype(np.float32)
+    # CC = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(C)))
+    #
+    # invoker.memfoo_capi_wrapper(AA, BB, CC)
+    # # assert np.array_equal(A + B, C)

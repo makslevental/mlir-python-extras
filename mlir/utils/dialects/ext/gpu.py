@@ -32,14 +32,14 @@ from ....ir import (
 from ... import types as T
 from ...dialects.ext.arith import constant
 from ...dialects.ext.func import FuncBase
-from ...dialects.gpu import block_id, module_end
+from ....dialects.gpu import block_id, module_end
 from ...meta import (
     ModuleMeta,
     make_maybe_no_args_decorator,
-    maybe_cast,
     region_op,
 )
-from ...util import get_user_code_loc, get_result_or_results
+from ....dialects._ods_common import get_op_result_or_op_results
+from ...util import get_user_code_loc
 
 
 def block_id_x():
@@ -318,8 +318,8 @@ class GPUFunc(FuncBase):
                     size[i] = constant(s, index=True)
 
         loc = get_user_code_loc()
-        return maybe_cast(
-            get_result_or_results(
+        return (
+            get_op_result_or_op_results(
                 LaunchFuncOp(
                     [self.qualname, self.func_name]
                     if self.qualname is not None
@@ -409,8 +409,8 @@ def all_reduce__(value: Value, *, op=None, uniform=None, loc=None, ip=None):
 
 
 def all_reduce_(value: Value, *, op=None, uniform=None, loc=None, ip=None):
-    return maybe_cast(
-        get_result_or_results(
+    return (
+        get_op_result_or_op_results(
             all_reduce__(value, op=op, uniform=uniform, loc=loc, ip=ip)
         )
     )
@@ -425,6 +425,6 @@ def wait(async_dependencies: Optional[list[Value]] = None, *, loc=None, ip=None)
     if async_dependencies is None:
         async_dependencies = []
     async_token = gpu_async_token()
-    return maybe_cast(
-        get_result_or_results(WaitOp(async_token, async_dependencies, loc=loc, ip=ip))
+    return (
+        get_op_result_or_op_results(WaitOp(async_token, async_dependencies, loc=loc, ip=ip))
     )

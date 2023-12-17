@@ -23,7 +23,7 @@ except:
 
 
 from .. import types as T
-from ..dialects.memref import cast
+from ...dialects.memref import cast
 from ..runtime.passes import Pipeline, run_pipeline
 from ..types import (
     memref_type_to_np_dtype,

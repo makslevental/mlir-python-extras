@@ -15,11 +15,12 @@ from ...ast.canonicalize import (
 from ...ast.util import ast_call, set_lineno
 from ...dialects.ext.arith import constant, index_cast
 from ...dialects.ext.gpu import get_device_mapping_array_attr
-from ...dialects.scf import yield_ as yield__, reduce_return, condition
-from ...meta import region_adder, region_op, maybe_cast
-from ...util import get_result_or_results, get_user_code_loc
+from ....dialects.scf import yield_ as yield__, reduce_return, condition
+from ...meta import region_adder, region_op
+from ...util import get_user_code_loc
 from ....dialects._ods_common import (
     get_op_results_or_values,
+    get_op_result_or_op_results,
     get_default_loc_context,
     _cext,
 )
@@ -33,6 +34,7 @@ from ....dialects.scf import (
     InParallelOp,
     ReduceOp,
     WhileOp,
+    ExecuteRegionOp,
 )
 from ....ir import (
     InsertionPoint,
@@ -227,7 +229,7 @@ def _parfor_cm(op_ctor):
     def _base(*args, **kwargs):
         for_op = _parfor(op_ctor)(*args, **kwargs)
         block = for_op.regions[0].blocks[0]
-        block_args = tuple(map(maybe_cast, block.arguments))
+        block_args = tuple(block.arguments)
         with InsertionPoint(block):
             yield block_args
 
@@ -249,8 +251,8 @@ def range_(
     if loc is None:
         loc = get_user_code_loc()
     for_op = _for(start, stop, step, iter_args, loc=loc, ip=ip)
-    iv = maybe_cast(for_op.induction_variable)
-    iter_args = tuple(map(maybe_cast, for_op.inner_iter_args))
+    iv = for_op.induction_variable
+    iter_args = tuple(for_op.inner_iter_args)
     with InsertionPoint(for_op.body):
         if len(iter_args) > 1:
             yield iv, iter_args
@@ -356,13 +358,13 @@ def yield_(*args):
     y = yield__(args)
     parent_op = y.operation.parent.opview
     if len(parent_op.results_):
-        results = get_result_or_results(parent_op)
+        results = get_op_result_or_op_results(parent_op)
         assert (
-            isinstance(results, (OpResult, OpResultList))
+            isinstance(results, (OpResultList, Value))
             or isinstance(results, list)
-            and all(isinstance(r, OpResult) for r in results)
+            and all(isinstance(r, Value) for r in results)
         ), f"api has changed: {results=}"
-        if isinstance(results, OpResult):
+        if isinstance(results, Value):
             results = [results]
         unpacked_args = args
         if any(isinstance(a, OpResultList) for a in unpacked_args):
@@ -373,7 +375,6 @@ def yield_(*args):
             if r.type == T.placeholder_opaque():
                 r.set_type(unpacked_args[i].type)
 
-        results = maybe_cast(results)
         if len(results) > 1:
             return results
         return results[0]
@@ -636,3 +637,5 @@ class SCFCanonicalizer(Canonicalizer):
 
 
 canonicalizer = SCFCanonicalizer()
+
+execute_region = region_op(ExecuteRegionOp)
