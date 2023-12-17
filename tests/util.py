@@ -12,7 +12,7 @@ def jax_not_installed():
 
 def mlir_bindings_not_installed():
     try:
-        import mlir.utils
+        import mlir.extras
 
         # don't skip
         return False

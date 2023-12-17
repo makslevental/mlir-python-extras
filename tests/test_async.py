@@ -6,11 +6,11 @@ from textwrap import dedent
 
 import pytest
 
-from mlir.utils.runtime.passes import Pipeline
-from mlir.utils.runtime.refbackend import LLVMJITBackend
+from mlir.extras.runtime.passes import Pipeline
+from mlir.extras.runtime.refbackend import LLVMJITBackend
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext, backend
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext, backend
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -21,7 +21,7 @@ pytest.mark.usefixtures("backend")
     platform.machine() == "aarch64", reason="https://github.com/numba/numba/issues/9109"
 )
 @pytest.mark.skipif(
-    platform.system() == "Windows", reason="windows can't load runner utils"
+    platform.system() == "Windows", reason="windows can't load runner extras"
 )
 def test_simple_parfor(ctx: MLIRContext, backend: LLVMJITBackend):
     module = ctx.module.parse(

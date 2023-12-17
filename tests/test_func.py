@@ -4,13 +4,13 @@ from textwrap import dedent
 
 import pytest
 
-import mlir.utils.types as T
-from mlir.utils.context import mlir_mod_ctx
-from mlir.utils.dialects.ext.arith import constant
-from mlir.utils.dialects.ext.func import func
+import mlir.extras.types as T
+from mlir.extras.context import mlir_mod_ctx
+from mlir.extras.dialects.ext.arith import constant
+from mlir.extras.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

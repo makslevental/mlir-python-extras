@@ -2,12 +2,12 @@ from textwrap import dedent
 
 import pytest
 
-import mlir.utils.types as T
-from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects.ext import scf
-from mlir.utils.dialects.ext import tensor
-from mlir.utils.dialects.ext.arith import constant, Scalar
-from mlir.utils.dialects.ext.scf import (
+import mlir.extras.types as T
+from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.dialects.ext import scf
+from mlir.extras.dialects.ext import tensor
+from mlir.extras.dialects.ext.arith import constant, Scalar
+from mlir.extras.dialects.ext.scf import (
     for_,
     range_,
     yield_,
@@ -24,12 +24,12 @@ from mlir.utils.dialects.ext.scf import (
     while__,
     while___,
 )
-from mlir.utils.dialects.ext.tensor import empty, Tensor
+from mlir.extras.dialects.ext.tensor import empty, Tensor
 from mlir.dialects.memref import alloca_scope_return
-from mlir.utils.dialects.ext.memref import alloca_scope
+from mlir.extras.dialects.ext.memref import alloca_scope
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

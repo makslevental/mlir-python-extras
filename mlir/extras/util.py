@@ -30,19 +30,19 @@ except ImportError:
 
 
 def get_user_code_loc(user_base: Optional[Path] = None):
-    from .. import utils
+    from .. import extras
 
     if Context.current is None:
         return
 
-    mlir_utils_root_path = Path(utils.__path__[0])
+    mlir_extras_root_path = Path(extras.__path__[0])
 
     prev_frame = inspect.currentframe().f_back
     if user_base is None:
         user_base = Path(prev_frame.f_code.co_filename)
 
     while prev_frame.f_back and (
-        Path(prev_frame.f_code.co_filename).is_relative_to(mlir_utils_root_path)
+        Path(prev_frame.f_code.co_filename).is_relative_to(mlir_extras_root_path)
         or Path(prev_frame.f_code.co_filename).is_relative_to(sys.prefix)
         or Path(prev_frame.f_code.co_filename).is_relative_to(user_base)
     ):

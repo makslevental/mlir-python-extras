@@ -3,11 +3,11 @@ from textwrap import dedent
 import pytest
 from mlir.dialects._gpu_enum_gen import AllReduceOperation
 
-import mlir.utils.types as T
-from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects.ext.arith import constant
-from mlir.utils.dialects.ext.func import func
-from mlir.utils.dialects.ext.gpu import (
+import mlir.extras.types as T
+from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.dialects.ext.arith import constant
+from mlir.extras.dialects.ext.func import func
+from mlir.extras.dialects.ext.gpu import (
     thread_attr as thread,
     block_id_x,
     block_id_y,
@@ -17,19 +17,19 @@ from mlir.utils.dialects.ext.gpu import (
     launch,
     all_reduce_,
 )
-from mlir.utils.dialects.ext.memref import alloc
-from mlir.utils.dialects.ext.memref import load, store
-from mlir.utils.dialects.ext.scf import canonicalizer
-from mlir.utils.dialects.ext.scf import forall, in_parallel_
+from mlir.extras.dialects.ext.memref import alloc
+from mlir.extras.dialects.ext.memref import load, store
+from mlir.extras.dialects.ext.scf import canonicalizer
+from mlir.extras.dialects.ext.scf import forall, in_parallel_
 from mlir.dialects.gpu import host_register
-from mlir.utils.dialects.ext.gpu import all_reduce, wait
+from mlir.extras.dialects.ext.gpu import all_reduce, wait
 from mlir.dialects.llvm import mlir_zero
 from mlir.dialects.math import fma
 from mlir.dialects.memref import cast
-from mlir.utils.runtime.passes import run_pipeline, Pipeline
+from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

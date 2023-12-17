@@ -3,18 +3,18 @@ from textwrap import dedent
 import pytest
 from mlir.dialects.gpu import MappingId
 
-from mlir.utils import types as T
-from mlir.utils.ast.canonicalize import canonicalize
+from mlir.extras import types as T
+from mlir.extras.ast.canonicalize import canonicalize
 from mlir.dialects import linalg, arith
-from mlir.utils.dialects.ext import linalg
-from mlir.utils.dialects.ext.func import func
-from mlir.utils.dialects.ext.gpu import block_attr, thread_attr
-from mlir.utils.dialects.ext.scf import (
+from mlir.extras.dialects.ext import linalg
+from mlir.extras.dialects.ext.func import func
+from mlir.extras.dialects.ext.gpu import block_attr, thread_attr
+from mlir.extras.dialects.ext.scf import (
     range_,
     canonicalizer,
 )
-from mlir.utils.dialects.ext.tensor import pad
-from mlir.utils.dialects.ext.transform import (
+from mlir.extras.dialects.ext.tensor import pad
+from mlir.extras.dialects.ext.transform import (
     sequence,
     unroll,
     get_parent,
@@ -24,10 +24,10 @@ from mlir.utils.dialects.ext.transform import (
     apply_patterns,
 )
 from mlir.dialects.transform import apply_patterns_canonicalization, apply_cse
-from mlir.utils.runtime.passes import run_pipeline, Pipeline
+from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

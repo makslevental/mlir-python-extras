@@ -1,11 +1,11 @@
 import pytest
 
-import mlir.utils.types as T
-from mlir.utils.dialects.ext.tensor import S
+import mlir.extras.types as T
+from mlir.extras.dialects.ext.tensor import S
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir.utils.types import tensor, memref, vector
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.types import tensor, memref, vector
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
