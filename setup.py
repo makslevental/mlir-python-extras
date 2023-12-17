@@ -7,7 +7,7 @@ from setuptools import setup
 HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
     "HOST_MLIR_PYTHON_PACKAGE_PREFIX", "mlir"
 )
-PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-utils"
+PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-extras"
 
 
 def load_requirements(fname):
@@ -30,6 +30,6 @@ setup(
     python_requires=">=3.10",
     # lhs is package namespace, rhs is path (relative to this setup.py)
     package_dir={
-        f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.utils": "mlir/utils",
+        f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras": "mlir/extras",
     },
 )

@@ -4,11 +4,11 @@ from textwrap import dedent
 import pytest
 from mlir.ir import MLIRError, Type
 
-import mlir.utils.types as T
-from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects.ext.arith import Scalar, constant
-from mlir.utils.dialects.ext.memref import alloc, S
-from mlir.utils.dialects.ext.scf import (
+import mlir.extras.types as T
+from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.dialects.ext.arith import Scalar, constant
+from mlir.extras.dialects.ext.memref import alloc, S
+from mlir.extras.dialects.ext.scf import (
     range_,
     yield_,
     canonicalizer,
@@ -16,7 +16,7 @@ from mlir.utils.dialects.ext.scf import (
 from mlir.dialects.memref import subview
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

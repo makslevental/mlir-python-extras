@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/upload-artifact@v3
         with:
-          path: ./wheelhouse/mlir_python_utils*.whl
+          path: ./wheelhouse/mlir_python_extras*.whl
 
   build_sdist:
     name: Build source distribution

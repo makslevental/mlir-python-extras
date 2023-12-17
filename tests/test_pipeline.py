@@ -1,4 +1,4 @@
-from mlir.utils.runtime.passes import cse, lower_affine, convert_arith_to_llvm
+from mlir.extras.runtime.passes import cse, lower_affine, convert_arith_to_llvm
 
 
 def test_basic():

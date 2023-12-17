@@ -8,27 +8,27 @@ import pytest
 from mlir.ir import UnitAttr, Module
 from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
-import mlir.utils.types as T
-from mlir.utils.ast.canonicalize import canonicalize
-from mlir.utils.dialects.ext import linalg
+import mlir.extras.types as T
+from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.dialects.ext import linalg
 from mlir.dialects.arith import sitofp, index_cast
-from mlir.utils.dialects.ext.arith import constant
-from mlir.utils.dialects.ext.func import func
-from mlir.utils.dialects.ext.memref import load, store, S
-from mlir.utils.dialects.ext.scf import (
+from mlir.extras.dialects.ext.arith import constant
+from mlir.extras.dialects.ext.func import func
+from mlir.extras.dialects.ext.memref import load, store, S
+from mlir.extras.dialects.ext.scf import (
     canonicalizer,
     range_,
 )
 from mlir.dialects.memref import cast
-from mlir.utils.runtime.passes import Pipeline, run_pipeline
-from mlir.utils.runtime.refbackend import (
+from mlir.extras.runtime.passes import Pipeline, run_pipeline
+from mlir.extras.runtime.refbackend import (
     LLVMJITBackend,
     convert_returns_from_ctype,
     refback_cb_attr,
 )
 
 # noinspection PyUnresolvedReferences
-from mlir.utils.testing import mlir_ctx as ctx, filecheck, MLIRContext, backend
+from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext, backend
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -36,7 +36,7 @@ pytest.mark.usefixtures("backend")
 
 
 @pytest.mark.skipif(
-    platform.system() == "Windows", reason="windows can't load runner utils"
+    platform.system() == "Windows", reason="windows can't load runner extras"
 )
 def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
     # TODO(max): ValueError: foo requires closure of length 0, not 1
@@ -443,7 +443,7 @@ def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run(
 
 
 @pytest.mark.skipif(
-    platform.system() == "Windows", reason="windows can't load runner utils"
+    platform.system() == "Windows", reason="windows can't load runner extras"
 )
 def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run_cast_np_array(
     ctx: MLIRContext, backend: LLVMJITBackend, capfd
