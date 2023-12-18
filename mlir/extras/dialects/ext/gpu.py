@@ -3,19 +3,7 @@ from functools import partial
 from typing import Optional, Any
 
 from ....dialects._ods_common import get_default_loc_context, _cext
-from ....dialects.gpu import (
-    AddressSpace,
-    MappingId,
-    GPUModuleOp,
-    GPUFuncOp,
-    LaunchFuncOp,
-    LaunchOp,
-    ReturnOp,
-    AllReduceOp,
-    YieldOp,
-    TerminatorOp,
-    WaitOp,
-)
+from ....dialects.gpu import *
 from ....dialects._gpu_ops_gen import _Dialect
 from ....ir import (
     Type,

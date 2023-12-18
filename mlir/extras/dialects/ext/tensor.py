@@ -16,6 +16,7 @@ from ....ir import (
 
 from ... import types as T
 from ....dialects import tensor
+from ....dialects.tensor import *
 from ...dialects.ext.arith import ArithValue, Scalar, constant
 from ...meta import region_op, _update_caller_vars
 from ...._mlir_libs._mlir import register_value_caster

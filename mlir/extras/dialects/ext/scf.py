@@ -4,43 +4,29 @@ from contextlib import contextmanager
 from copy import deepcopy
 from typing import Optional, Sequence, Union
 
-from bytecode import ConcreteBytecode, ConcreteInstr
+from bytecode import ConcreteBytecode
 
-from ... import types as T
 from ...ast.canonicalize import (
     StrictTransformer,
     Canonicalizer,
     BytecodePatcher,
 )
 from ...ast.util import ast_call, set_lineno
-from ...dialects.ext.arith import constant, index_cast
 from ...dialects.ext.gpu import get_device_mapping_array_attr
-from ....dialects.scf import yield_ as yield__, reduce_return, condition
 from ...meta import region_adder, region_op
 from ...util import get_user_code_loc
 from ....dialects._ods_common import (
-    get_op_results_or_values,
     get_op_result_or_op_results,
     get_default_loc_context,
     _cext,
 )
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
-from ....dialects.scf import (
-    _Dialect,
-    IfOp,
-    ForOp,
-    ForallOp,
-    ParallelOp,
-    InParallelOp,
-    ReduceOp,
-    WhileOp,
-    ExecuteRegionOp,
-)
+from ....dialects.scf import *
+from ....dialects.scf import _Dialect, yield_ as yield__, reduce_return, condition
 from ....ir import (
     InsertionPoint,
     Value,
     OpResultList,
-    OpResult,
     Operation,
     OpView,
     IndexType,
@@ -48,6 +34,7 @@ from ....ir import (
     Attribute,
     OpaqueType,
 )
+from .arith import constant, index_cast
 
 logger = logging.getLogger(__name__)
 

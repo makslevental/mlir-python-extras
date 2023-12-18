@@ -5,6 +5,7 @@ from typing import Tuple, Sequence, Optional, Union
 from ....ir import Type, Value, MemRefType, ShapedType, MLIRError
 
 from ... import types as T
+from ....dialects.memref import *
 from ....dialects import memref, arith
 from ...dialects.ext.arith import Scalar, constant
 from ...dialects.ext.tensor import (
