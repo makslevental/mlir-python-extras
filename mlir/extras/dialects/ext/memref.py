@@ -5,12 +5,10 @@ from typing import Tuple, Sequence, Optional, Union
 from ....ir import Type, Value, MemRefType, ShapedType, MLIRError
 
 from ... import types as T
+from ....dialects.memref import *
 from ....dialects import memref, arith
-from ...dialects.ext.arith import Scalar, constant
-from ...dialects.ext.tensor import (
-    _indices_to_indexer,
-    compute_result_shape_reassoc_list,
-)
+from .arith import Scalar, constant
+from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
 from ...meta import region_op
 from ...._mlir_libs._mlir import register_value_caster
 from ...util import get_user_code_loc
@@ -39,7 +37,7 @@ def _alloc(
 def alloc(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-    return _alloc(memref.AllocOp, sizes, element_type, loc=loc, ip=ip)
+    return _alloc(AllocOp, sizes, element_type, loc=loc, ip=ip)
 
 
 def alloca(
@@ -48,7 +46,7 @@ def alloca(
     if loc is None:
         loc = get_user_code_loc()
     return get_op_result_or_op_results(
-        _alloc(memref.AllocaOp, sizes, element_type, loc=loc, ip=ip)
+        _alloc(AllocaOp, sizes, element_type, loc=loc, ip=ip)
     )
 
 
@@ -59,7 +57,7 @@ def load(mem: Value, indices: Sequence[Value | int], *, loc=None, ip=None):
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
-    return get_op_result_or_op_results(memref.LoadOp(mem, indices, loc=loc, ip=ip))
+    return get_op_result_or_op_results(LoadOp(mem, indices, loc=loc, ip=ip))
 
 
 def store(
@@ -71,9 +69,7 @@ def store(
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
-    return get_op_result_or_op_results(
-        memref.StoreOp(value, mem, indices, loc=loc, ip=ip)
-    )
+    return get_op_result_or_op_results(StoreOp(value, mem, indices, loc=loc, ip=ip))
 
 
 def subview(
@@ -345,4 +341,4 @@ def _copy_to_subview(
     return memref.copy(source, dest_subview, loc=loc, ip=ip)
 
 
-alloca_scope = region_op(memref.AllocaScopeOp)
+alloca_scope = region_op(AllocaScopeOp)

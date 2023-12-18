@@ -6,6 +6,7 @@ from typing import Union, Optional
 
 import numpy as np
 from ....dialects import arith as arith_dialect
+from ....dialects.arith import *
 from ....dialects import complex as complex_dialect
 from ....dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
