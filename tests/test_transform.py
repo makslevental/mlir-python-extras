@@ -114,9 +114,9 @@ def test_basic_unroll(ctx: MLIRContext):
 def test_basic_tile(ctx):
     @func
     @canonicalize(using=canonicalizer)
-    def pad_tensor_3_4(input_tensor: T.tensor(4, 16, T.f32), pad_value: T.f32):
+    def pad_tensor_3_4(input_tensor: T.tensor(4, 16, T.f32()), pad_value: T.f32()):
         @pad(input_tensor, [3, 4], [5, 3])
-        def pad_(i: T.index, j: T.index):
+        def pad_(i: T.index(), j: T.index()):
             return pad_value
 
         return pad_
@@ -228,9 +228,9 @@ def test_linalg_tile(ctx: MLIRContext):
     @func
     @canonicalize(using=canonicalizer)
     def matmul(
-        arg0: T.tensor(4, 16, T.f32),
-        arg1: T.tensor(16, 8, T.f32),
-        out: T.tensor(4, 8, T.f32),
+        arg0: T.tensor(4, 16, T.f32()),
+        arg1: T.tensor(16, 8, T.f32()),
+        out: T.tensor(4, 8, T.f32()),
     ):
         return linalg.matmul(arg0, arg1, out)
 
@@ -300,9 +300,9 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
     @func
     @canonicalize(using=canonicalizer)
     def matmul(
-        arg0: T.tensor(4, 16, T.f32),
-        arg1: T.tensor(16, 8, T.f32),
-        out: T.tensor(4, 8, T.f32),
+        arg0: T.tensor(4, 16, T.f32()),
+        arg1: T.tensor(16, 8, T.f32()),
+        out: T.tensor(4, 8, T.f32()),
     ):
         return linalg.matmul(arg0, arg1, out)
 
@@ -373,7 +373,7 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
 def test_common_extension_sugar(ctx: MLIRContext):
     @func
     @canonicalize(using=canonicalizer)
-    def select_cmp_eq_select(arg0: T.i64, arg1: T.i64):
+    def select_cmp_eq_select(arg0: T.i64(), arg1: T.i64()):
         a = arg0 == arg1
         b = arith.select(a, arg0, arg1)
         return b
@@ -435,9 +435,9 @@ def test_apply_cse(ctx: MLIRContext):
     @func
     @canonicalize(using=canonicalizer)
     def matmul(
-        A: T.tensor(M, N, T.f32),
-        B: T.tensor(N, K, T.f32),
-        C: T.tensor(M, K, T.f32),
+        A: T.tensor(M, N, T.f32()),
+        B: T.tensor(N, K, T.f32()),
+        C: T.tensor(M, K, T.f32()),
     ):
         return linalg.matmul(A, B, C)
 
@@ -524,9 +524,9 @@ def test_two_schedules(ctx: MLIRContext):
     @func
     @canonicalize(using=canonicalizer)
     def conv_2d_nhwc_hwcf(
-        input: T.tensor(N, C_i, H, W, T.f32),
-        kernel: T.tensor(C_o, C_i, K, K, T.f32),
-        output: T.tensor(N, C_o, H - 2, W - 2, T.f32),
+        input: T.tensor(N, C_i, H, W, T.f32()),
+        kernel: T.tensor(C_o, C_i, K, K, T.f32()),
+        output: T.tensor(N, C_o, H - 2, W - 2, T.f32()),
     ):
         return linalg.conv_2d_nchw_fchw(input, kernel, output)
 

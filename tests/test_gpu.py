@@ -7,6 +7,8 @@ import mlir.extras.types as T
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
+from mlir.extras.dialects.ext.llvm import llvm_ptr_t
+
 from mlir.extras.dialects.ext.gpu import (
     thread_attr as thread,
     block_id_x,
@@ -36,8 +38,8 @@ pytest.mark.usefixtures("ctx")
 
 
 def test_basic(ctx: MLIRContext):
-    unranked_memref_f32 = T.memref(element_type=T.f32)
-    mem = cast(unranked_memref_f32, alloc((10, 10), element_type=T.f32))
+    unranked_memref_f32 = T.memref(element_type=T.f32())
+    mem = cast(unranked_memref_f32, alloc((10, 10), element_type=T.f32()))
     host_register(mem)
 
     ctx.module.operation.verify()
@@ -54,9 +56,9 @@ def test_basic(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContext):
-    x = alloc((10, 10), T.f32)
-    y = alloc((10, 10), T.f32)
-    alpha = constant(1, T.f32)
+    x = alloc((10, 10), T.f32())
+    y = alloc((10, 10), T.f32())
+    alpha = constant(1, T.f32())
 
     for i, j in forall(
         [1, 1],
@@ -104,9 +106,9 @@ def test_class(ctx: MLIRContext):
         @gpu_func
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
-            A: T.memref(M, N, T.f32),
-            B: T.memref(N, K, T.f32),
-            C: T.memref(M, K, T.f32),
+            A: T.memref(M, N, T.f32()),
+            B: T.memref(N, K, T.f32()),
+            C: T.memref(M, K, T.f32()),
         ):
             x = block_id_x()
             y = block_id_y()
@@ -146,9 +148,9 @@ def test_class_call(ctx: MLIRContext):
         @gpu_func
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
-            A: T.memref(M, N, T.f32),
-            B: T.memref(N, K, T.f32),
-            C: T.memref(M, K, T.f32),
+            A: T.memref(M, N, T.f32()),
+            B: T.memref(N, K, T.f32()),
+            C: T.memref(M, K, T.f32()),
         ):
             x = block_id_x()
             y = block_id_y()
@@ -157,9 +159,9 @@ def test_class_call(ctx: MLIRContext):
             C[x, y] = a * b
             return
 
-    a = alloc((M, N), T.f32)
-    b = alloc((N, K), T.f32)
-    c = alloc((M, K), T.f32)
+    a = alloc((M, N), T.f32())
+    b = alloc((N, K), T.f32())
+    c = alloc((M, K), T.f32())
 
     MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c)
 
@@ -204,9 +206,9 @@ def test_class_call_from_func(ctx: MLIRContext):
         @gpu_func
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
-            A: T.memref(M, N, T.f32),
-            B: T.memref(N, K, T.f32),
-            C: T.memref(M, K, T.f32),
+            A: T.memref(M, N, T.f32()),
+            B: T.memref(N, K, T.f32()),
+            C: T.memref(M, K, T.f32()),
         ):
             x = block_id_x()
             y = block_id_y()
@@ -221,9 +223,9 @@ def test_class_call_from_func(ctx: MLIRContext):
     @func(emit=True)
     @canonicalize(using=canonicalizer)
     def main():
-        a = alloc((M, N), T.f32)
-        b = alloc((N, K), T.f32)
-        c = alloc((M, K), T.f32)
+        a = alloc((M, N), T.f32())
+        b = alloc((N, K), T.f32())
+        c = alloc((M, K), T.f32())
 
         MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](
             a, b, c
@@ -275,9 +277,9 @@ def test_async_object(ctx: MLIRContext):
         @gpu_func
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
-            A: T.memref(M, N, T.f32),
-            B: T.memref(N, K, T.f32),
-            C: T.memref(M, K, T.f32),
+            A: T.memref(M, N, T.f32()),
+            B: T.memref(N, K, T.f32()),
+            C: T.memref(M, K, T.f32()),
         ):
             x = block_id_x()
             y = block_id_y()
@@ -292,12 +294,12 @@ def test_async_object(ctx: MLIRContext):
     @func(emit=True)
     @canonicalize(using=canonicalizer)
     def main():
-        a = alloc((M, N), T.f32)
-        b = alloc((N, K), T.f32)
-        c = alloc((M, K), T.f32)
+        a = alloc((M, N), T.f32())
+        b = alloc((N, K), T.f32())
+        c = alloc((M, K), T.f32())
 
         w = wait()
-        stream = mlir_zero(T.llvm_ptr)
+        stream = mlir_zero(llvm_ptr_t())
         MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](
             a,
             b,
@@ -344,14 +346,14 @@ def test_async_object(ctx: MLIRContext):
 def test_launch_op(ctx: MLIRContext):
     @func(emit=True)
     def main():
-        data = alloc((2, 6), T.i32)
-        sum = alloc((2,), T.i32)
+        data = alloc((2, 6), T.i32())
+        sum = alloc((2,), T.i32())
 
         power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
         odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
-        cast_data = cast(T.memref(T.i32), data)
+        cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
-        cast_sum = cast(T.memref(T.i32), sum)
+        cast_sum = cast(T.memref(T.i32()), sum)
         host_register(cast_sum)
 
         for i in range(6):
@@ -366,7 +368,7 @@ def test_launch_op(ctx: MLIRContext):
             val = data[bx, tx]
 
             @all_reduce(val, uniform=True)
-            def reduced(lhs: T.i32, rhs: T.i32):
+            def reduced(lhs: T.i32(), rhs: T.i32()):
                 return lhs
 
             sum[bx] = reduced
@@ -434,14 +436,14 @@ def test_launch_op(ctx: MLIRContext):
 def test_launch_op_reduce_op(ctx: MLIRContext):
     @func(emit=True)
     def main():
-        data = alloc((2, 6), T.i32)
-        sum = alloc((2,), T.i32)
+        data = alloc((2, 6), T.i32())
+        sum = alloc((2,), T.i32())
 
         power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
         odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
-        cast_data = cast(T.memref(T.i32), data)
+        cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
-        cast_sum = cast(T.memref(T.i32), sum)
+        cast_sum = cast(T.memref(T.i32()), sum)
         host_register(cast_sum)
 
         for i in range(6):

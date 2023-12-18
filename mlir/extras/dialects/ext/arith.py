@@ -43,9 +43,8 @@ from ....ir import (
     FloatAttr,
 )
 
-from ...util import get_user_code_loc
+from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
 from ...._mlir_libs._mlir import register_value_caster
-from ...types import infer_mlir_type, mlir_type_to_np_dtype
 
 
 def constant(

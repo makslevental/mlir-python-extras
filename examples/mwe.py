@@ -15,7 +15,7 @@ from mlir.extras.runtime.refbackend import LLVMJITBackend
 
 def setting_memref(ctx: MLIRContext, backend: LLVMJITBackend):
     K = 10
-    memref_i64 = T.memref(K, K, T.i64)
+    memref_i64 = T.memref(K, K, T.i64())
 
     @func
     @canonicalize(using=scf)

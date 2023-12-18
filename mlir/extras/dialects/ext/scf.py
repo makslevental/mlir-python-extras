@@ -46,9 +46,16 @@ from ....ir import (
     IndexType,
     _denseI64ArrayAttr,
     Attribute,
+    OpaqueType,
 )
 
 logger = logging.getLogger(__name__)
+
+opaque = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
+
+
+def placeholder_opaque_t():
+    return opaque("scf", "placeholder")
 
 
 def _for(
@@ -372,7 +379,7 @@ def yield_(*args):
             unpacked_args = list(unpacked_args[0])
 
         for i, r in enumerate(results):
-            if r.type == T.placeholder_opaque():
+            if r.type == placeholder_opaque_t():
                 r.set_type(unpacked_args[i].type)
 
         if len(results) > 1:
@@ -582,7 +589,7 @@ class ReplaceIfWithWith(StrictTransformer):
             and isinstance(last_statement.targets[0], ast.Tuple)
             else 0,
         )
-        results = [ast_call(T.placeholder_opaque.__name__) for _ in range(num_results)]
+        results = [ast_call(placeholder_opaque_t.__name__) for _ in range(num_results)]
         results = ast.fix_missing_locations(
             ast.copy_location(ast.Tuple(results, ctx=ast.Load()), test)
         )
@@ -620,7 +627,7 @@ class RemoveJumpsAndInsertGlobals(BytecodePatcher):
         f.__globals__[yield_.__name__] = yield_
         f.__globals__[if_ctx_manager.__name__] = if_ctx_manager
         f.__globals__[else_ctx_manager.__name__] = else_ctx_manager
-        f.__globals__[T.placeholder_opaque.__name__] = T.placeholder_opaque
+        f.__globals__[placeholder_opaque_t.__name__] = placeholder_opaque_t
         return code
 
 

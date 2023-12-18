@@ -103,11 +103,11 @@ def test_func(ctx: MLIRContext):
 
 
 def test_block_args(ctx: MLIRContext):
-    one = constant(1, T.index)
-    two = constant(2, T.index)
+    one = constant(1, T.index())
+    two = constant(2, T.index())
 
-    @generate(tensor(S, 3, S, T.f32), dynamic_extents=[one, two])
-    def demo_fun1(i: T.index, j: T.index, k: T.index):
+    @generate(tensor(S, 3, S, T.f32()), dynamic_extents=[one, two])
+    def demo_fun1(i: T.index(), j: T.index(), k: T.index()):
         one = constant(1.0)
         tensor_yield(one)
 
@@ -134,13 +134,13 @@ def test_block_args(ctx: MLIRContext):
 
 
 def test_empty_results_list(ctx: MLIRContext):
-    one = constant(1, T.index)
-    two = constant(2, T.index)
+    one = constant(1, T.index())
+    two = constant(2, T.index())
 
     @func
     def demo_fun1():
-        mem1 = memref.alloc((10, 10), T.f32)
-        mem2 = memref.alloc((10, 10), T.f32)
+        mem1 = memref.alloc((10, 10), T.f32())
+        mem2 = memref.alloc((10, 10), T.f32())
         x = linalg.copy(mem1, mem2)
 
     demo_fun1.emit()

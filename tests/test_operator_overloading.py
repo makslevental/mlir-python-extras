@@ -66,9 +66,9 @@ def test_tensor_arithmetic(ctx: MLIRContext):
     three = one + two
     assert isinstance(three, Scalar)
 
-    ten1 = empty((10, 10, 10), T.f32)
+    ten1 = empty((10, 10, 10), T.f32())
     assert isinstance(ten1, Tensor)
-    ten2 = empty((10, 10, 10), T.f32)
+    ten2 = empty((10, 10, 10), T.f32())
     assert isinstance(ten2, Tensor)
     ten3 = ten1 + ten2
     assert isinstance(ten3, Tensor)

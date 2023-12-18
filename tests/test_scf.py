@@ -23,6 +23,7 @@ from mlir.extras.dialects.ext.scf import (
     reduce,
     while__,
     while___,
+    placeholder_opaque_t,
 )
 from mlir.extras.dialects.ext.tensor import empty, Tensor
 from mlir.dialects.memref import alloca_scope_return
@@ -297,11 +298,11 @@ def test_if_ctx_manager(ctx: MLIRContext):
     # @formatter:off
     one = constant(1.0)
     two = constant(2.0)
-    with if_ctx_manager(one < two, results=[T.placeholder_opaque()]) as if_op:  # if
+    with if_ctx_manager(one < two, results=[placeholder_opaque_t()]) as if_op:  # if
         three = constant(3.0)
         res = yield_(three)
     with else_ctx_manager(if_op) as _:  # else
-        with if_ctx_manager(one < two, results=[T.placeholder_opaque()]) as if_op:  # if
+        with if_ctx_manager(one < two, results=[placeholder_opaque_t()]) as if_op:  # if
             three = constant(4.0)
             res = yield_(three)
         with else_ctx_manager(if_op) as _:  # else
@@ -2353,7 +2354,7 @@ def test_forall_3(ctx: MLIRContext):
 
 
 def test_forall_insert_slice(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32)
+    ten = empty((10, 10), T.i32())
 
     @forall_([1, 1], [2, 2], [3, 3], shared_outs=[ten])
     def forfoo(i, j, shared_outs):
@@ -2391,7 +2392,7 @@ def test_forall_insert_slice(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32)
+    ten = empty((10, 10), T.i32())
 
     @forall_([1, 1], [2, 2], [3, 3], shared_outs=[ten])
     def forfoo(i, j, shared_outs):
@@ -2429,7 +2430,7 @@ def test_forall_insert_slice_no_region(ctx: MLIRContext):
 
 
 def test_parange_no_inits(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32)
+    ten = empty((10, 10), T.i32())
 
     @parange_([1, 1], [2, 2], [3, 3], inits=[])
     def forfoo(i, j):
@@ -2457,7 +2458,7 @@ def test_parange_no_inits(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region_with_for(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32)
+    ten = empty((10, 10), T.i32())
 
     for i, j, shared_outs in forall([1, 1], [2, 2], [3, 3], shared_outs=[ten]):
         one = constant(1.0)
@@ -2494,7 +2495,7 @@ def test_forall_insert_slice_no_region_with_for(ctx: MLIRContext):
 
 
 def test_parange_no_inits_with_for(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32)
+    ten = empty((10, 10), T.i32())
 
     for i, j in parange([1, 1], [2, 2], [3, 3], inits=[]):
         one = constant(1.0)
@@ -2522,11 +2523,11 @@ def test_parange_no_inits_with_for(ctx: MLIRContext):
 
 
 def test_parange_inits_with_for(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32)
+    ten = empty((10, 10), T.i32())
 
     for i, j in parange([1, 1], [2, 2], [3, 3], inits=[ten]):
         one = constant(1.0)
-        twenty = empty((10, 10), T.i32)
+        twenty = empty((10, 10), T.i32())
 
         @reduce(twenty)
         def res(lhs: Tensor, rhs: Tensor):
@@ -2569,11 +2570,11 @@ def test_parange_inits_with_for_with_two_reduce(ctx: MLIRContext):
     for i, j in parange([1, 1], [2, 2], [3, 3], inits=[one, one]):
 
         @reduce(i)
-        def res1(lhs: T.index, rhs: T.index):
+        def res1(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
         @reduce(j)
-        def res1(lhs: T.index, rhs: T.index):
+        def res1(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
         yield_()
