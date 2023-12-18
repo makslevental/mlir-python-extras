@@ -13,6 +13,8 @@ from ....dialects.transform import (
     SequenceOp,
     FailurePropagationMode,
     YieldOp,
+    AnyOpType,
+    OperationType,
 )
 from ....dialects.transform.loop import LoopUnrollOp
 from ....dialects.transform import GetParentOp
@@ -23,6 +25,18 @@ from ....ir import (
     StringAttr,
 )
 from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects import pdl
+
+
+pdl_operation_t = lambda: pdl.OperationType.get()
+
+
+def transform_any_op_t():
+    return AnyOpType.get()
+
+
+def transform_op_t(name):
+    return OperationType.get(name)
 
 
 def sequence_(
@@ -40,7 +54,7 @@ def sequence_(
     if results_ is None:
         results_ = []
     if target is None:
-        target = T.pdl_operation
+        target = pdl_operation_t()
     # this is a misnomer - it's not about targeting a particular op
     # but about picking which transform sequence runs using
     # transform_dialect_interpreter(debug_transform_root_tag="")
@@ -52,7 +66,7 @@ def sequence_(
         failure_propagation_mode = FailurePropagationMode.Propagate
 
     if isinstance(target, str):
-        target = T.transform_op(target)
+        target = transform_op_t(target)
 
     seq_op = SequenceOp(
         failure_propagation_mode,
@@ -85,7 +99,7 @@ def get_parent(
 
     return get_op_result_or_op_results(
         GetParentOp(
-            T.pdl_operation,
+            pdl_operation_t(),
             target,
             isolated_from_above=isolated_from_above,
             op_name=op_name,
@@ -119,7 +133,7 @@ def match(
         loc = get_user_code_loc()
     return get_op_result_or_op_results(
         MatchOp(
-            T.transform_any_op,
+            transform_any_op_t(),
             target,
             ops=ops,
             interface=interface,

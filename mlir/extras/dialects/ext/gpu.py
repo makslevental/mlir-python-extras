@@ -227,7 +227,7 @@ class LaunchOp(LaunchOp):
             loc=loc,
             ip=ip,
         )
-        self.regions[0].blocks.append(*[T.index for _ in range(12)])
+        self.regions[0].blocks.append(*[T.index() for _ in range(12)])
 
 
 def launch_(

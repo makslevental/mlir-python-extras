@@ -25,7 +25,7 @@ except:
 from .. import types as T
 from ...dialects.memref import cast
 from ..runtime.passes import Pipeline, run_pipeline
-from ..types import (
+from ..util import (
     memref_type_to_np_dtype,
     mlir_type_to_ctype,
     np_dtype_to_mlir_type,

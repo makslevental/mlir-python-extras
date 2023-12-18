@@ -54,19 +54,19 @@ def test_declare_byte_rep(ctx: MLIRContext):
 
 def test_declare(ctx: MLIRContext):
     @func
-    def demo_fun1() -> T.i32:
+    def demo_fun1() -> T.i32():
         ...
 
     @func
-    def demo_fun2() -> (T.i32, T.i32):
+    def demo_fun2() -> (T.i32(), T.i32()):
         ...
 
     @func
-    def demo_fun3(x: T.i32) -> (T.i32, T.i32):
+    def demo_fun3(x: T.i32()) -> (T.i32(), T.i32()):
         ...
 
     @func
-    def demo_fun4(x: T.i32, y: T.i32) -> (T.i32, T.i32):
+    def demo_fun4(x: T.i32(), y: T.i32()) -> (T.i32(), T.i32()):
         ...
 
     demo_fun1()

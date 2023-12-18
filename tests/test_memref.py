@@ -23,7 +23,7 @@ pytest.mark.usefixtures("ctx")
 
 
 def test_simple_literal_indexing(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32)
+    mem = alloc((10, 22, 333, 4444), T.i32())
 
     w = mem[2, 4, 6, 8]
     assert isinstance(w, Scalar)
@@ -44,7 +44,7 @@ def test_simple_literal_indexing(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32)
+    mem = alloc((10, 22, 333, 4444), T.i32())
 
     w = mem[...]
     assert w == mem
@@ -67,7 +67,7 @@ def test_ellipsis_and_full_slice(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32)
+    mem = alloc((10, 22, 333, 4444), T.i32())
     w = mem[1, ...]
     w = mem[1, :, ...]
     w = mem[1, :, :, ...]
@@ -98,7 +98,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32)
+    mem = alloc((10, 22, 333, 4444), T.i32())
     w = mem[1, :]
     w = mem[1, :, :]
     w = mem[1, :, :, :]
@@ -125,7 +125,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32)
+    mem = alloc((10, 22, 333, 4444), T.i32())
 
     w = mem[:, :, :, 1]
     w = mem[:, 1, :, 1]
@@ -186,7 +186,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
 
 
 def test_none_indices(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32)
+    mem = alloc((10, 22, 333, 4444), T.i32())
     w = mem[None]
     w = mem[:, None]
     w = mem[None, None]
@@ -236,7 +236,7 @@ def test_none_indices(ctx: MLIRContext):
 
 
 def test_nontrivial_slices(ctx: MLIRContext):
-    mem = alloc((7, 22, 333, 4444), T.i32)
+    mem = alloc((7, 22, 333, 4444), T.i32())
     w = mem[:, 0:22:2]
     w = mem[:, 0:22:2, 0:330:30]
     w = mem[:, 0:22:2, 0:330:30, 0:4400:400]
@@ -256,7 +256,7 @@ def test_nontrivial_slices(ctx: MLIRContext):
 
 
 def test_nontrivial_slices_insertion(ctx: MLIRContext):
-    mem = alloc((7, 22, 333, 4444), T.i32)
+    mem = alloc((7, 22, 333, 4444), T.i32())
     w = mem[:, 0:22:2]
     mem[:, 0:22:2] = w
     w = mem[:, 0:22:2, 0:330:30]
@@ -289,7 +289,7 @@ def test_nontrivial_slices_insertion(ctx: MLIRContext):
 
 
 def test_move_slice(ctx: MLIRContext):
-    mem = alloc((8, 8), T.i32)
+    mem = alloc((8, 8), T.i32())
     w = mem[0:4, 0:4]
     mem[4:8, 4:8] = w
 
@@ -307,7 +307,7 @@ def test_move_slice(ctx: MLIRContext):
 
 
 def test_for_loops(ctx: MLIRContext):
-    mem = alloc((10, 10), T.i32)
+    mem = alloc((10, 10), T.i32())
     for i, it_mem in range_(0, 10, iter_args=[mem]):
         it_mem[i, i] = it_mem[i, i] + it_mem[i, i]
         res = yield_(it_mem)
@@ -338,7 +338,7 @@ def test_for_loops(ctx: MLIRContext):
 def test_for_loops_canonicalizer(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def tenfoo():
-        mem = alloc((10, 10), T.i32)
+        mem = alloc((10, 10), T.i32())
         for i, it_mem in range_(0, 10, iter_args=[mem]):
             it_mem[i, i] = it_mem[i, i] + it_mem[i, i]
             res = yield it_mem
@@ -371,10 +371,10 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
 
 def test_subview_mixed_offsets(ctx: MLIRContext):
     def tenfoo():
-        mem = alloc((10, 10), T.i32)
+        mem = alloc((10, 10), T.i32())
         i, j = constant(0, index=True), constant(0, index=True)
         v = subview(
-            T.memref(5, 5, T.i32),
+            T.memref(5, 5, T.i32()),
             mem,
             offsets=[i, j],
             sizes=[],

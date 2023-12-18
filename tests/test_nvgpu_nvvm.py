@@ -19,12 +19,12 @@ pytest.mark.usefixtures("ctx")
 def test_basic(ctx: MLIRContext):
     @func
     def create_tensor_map(
-        device_ptr_2d: T.memref(64, 128, element_type=T.f32),
+        device_ptr_2d: T.memref(64, 128, element_type=T.f32()),
     ):
         crd0 = constant(64, index=True)
         crd1 = constant(128, index=True)
-        device_ptr_2d_unranked = cast(T.memref(element_type=T.f32), device_ptr_2d)
-        tensor_map_2d = tensormap_descriptor(T.memref(32, 32, T.f32, memory_space=3))
+        device_ptr_2d_unranked = cast(T.memref(element_type=T.f32()), device_ptr_2d)
+        tensor_map_2d = tensormap_descriptor(T.memref(32, 32, T.f32(), memory_space=3))
         tensor_map_2d = tma_create_descriptor(
             tensor_map_2d, device_ptr_2d_unranked, [crd0, crd1]
         )
