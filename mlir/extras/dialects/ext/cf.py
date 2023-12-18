@@ -1,4 +1,4 @@
-from ....dialects.cf import BranchOp, CondBranchOp
+from ....dialects.cf import *
 from ....dialects._cf_ops_gen import _Dialect
 from ....dialects._ods_common import (
     get_op_result_or_value,

@@ -3,19 +3,7 @@ from functools import partial
 from typing import Optional, Any
 
 from ....dialects._ods_common import get_default_loc_context, _cext
-from ....dialects.gpu import (
-    AddressSpace,
-    MappingId,
-    GPUModuleOp,
-    GPUFuncOp,
-    LaunchFuncOp,
-    LaunchOp,
-    ReturnOp,
-    AllReduceOp,
-    YieldOp,
-    TerminatorOp,
-    WaitOp,
-)
+from ....dialects.gpu import *
 from ....dialects._gpu_ops_gen import _Dialect
 from ....ir import (
     Type,
@@ -30,9 +18,8 @@ from ....ir import (
 )
 
 from ... import types as T
-from ...dialects.ext.arith import constant
-from ...dialects.ext.func import FuncBase
-from ....dialects.gpu import block_id, module_end
+from .arith import constant
+from .func import FuncBase
 from ...meta import (
     ModuleMeta,
     make_maybe_no_args_decorator,
@@ -318,20 +305,18 @@ class GPUFunc(FuncBase):
                     size[i] = constant(s, index=True)
 
         loc = get_user_code_loc()
-        return (
-            get_op_result_or_op_results(
-                LaunchFuncOp(
-                    [self.qualname, self.func_name]
-                    if self.qualname is not None
-                    else [self.func_name],
-                    grid_size,
-                    block_size,
-                    kernel_operands,
-                    async_dependencies,
-                    dynamic_shared_memory_size,
-                    async_object=stream,
-                    loc=loc,
-                )
+        return get_op_result_or_op_results(
+            LaunchFuncOp(
+                [self.qualname, self.func_name]
+                if self.qualname is not None
+                else [self.func_name],
+                grid_size,
+                block_size,
+                kernel_operands,
+                async_dependencies,
+                dynamic_shared_memory_size,
+                async_object=stream,
+                loc=loc,
             )
         )
 
@@ -409,10 +394,8 @@ def all_reduce__(value: Value, *, op=None, uniform=None, loc=None, ip=None):
 
 
 def all_reduce_(value: Value, *, op=None, uniform=None, loc=None, ip=None):
-    return (
-        get_op_result_or_op_results(
-            all_reduce__(value, op=op, uniform=uniform, loc=loc, ip=ip)
-        )
+    return get_op_result_or_op_results(
+        all_reduce__(value, op=op, uniform=uniform, loc=loc, ip=ip)
     )
 
 
@@ -425,6 +408,6 @@ def wait(async_dependencies: Optional[list[Value]] = None, *, loc=None, ip=None)
     if async_dependencies is None:
         async_dependencies = []
     async_token = gpu_async_token()
-    return (
-        get_op_result_or_op_results(WaitOp(async_token, async_dependencies, loc=loc, ip=ip))
+    return get_op_result_or_op_results(
+        WaitOp(async_token, async_dependencies, loc=loc, ip=ip)
     )

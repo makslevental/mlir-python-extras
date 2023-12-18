@@ -4,7 +4,7 @@ from typing import Union, Optional
 
 from ...meta import make_maybe_no_args_decorator, op_region_builder
 from ...util import get_user_code_loc
-from ....dialects.func import FuncOp, ReturnOp, CallOp
+from ....dialects.func import *
 from ....ir import (
     InsertionPoint,
     FunctionType,
