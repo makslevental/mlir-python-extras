@@ -1,11 +1,24 @@
 from textwrap import dedent
 
 import pytest
+from mlir.dialects import linalg, arith
+from mlir.dialects import pdl
+from mlir.dialects.builtin import module
 from mlir.dialects.gpu import MappingId
+from mlir.dialects.transform import (
+    get_parent_op,
+    apply_patterns_canonicalization,
+    apply_cse,
+    any_op_t,
+    FailurePropagationMode,
+)
+from mlir.dialects.transform.extras import named_sequence, apply_patterns, sequence
+from mlir.dialects.transform.loop import loop_unroll
+from mlir.dialects.transform.structured import structured_match
+from mlir.ir import UnitAttr
 
 from mlir.extras import types as T
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.dialects import linalg, arith
 from mlir.extras.dialects.ext import linalg
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import block_attr, thread_attr
@@ -15,15 +28,10 @@ from mlir.extras.dialects.ext.scf import (
 )
 from mlir.extras.dialects.ext.tensor import pad
 from mlir.extras.dialects.ext.transform import (
-    sequence,
-    unroll,
-    get_parent,
     match,
     tile,
     tile_to_scf_forall,
-    apply_patterns,
 )
-from mlir.dialects.transform import apply_patterns_canonicalization, apply_cse
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
@@ -42,11 +50,13 @@ def test_basic_unroll(ctx: MLIRContext):
 
     loop_unroll_op.emit()
 
-    @sequence(target_tag="basic")
-    def basic(target):
-        m = match(target, ["arith.addi"])
-        loop = get_parent(m, op_name="scf.for")
-        unroll(loop, 4)
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(target: any_op_t()):
+            m = structured_match(any_op_t(), target, ops=["arith.addi"])
+            loop = get_parent_op(pdl.op_t(), m, op_name="scf.for")
+            loop_unroll(loop, 4)
 
     correct = dedent(
         """\
@@ -60,23 +70,20 @@ def test_basic_unroll(ctx: MLIRContext):
         }
         return
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["arith.addi"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %1 = get_parent_op %0 {op_name = "scf.for"} : (!transform.any_op) -> !pdl.operation
-        transform.loop.unroll %1 {factor = 4 : i64} : !pdl.operation
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["arith.addi"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %1 = transform.get_parent_op %0 {op_name = "scf.for"} : (!transform.any_op) -> !pdl.operation
+          transform.loop.unroll %1 {factor = 4 : i64} : !pdl.operation
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
-        ctx.module,
-        Pipeline()
-        .add_pass("test-transform-dialect-interpreter")
-        .add_pass("test-transform-dialect-erase-schedule"),
-    )
+    mod = run_pipeline(ctx.module, Pipeline().add_pass("transform-interpreter"))
 
     correct = dedent(
         """\
@@ -108,7 +115,7 @@ def test_basic_unroll(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_basic_tile(ctx):
@@ -123,7 +130,7 @@ def test_basic_tile(ctx):
 
     pad_tensor_3_4.emit()
 
-    @sequence(target_tag="basic")
+    @sequence([], FailurePropagationMode.Propagate, [])
     def basic(target):
         m = match(target, ["tensor.pad"])
         tiled_linalg_op, loops = tile(m, sizes=[2, 3])
