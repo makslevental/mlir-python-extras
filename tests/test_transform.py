@@ -31,7 +31,6 @@ from mlir.extras.dialects.ext.transform import (
     tile,
     tile_to_scf_forall,
 )
-from mlir.extras.meta import region_op
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences

@@ -292,7 +292,9 @@ class ParallelOp(ParallelOp):
         return self.body.arguments
 
 
-parange_ = region_op(_parfor(ParallelOp), terminator=yield__)
+parange_ = region_op(
+    _parfor(ParallelOp), terminator=lambda xs: reduce_return(xs[0]) if xs else None
+)
 parange = _parfor_cm(ParallelOp)
 
 
@@ -332,18 +334,28 @@ def while__(cond: Value, *, loc=None, ip=None):
 
 
 class ReduceOp(ReduceOp):
-    def __init__(self, operand, *, loc=None, ip=None):
-        super().__init__(operand, loc=loc, ip=ip)
-        self.regions[0].blocks.append(operand.type, operand.type)
+    def __init__(self, operands, num_reductions, *, loc=None, ip=None):
+        super().__init__(operands, num_reductions, loc=loc, ip=ip)
+        for i in range(num_reductions):
+            self.regions[i].blocks.append(operands[i].type, operands[i].type)
 
 
-def reduce_(operand, *, loc=None, ip=None):
-    if loc is None:
-        loc = get_user_code_loc()
-    return ReduceOp(operand, loc=loc, ip=ip)
+def reduce_(*operands, num_reductions=1):
+    loc = get_user_code_loc()
+    return ReduceOp(operands, num_reductions, loc=loc)
 
 
 reduce = region_op(reduce_, terminator=lambda xs: reduce_return(*xs))
+
+
+@region_adder(terminator=lambda xs: reduce_return(*xs))
+def reduce2(reduce_op):
+    return reduce_op.regions[1]
+
+
+@region_adder(terminator=lambda xs: reduce_return(*xs))
+def reduce3(reduce_op):
+    return reduce_op.regions[2]
 
 
 def yield_(*args):
