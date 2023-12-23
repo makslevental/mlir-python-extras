@@ -349,13 +349,10 @@ reduce = region_op(reduce_, terminator=lambda xs: reduce_return(*xs))
 
 
 @region_adder(terminator=lambda xs: reduce_return(*xs))
-def reduce2(reduce_op):
-    return reduce_op.regions[1]
-
-
-@region_adder(terminator=lambda xs: reduce_return(*xs))
-def reduce3(reduce_op):
-    return reduce_op.regions[2]
+def another_reduce(reduce_op):
+    for r in reduce_op.regions:
+        if len(r.blocks[0].operations) == 0:
+            return r
 
 
 def yield_(*args):

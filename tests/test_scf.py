@@ -24,8 +24,7 @@ from mlir.extras.dialects.ext.scf import (
     while__,
     while___,
     placeholder_opaque_t,
-    reduce2,
-    reduce3,
+    another_reduce,
 )
 from mlir.extras.dialects.ext.tensor import empty, Tensor
 from mlir.dialects.memref import alloca_scope_return
@@ -2573,7 +2572,7 @@ def test_parange_inits_with_for_with_two_reduce(ctx: MLIRContext):
         def res1(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
-        @reduce2(res1)
+        @another_reduce(res1)
         def res1(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
@@ -2614,11 +2613,11 @@ def test_parange_inits_with_for_with_three_reduce(ctx: MLIRContext):
         def res1(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
-        @reduce2(res1)
+        @another_reduce(res1)
         def res1(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
-        @reduce3(res1)
+        @another_reduce(res1)
         def res2(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
