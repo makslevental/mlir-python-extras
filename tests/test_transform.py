@@ -1,11 +1,23 @@
 from textwrap import dedent
 
 import pytest
+from mlir.dialects import linalg, arith
+from mlir.dialects import pdl
+from mlir.dialects.builtin import module
 from mlir.dialects.gpu import MappingId
+from mlir.dialects.transform import (
+    get_parent_op,
+    apply_patterns_canonicalization,
+    apply_cse,
+    any_op_t,
+)
+from mlir.dialects.transform.extras import named_sequence, apply_patterns, sequence
+from mlir.dialects.transform.loop import loop_unroll
+from mlir.dialects.transform.structured import structured_match
+from mlir.ir import UnitAttr
 
 from mlir.extras import types as T
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.dialects import linalg, arith
 from mlir.extras.dialects.ext import linalg
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import block_attr, thread_attr
@@ -15,15 +27,10 @@ from mlir.extras.dialects.ext.scf import (
 )
 from mlir.extras.dialects.ext.tensor import pad
 from mlir.extras.dialects.ext.transform import (
-    sequence,
-    unroll,
-    get_parent,
     match,
     tile,
     tile_to_scf_forall,
-    apply_patterns,
 )
-from mlir.dialects.transform import apply_patterns_canonicalization, apply_cse
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
@@ -42,11 +49,13 @@ def test_basic_unroll(ctx: MLIRContext):
 
     loop_unroll_op.emit()
 
-    @sequence(target_tag="basic")
-    def basic(target):
-        m = match(target, ["arith.addi"])
-        loop = get_parent(m, op_name="scf.for")
-        unroll(loop, 4)
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(target):
+            m = structured_match(any_op_t(), target, ops=["arith.addi"])
+            loop = get_parent_op(pdl.op_t(), m, op_name="scf.for")
+            loop_unroll(loop, 4)
 
     correct = dedent(
         """\
@@ -60,23 +69,20 @@ def test_basic_unroll(ctx: MLIRContext):
         }
         return
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["arith.addi"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %1 = get_parent_op %0 {op_name = "scf.for"} : (!transform.any_op) -> !pdl.operation
-        transform.loop.unroll %1 {factor = 4 : i64} : !pdl.operation
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["arith.addi"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %1 = transform.get_parent_op %0 {op_name = "scf.for"} : (!transform.any_op) -> !pdl.operation
+          transform.loop.unroll %1 {factor = 4 : i64} : !pdl.operation
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
-        ctx.module,
-        Pipeline()
-        .add_pass("test-transform-dialect-interpreter")
-        .add_pass("test-transform-dialect-erase-schedule"),
-    )
+    mod = run_pipeline(ctx.module, Pipeline().transform_interpreter())
 
     correct = dedent(
         """\
@@ -108,7 +114,7 @@ def test_basic_unroll(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_basic_tile(ctx):
@@ -123,10 +129,12 @@ def test_basic_tile(ctx):
 
     pad_tensor_3_4.emit()
 
-    @sequence(target_tag="basic")
-    def basic(target):
-        m = match(target, ["tensor.pad"])
-        tiled_linalg_op, loops = tile(m, sizes=[2, 3])
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(target):
+            m = match(target, ["tensor.pad"])
+            tiled_linalg_op, loops = tile(m, sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -138,22 +146,21 @@ def test_basic_tile(ctx):
         } : tensor<4x16xf32> to tensor<12x23xf32>
         return %padded : tensor<12x23xf32>
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["tensor.pad"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["tensor.pad"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
+    mod = run_pipeline(
         ctx.module,
-        Pipeline()
-        .add_pass("test-transform-dialect-interpreter")
-        .add_pass("test-transform-dialect-erase-schedule")
-        .canonicalize(),
+        Pipeline().transform_interpreter().canonicalize(),
     )
     correct = dedent(
         """\
@@ -221,7 +228,7 @@ def test_basic_tile(ctx):
     }
     """
     )
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_linalg_tile(ctx: MLIRContext):
@@ -236,10 +243,12 @@ def test_linalg_tile(ctx: MLIRContext):
 
     matmul.emit()
 
-    @sequence(target_tag="basic")
-    def basic(target):
-        m = match(target, ["linalg.matmul"])
-        tiled_linalg_op, loops = tile(m, sizes=[2, 3])
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(target):
+            m = match(target, ["linalg.matmul"])
+            tiled_linalg_op, loops = tile(m, sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -248,22 +257,21 @@ def test_linalg_tile(ctx: MLIRContext):
         %0 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<4x16xf32>, tensor<16x8xf32>) outs(%arg2 : tensor<4x8xf32>) -> tensor<4x8xf32>
         return %0 : tensor<4x8xf32>
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
+    mod = run_pipeline(
         ctx.module,
-        Pipeline()
-        .add_pass("test-transform-dialect-interpreter")
-        .add_pass("test-transform-dialect-erase-schedule")
-        .canonicalize(),
+        Pipeline().transform_interpreter().canonicalize(),
     )
 
     correct = dedent(
@@ -293,7 +301,7 @@ def test_linalg_tile(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
@@ -308,10 +316,12 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
 
     matmul.emit()
 
-    @sequence(target_tag="basic")
-    def basic(target):
-        m = match(target, ["linalg.matmul"])
-        tiled_linalg_op, loops = tile_to_scf_forall(m, tile_sizes=[2, 3])
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(target):
+            m = match(target, ["linalg.matmul"])
+            tiled_linalg_op, loops = tile_to_scf_forall(m, tile_sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -320,22 +330,21 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
         %0 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<4x16xf32>, tensor<16x8xf32>) outs(%arg2 : tensor<4x8xf32>) -> tensor<4x8xf32>
         return %0 : tensor<4x8xf32>
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
+    mod = run_pipeline(
         ctx.module,
-        Pipeline()
-        .add_pass("test-transform-dialect-interpreter")
-        .add_pass("test-transform-dialect-erase-schedule")
-        .canonicalize(),
+        Pipeline().transform_interpreter().canonicalize(),
     )
 
     correct = dedent(
@@ -367,7 +376,7 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_common_extension_sugar(ctx: MLIRContext):
@@ -380,13 +389,15 @@ def test_common_extension_sugar(ctx: MLIRContext):
 
     select_cmp_eq_select.emit()
 
-    @sequence(target_tag="basic")
-    def basic(target):
-        m = match(target, ["func.func"])
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(target):
+            m = match(target, ["func.func"])
 
-        @apply_patterns(m)
-        def pats():
-            apply_patterns_canonicalization()
+            @apply_patterns(m)
+            def pats():
+                apply_patterns_canonicalization()
 
     correct = dedent(
         """\
@@ -396,24 +407,23 @@ def test_common_extension_sugar(ctx: MLIRContext):
         %1 = arith.select %0, %arg0, %arg1 : i64
         return %1 : i64
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        apply_patterns to %0 {
-          transform.apply_patterns.canonicalization
-        } : !transform.any_op
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          transform.apply_patterns to %0 {
+            transform.apply_patterns.canonicalization
+          } : !transform.any_op
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
+    mod = run_pipeline(
         ctx.module,
-        Pipeline()
-        .add_pass("test-transform-dialect-interpreter")
-        .add_pass("test-transform-dialect-erase-schedule")
-        .canonicalize(),
+        Pipeline().transform_interpreter().canonicalize(),
     )
 
     correct = dedent(
@@ -426,7 +436,7 @@ def test_common_extension_sugar(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_apply_cse(ctx: MLIRContext):
@@ -443,22 +453,24 @@ def test_apply_cse(ctx: MLIRContext):
 
     matmul.emit()
 
-    @sequence(target_tag="basic")
-    def basic(variant_op):
-        matmul = match(variant_op, ["linalg.matmul"])
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("__transform_main", [any_op_t()], [])
+        def basic(variant_op):
+            matmul = match(variant_op, ["linalg.matmul"])
 
-        forall_op, tiled_generic = tile_to_scf_forall(
-            matmul, tile_sizes=[2], mapping=[block_attr(MappingId.DimX)]
-        )
+            forall_op, tiled_generic = tile_to_scf_forall(
+                matmul, tile_sizes=[2], mapping=[block_attr(MappingId.DimX)]
+            )
 
-        top_func = match(variant_op, ["func.func"])
+            top_func = match(variant_op, ["func.func"])
 
-        @apply_patterns(top_func)
-        def pats():
-            apply_patterns_canonicalization()
+            @apply_patterns(top_func)
+            def pats():
+                apply_patterns_canonicalization()
 
-        top_func = match(variant_op, ["func.func"])
-        apply_cse(top_func)
+            top_func = match(variant_op, ["func.func"])
+            apply_cse(top_func)
 
     ctx.module.operation.verify()
     correct = dedent(
@@ -468,28 +480,27 @@ def test_apply_cse(ctx: MLIRContext):
         %0 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<3x5xf32>, tensor<5x3xf32>) outs(%arg2 : tensor<3x3xf32>) -> tensor<3x3xf32>
         return %0 : tensor<3x3xf32>
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "basic"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [2](mapping = [#gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-        %1 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        apply_patterns to %1 {
-          transform.apply_patterns.canonicalization
-        } : !transform.any_op
-        %2 = transform.structured.match ops{["func.func"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        apply_cse to %2 : !transform.any_op
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [2](mapping = [#gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          %1 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          transform.apply_patterns to %1 {
+            transform.apply_patterns.canonicalization
+          } : !transform.any_op
+          %2 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          transform.apply_cse to %2 : !transform.any_op
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
+    mod = run_pipeline(
         ctx.module,
-        Pipeline()
-        .transform_dialect_interpreter()
-        .transform_dialect_erase_schedule()
-        .canonicalize(),
+        Pipeline().transform_interpreter().canonicalize(),
     )
 
     correct = dedent(
@@ -513,7 +524,7 @@ def test_apply_cse(ctx: MLIRContext):
     }
     """
     )
-    filecheck(correct, module)
+    filecheck(correct, mod)
 
 
 def test_two_schedules(ctx: MLIRContext):
@@ -532,31 +543,33 @@ def test_two_schedules(ctx: MLIRContext):
 
     conv_2d_nhwc_hwcf.emit()
 
-    @sequence(target_tag="tile_outer")
-    def tile_outer(target):
-        m = match(target, ["linalg.conv_2d_nchw_fchw"])
-        tiled = tile_to_scf_forall(
-            m,
-            tile_sizes=[0, 1, 8, 8],
-            mapping=[
-                block_attr(MappingId.DimX),
-                block_attr(MappingId.DimY),
-                block_attr(MappingId.DimZ),
-            ],
-        )
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod():
+        @named_sequence("tile_outer", [any_op_t()], [])
+        def tile_outer(target):
+            m = match(target, ["linalg.conv_2d_nchw_fchw"])
+            tiled = tile_to_scf_forall(
+                m,
+                tile_sizes=[0, 1, 8, 8],
+                mapping=[
+                    block_attr(MappingId.DimX),
+                    block_attr(MappingId.DimY),
+                    block_attr(MappingId.DimZ),
+                ],
+            )
 
-    @sequence(target_tag="tile_inner")
-    def tile_inner(target):
-        m = match(target, ["linalg.conv_2d_nchw_fchw"])
-        tiled = tile_to_scf_forall(
-            m,
-            tile_sizes=[0, 1, 1, 1],
-            mapping=[
-                thread_attr(MappingId.DimX),
-                thread_attr(MappingId.DimY),
-                thread_attr(MappingId.DimZ),
-            ],
-        )
+        @named_sequence("tile_inner", [any_op_t()], [])
+        def tile_inner(target):
+            m = match(target, ["linalg.conv_2d_nchw_fchw"])
+            tiled = tile_to_scf_forall(
+                m,
+                tile_sizes=[0, 1, 1, 1],
+                mapping=[
+                    thread_attr(MappingId.DimX),
+                    thread_attr(MappingId.DimY),
+                    thread_attr(MappingId.DimZ),
+                ],
+            )
 
     correct = dedent(
         """\
@@ -565,27 +578,28 @@ def test_two_schedules(ctx: MLIRContext):
         %0 = linalg.conv_2d_nchw_fchw ins(%arg0, %arg1 : tensor<1x1x66x66xf32>, tensor<3x1x3x3xf32>) outs(%arg2 : tensor<1x3x64x64xf32>) -> tensor<1x3x64x64xf32>
         return %0 : tensor<1x3x64x64xf32>
       }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "tile_outer"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [0, 1, 8, 8](mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
-      }
-      transform.sequence  failures(propagate) attributes {transform.target_tag = "tile_inner"} {
-      ^bb0(%arg0: !pdl.operation):
-        %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!pdl.operation) -> !transform.any_op
-        %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [0, 1, 1, 1](mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @tile_outer(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [0, 1, 8, 8](mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          transform.yield 
+        }
+        transform.named_sequence @tile_inner(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [0, 1, 1, 1](mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
     )
     filecheck(correct, ctx.module)
 
-    module = run_pipeline(
+    mod = run_pipeline(
         ctx.module,
         Pipeline()
-        .transform_dialect_interpreter(debug_transform_root_tag="tile_outer")
-        .transform_dialect_interpreter(debug_transform_root_tag="tile_inner")
-        .transform_dialect_erase_schedule()
+        .transform_interpreter(entry_point="tile_outer")
+        .transform_interpreter(entry_point="tile_inner")
         .canonicalize(),
     )
 
@@ -623,4 +637,4 @@ def test_two_schedules(ctx: MLIRContext):
     """
     )
 
-    filecheck(correct, module)
+    filecheck(correct, mod)
