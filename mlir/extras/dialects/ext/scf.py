@@ -13,8 +13,8 @@ from ...ast.canonicalize import (
 )
 from ...ast.util import ast_call, set_lineno
 from .gpu import get_device_mapping_array_attr
-from ...meta import region_adder, region_op
-from ...util import get_user_code_loc
+from ...meta import region_op
+from ...util import get_user_code_loc, region_adder
 from ....dialects._ods_common import (
     get_op_result_or_op_results,
     get_default_loc_context,

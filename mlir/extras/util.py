@@ -5,25 +5,28 @@ import platform
 import sys
 import warnings
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 from typing import Callable, Optional, Union, Sequence
 
 import numpy as np
 
+from .meta import op_region_builder
 from ..ir import (
     Block,
     Context,
+    F32Type,
+    F64Type,
+    InsertionPoint,
+    IntegerType,
     Location,
     OpResult,
     OpResultList,
     OpView,
     Operation,
+    RankedTensorType,
     Value,
     _GlobalDebug,
-    IntegerType,
-    F32Type,
-    F64Type,
-    RankedTensorType,
 )
 from ..extras import types as T
 
@@ -260,3 +263,80 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
             ctypes.pythonapi.PyFrame_LocalsToFast(
                 ctypes.py_object(previous_frame), ctypes.c_int(1)
             )
+
+
+def make_maybe_no_args_decorator(decorator):
+    """
+    a decorator decorator, allowing the decorator to be used as:
+    @decorator(with, arguments, and=kwargs)
+    or
+    @decorator
+    """
+
+    @wraps(decorator)
+    def new_dec(*args, **kwargs):
+        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+            # actual decorated function
+            return decorator(args[0])
+        else:
+            # decorator arguments
+            return lambda realf: decorator(realf, *args, **kwargs)
+
+    return new_dec
+
+
+@contextlib.contextmanager
+def bb(*preds: tuple[Successor | OpView]):
+    current_ip = InsertionPoint.current
+    op = current_ip.block.owner
+    op_region = op.regions[0]
+    args = []
+    if len(preds):
+        if isinstance(preds[0], OpView):
+            args = preds[0].operands
+        elif isinstance(preds[0], Successor):
+            args = preds[0].operands
+        else:
+            raise NotImplementedError(f"{preds[0]=} not supported.")
+    arg_locs = list(filter(None, [get_user_code_loc()] * len(args)))
+    if len(arg_locs) == 0:
+        arg_locs = None
+    block = op_region.blocks.append(*[a.type for a in args], arg_locs=arg_locs)
+    for p in preds:
+        if isinstance(p, OpView):
+            p.operation.successors[0] = block
+        elif isinstance(p, Successor):
+            for i, b in enumerate(p.block.owner.successors):
+                if i == p.pos:
+                    p.op.successors[i] = block
+                    p.block = block
+                    break
+    with InsertionPoint(block):
+        yield block, list(block.arguments)
+
+
+def region_adder(terminator=None):
+    def wrapper(op_region_adder):
+        def region_adder_decorator(op, *args, **kwargs):
+            region = op_region_adder(op, *args, **kwargs)
+
+            return op_region_builder(op, region, terminator)
+
+        return region_adder_decorator
+
+    return wrapper
+
+
+class ModuleMeta(type):
+    def __new__(cls, name, bases, classdict, **kwargs):
+        ip = classdict.pop("ip")
+        loc = classdict.pop("loc")
+        module_terminator = classdict.pop("module_terminator", None)
+        new = super().__new__(cls, name, bases, classdict)
+        if module_terminator is not None:
+            module_terminator(loc=loc, ip=ip)
+        for k, v in classdict.items():
+            if callable(v):
+                v.qualname = name
+        ip.__exit__(None, None, None)
+        return new
