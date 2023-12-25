@@ -73,7 +73,7 @@ def test_for_iter_args(ctx: MLIRContext):
         return one, one
 
     assert len(forfoo) == 2 and all(isinstance(i, Scalar) for i in forfoo)
-    assert repr(forfoo) == "(Scalar(%0#0, f32), Scalar(%0#1, f32))"
+    assert repr(forfoo) == "[Scalar(%0#0, f32), Scalar(%0#1, f32)]"
     ctx.module.operation.verify()
     correct = dedent(
         """\

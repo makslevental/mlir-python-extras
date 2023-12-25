@@ -18,9 +18,9 @@ from ... import types as T
 from ....dialects import tensor
 from ....dialects.tensor import *
 from .arith import ArithValue, Scalar, constant
-from ...meta import region_op, _update_caller_vars
+from ...meta import region_op
 from ...._mlir_libs._mlir import register_value_caster
-from ...util import get_user_code_loc
+from ...util import get_user_code_loc, _update_caller_vars
 from ....dialects._ods_common import get_op_result_or_op_results
 
 S = ShapedType.get_dynamic_size()

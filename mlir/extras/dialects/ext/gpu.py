@@ -21,12 +21,10 @@ from ... import types as T
 from .arith import constant
 from .func import FuncBase
 from ...meta import (
-    ModuleMeta,
-    make_maybe_no_args_decorator,
     region_op,
 )
 from ....dialects._ods_common import get_op_result_or_op_results
-from ...util import get_user_code_loc
+from ...util import get_user_code_loc, make_maybe_no_args_decorator, ModuleMeta
 
 
 def block_id_x():

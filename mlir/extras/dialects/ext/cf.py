@@ -8,7 +8,7 @@ from ....dialects._ods_common import (
     _cext,
 )
 from ....ir import Value, InsertionPoint, Block, OpView
-from ...meta import get_user_code_loc, Successor
+from ...util import get_user_code_loc, Successor
 
 
 @_cext.register_operation(_Dialect, replace=True)

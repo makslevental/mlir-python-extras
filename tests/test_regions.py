@@ -17,7 +17,7 @@ from mlir.extras.dialects.ext.scf import execute_region
 from mlir.dialects.tensor import yield_ as tensor_yield
 from mlir.extras.dialects.ext.tensor import generate
 from mlir.dialects.tensor import rank
-from mlir.extras.meta import bb
+from mlir.extras.util import bb
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext

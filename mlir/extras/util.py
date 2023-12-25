@@ -5,25 +5,28 @@ import platform
 import sys
 import warnings
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Sequence
 
 import numpy as np
 
+from .meta import op_region_builder
 from ..ir import (
     Block,
     Context,
+    F32Type,
+    F64Type,
+    InsertionPoint,
+    IntegerType,
     Location,
     OpResult,
     OpResultList,
     OpView,
     Operation,
+    RankedTensorType,
     Value,
     _GlobalDebug,
-    IntegerType,
-    F32Type,
-    F64Type,
-    RankedTensorType,
 )
 from ..extras import types as T
 
@@ -184,13 +187,13 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return T.bool()
     elif isinstance(py_val, int):
-        if -(2**31) <= py_val < 2**31:
+        if -(2 ** 31) <= py_val < 2 ** 31:
             return T.i32()
-        elif 2**31 <= py_val < 2**32:
+        elif 2 ** 31 <= py_val < 2 ** 32:
             return T.ui32()
-        elif -(2**63) <= py_val < 2**63:
+        elif -(2 ** 63) <= py_val < 2 ** 63:
             return T.i64()
-        elif 2**63 <= py_val < 2**64:
+        elif 2 ** 63 <= py_val < 2 ** 64:
             return T.ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
@@ -224,3 +227,116 @@ def memref_type_to_np_dtype(memref_type):
         T.memref(T.i64()): np.int64,
     }
     return _memref_type_to_np_dtype.get(memref_type)
+
+
+def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
+    """Update caller vars passed as args.
+
+    This function uses CPython API  to update the values
+    of the caller's args (not the caller of this function but the caller of caller of this function).
+    It does this by searching for a match in the caller's f_locals based on identity (A is A) and then
+    updating all corresponding values in the f_locals dict. Finally, it uses PyFrame_LocalsToFast to signal
+    to the CPython runtime that an update has been made to f_locals.
+
+    Args:
+      previous_frame: The frame in which vars will be updated.
+      args: The args to the callee.
+      replacements: The values that should replace the values of the vars in the caller.
+    """
+
+    if len(args) != len(replacements):
+        raise ValueError(f"updates must be 1-1: {args=} {replacements=}")
+    # find the name of the iter args in the previous frame
+    var_names = [
+        [
+            var_name
+            for var_name, var_val in previous_frame.f_locals.items()
+            if var_val is arg
+        ]
+        for arg in args
+    ]
+    for i, var_names in enumerate(var_names):
+        for var_name in var_names:
+            previous_frame.f_locals[var_name] = replacements[i]
+            # signal to update
+            # for some reason you can only update one at a time?
+            ctypes.pythonapi.PyFrame_LocalsToFast(
+                ctypes.py_object(previous_frame), ctypes.c_int(1)
+            )
+
+
+def make_maybe_no_args_decorator(decorator):
+    """
+    a decorator decorator, allowing the decorator to be used as:
+    @decorator(with, arguments, and=kwargs)
+    or
+    @decorator
+    """
+
+    @wraps(decorator)
+    def new_dec(*args, **kwargs):
+        if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+            # actual decorated function
+            return decorator(args[0])
+        else:
+            # decorator arguments
+            return lambda realf: decorator(realf, *args, **kwargs)
+
+    return new_dec
+
+
+@contextlib.contextmanager
+def bb(*preds: tuple[Successor | OpView]):
+    current_ip = InsertionPoint.current
+    op = current_ip.block.owner
+    op_region = op.regions[0]
+    args = []
+    if len(preds):
+        if isinstance(preds[0], OpView):
+            args = preds[0].operands
+        elif isinstance(preds[0], Successor):
+            args = preds[0].operands
+        else:
+            raise NotImplementedError(f"{preds[0]=} not supported.")
+    arg_locs = list(filter(None, [get_user_code_loc()] * len(args)))
+    if len(arg_locs) == 0:
+        arg_locs = None
+    block = op_region.blocks.append(*[a.type for a in args], arg_locs=arg_locs)
+    for p in preds:
+        if isinstance(p, OpView):
+            p.operation.successors[0] = block
+        elif isinstance(p, Successor):
+            for i, b in enumerate(p.block.owner.successors):
+                if i == p.pos:
+                    p.op.successors[i] = block
+                    p.block = block
+                    break
+    with InsertionPoint(block):
+        yield block, list(block.arguments)
+
+
+def region_adder(terminator=None):
+    def wrapper(op_region_adder):
+        def region_adder_decorator(op, *args, **kwargs):
+            region = op_region_adder(op, *args, **kwargs)
+
+            return op_region_builder(op, region, terminator)
+
+        return region_adder_decorator
+
+    return wrapper
+
+
+class ModuleMeta(type):
+    def __new__(cls, name, bases, classdict, **kwargs):
+        ip = classdict.pop("ip")
+        loc = classdict.pop("loc")
+        module_terminator = classdict.pop("module_terminator", None)
+        new = super().__new__(cls, name, bases, classdict)
+        if module_terminator is not None:
+            module_terminator(loc=loc, ip=ip)
+        for k, v in classdict.items():
+            if callable(v):
+                v.qualname = name
+        ip.__exit__(None, None, None)
+        return new
