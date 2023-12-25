@@ -6,7 +6,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Sequence
 
 import numpy as np
 
@@ -184,13 +184,13 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return T.bool()
     elif isinstance(py_val, int):
-        if -(2**31) <= py_val < 2**31:
+        if -(2 ** 31) <= py_val < 2 ** 31:
             return T.i32()
-        elif 2**31 <= py_val < 2**32:
+        elif 2 ** 31 <= py_val < 2 ** 32:
             return T.ui32()
-        elif -(2**63) <= py_val < 2**63:
+        elif -(2 ** 63) <= py_val < 2 ** 63:
             return T.i64()
-        elif 2**63 <= py_val < 2**64:
+        elif 2 ** 63 <= py_val < 2 ** 64:
             return T.ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
@@ -224,3 +224,39 @@ def memref_type_to_np_dtype(memref_type):
         T.memref(T.i64()): np.int64,
     }
     return _memref_type_to_np_dtype.get(memref_type)
+
+
+def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
+    """Update caller vars passed as args.
+
+    This function uses CPython API  to update the values
+    of the caller's args (not the caller of this function but the caller of caller of this function).
+    It does this by searching for a match in the caller's f_locals based on identity (A is A) and then
+    updating all corresponding values in the f_locals dict. Finally, it uses PyFrame_LocalsToFast to signal
+    to the CPython runtime that an update has been made to f_locals.
+
+    Args:
+      previous_frame: The frame in which vars will be updated.
+      args: The args to the callee.
+      replacements: The values that should replace the values of the vars in the caller.
+    """
+
+    if len(args) != len(replacements):
+        raise ValueError(f"updates must be 1-1: {args=} {replacements=}")
+    # find the name of the iter args in the previous frame
+    var_names = [
+        [
+            var_name
+            for var_name, var_val in previous_frame.f_locals.items()
+            if var_val is arg
+        ]
+        for arg in args
+    ]
+    for i, var_names in enumerate(var_names):
+        for var_name in var_names:
+            previous_frame.f_locals[var_name] = replacements[i]
+            # signal to update
+            # for some reason you can only update one at a time?
+            ctypes.pythonapi.PyFrame_LocalsToFast(
+                ctypes.py_object(previous_frame), ctypes.c_int(1)
+            )

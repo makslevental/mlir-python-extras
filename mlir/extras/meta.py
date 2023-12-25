@@ -1,9 +1,7 @@
 import contextlib
-import ctypes
 import inspect
 import warnings
 from functools import wraps
-from typing import Sequence
 
 from ..ir import Type, InsertionPoint, OpResultList, OpView
 from ..dialects._ods_common import get_op_result_or_op_results
@@ -140,42 +138,6 @@ def region_op(op_constructor, terminator=None):
             return op_decorator(*args, **kwargs)
 
     return maybe_no_args
-
-
-def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
-    """Update caller vars passed as args.
-
-    This function uses CPython API  to update the values
-    of the caller's args (not the caller of this function but the caller of caller of this function).
-    It does this by searching for a match in the caller's f_locals based on identity (A is A) and then
-    updating all corresponding values in the f_locals dict. Finally, it uses PyFrame_LocalsToFast to signal
-    to the CPython runtime that an update has been made to f_locals.
-
-    Args:
-      previous_frame: The frame in which vars will be updated.
-      args: The args to the callee.
-      replacements: The values that should replace the values of the vars in the caller.
-    """
-
-    if len(args) != len(replacements):
-        raise ValueError(f"updates must be 1-1: {args=} {replacements=}")
-    # find the name of the iter args in the previous frame
-    var_names = [
-        [
-            var_name
-            for var_name, var_val in previous_frame.f_locals.items()
-            if var_val is arg
-        ]
-        for arg in args
-    ]
-    for i, var_names in enumerate(var_names):
-        for var_name in var_names:
-            previous_frame.f_locals[var_name] = replacements[i]
-            # signal to update
-            # for some reason you can only update one at a time?
-            ctypes.pythonapi.PyFrame_LocalsToFast(
-                ctypes.py_object(previous_frame), ctypes.c_int(1)
-            )
 
 
 class ModuleMeta(type):
