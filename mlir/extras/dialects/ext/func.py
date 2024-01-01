@@ -172,7 +172,7 @@ class FuncBase:
         return str(f"{self.__class__} {self.__dict__}")
 
     def emit(self, *call_args, decl=False, force=False) -> FuncOp:
-        if self._func_op is None or force:
+        if self._func_op is None or decl or force:
             if len(call_args) == 0:
                 input_types = self.input_types[:]
                 for i, v in enumerate(input_types):
@@ -190,7 +190,7 @@ class FuncBase:
             self._func_op = self.func_op_ctor(
                 self.func_name,
                 function_type,
-                sym_visibility=StringAttr.get(self.sym_visibility) if self.sym_visibility else None,
+                sym_visibility=self.sym_visibility,
                 arg_attrs=self.arg_attrs,
                 res_attrs=self.res_attrs,
                 loc=self.loc,

@@ -54,6 +54,7 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
 
     foo.emit()
 
+    print(ctx.module)
     module = backend.compile(
         ctx.module,
         kernel_name="foo",
