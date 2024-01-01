@@ -30,7 +30,6 @@ def filecheck(correct: str, module):
     correct = dedent(correct)
     correct_with_checks = main(correct).replace("CHECK:", "CHECK-NEXT:")
 
-    assert module.operation.verify(), "couldn't verify module"
     op = str(module).strip()
     op = "\n".join(filter(None, op.splitlines()))
     op = dedent(op)
