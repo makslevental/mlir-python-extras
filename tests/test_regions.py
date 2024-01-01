@@ -463,3 +463,29 @@ def test_bbs_cond_br_operands(ctx: MLIRContext):
     """
     )
     filecheck(correct, ctx.module)
+
+
+@func(emit=False)
+def matmul_i16_i16(
+    A: "T.memref(64, 32, T.i16())",
+    B: "T.memref(32, 64, T.i16())",
+    C: "T.memref(64, 64, T.i16())",
+):
+    linalg.matmul(A, B, C)
+
+
+def test_defer_emit(ctx: MLIRContext):
+
+    matmul_i16_i16.emit()
+
+    correct = dedent(
+        """\
+    module {
+      func.func @matmul_i16_i16(%arg0: memref<64x32xi16>, %arg1: memref<32x64xi16>, %arg2: memref<64x64xi16>) {
+        linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<64x32xi16>, memref<32x64xi16>) outs(%arg2 : memref<64x64xi16>)
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)

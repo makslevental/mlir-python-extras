@@ -1,17 +1,19 @@
 import inspect
 import sys
+from functools import update_wrapper
 from typing import Union, Optional
 
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects.func import *
+from ....extras import types as T
 from ....ir import (
-    InsertionPoint,
-    FunctionType,
-    StringAttr,
-    TypeAttr,
     FlatSymbolRefAttr,
+    FunctionType,
+    InsertionPoint,
+    StringAttr,
     Type,
+    TypeAttr,
     Value,
 )
 
@@ -91,9 +93,15 @@ def prep_func_types(sig, return_types):
         if not p.annotation is inspect.Signature.empty
     ]
     assert all(
-        isinstance(r, Type) for r in input_types
+        isinstance(r, (str, Type)) for r in input_types
     ), f"all input types must be mlir types {input_types=}"
-    return input_types, return_types, [get_user_code_loc()] * len(sig.parameters)
+    user_loc = get_user_code_loc()
+    # If ir.Context is none (like for deferred func emit)
+    if user_loc is None:
+        user_locs = None
+    else:
+        user_locs = [user_loc] * len(sig.parameters)
+    return input_types, return_types, user_locs
 
 
 class FuncBase:
@@ -169,9 +177,13 @@ class FuncBase:
     def emit(self, *call_args) -> FuncOp:
         if self._func_op is None:
             if len(call_args) == 0:
-                input_types = self.input_types
+                input_types = self.input_types[:]
+                for i, v in enumerate(input_types):
+                    if isinstance(v, str):
+                        input_types[i] = Type(eval(v, {"T": T}))
             else:
                 input_types = [a.type for a in call_args]
+
             function_type = TypeAttr.get(
                 FunctionType.get(
                     inputs=input_types,
@@ -244,7 +256,7 @@ def func(
         loc=loc,
         ip=ip,
     )
-    func.__name__ = f.__name__
+    func = update_wrapper(func, f)
     if emit:
         func.emit()
     return func
