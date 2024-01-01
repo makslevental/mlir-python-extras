@@ -139,9 +139,6 @@ class FuncBase:
         self.qualname = qualname
 
         self.sym_visibility = sym_visibility
-        if self.sym_visibility is not None:
-            self.sym_visibility = StringAttr.get(str(sym_visibility))
-
         self.func_attrs = func_attrs
         if self.func_attrs is None:
             self.func_attrs = {}
@@ -157,7 +154,7 @@ class FuncBase:
             assert len(self.input_types) == len(
                 sig.parameters
             ), f"func decl needs all input types annotated"
-            self.sym_visibility = StringAttr.get("private")
+            self.sym_visibility = "private"
             self.emit()
 
     def _is_decl(self):
@@ -174,8 +171,8 @@ class FuncBase:
     def __str__(self):
         return str(f"{self.__class__} {self.__dict__}")
 
-    def emit(self, *call_args) -> FuncOp:
-        if self._func_op is None:
+    def emit(self, *call_args, decl=False, force=False) -> FuncOp:
+        if self._func_op is None or force:
             if len(call_args) == 0:
                 input_types = self.input_types[:]
                 for i, v in enumerate(input_types):
@@ -201,7 +198,7 @@ class FuncBase:
             )
             for k, v in self.func_attrs.items():
                 self._func_op.attributes[k] = v
-            if self._is_decl():
+            if self._is_decl() or decl:
                 return self._func_op
 
             self._func_op.regions[0].blocks.append(*input_types, arg_locs=self.arg_locs)

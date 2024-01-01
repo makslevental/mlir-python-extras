@@ -3,20 +3,18 @@ from textwrap import dedent
 import pytest
 
 import mlir.extras.types as T
-from mlir.extras.dialects.ext import linalg
-from mlir.extras.dialects.ext import memref
+from mlir.dialects.func import return_
+from mlir.dialects.memref import alloca_scope, alloca_scope_return
+from mlir.dialects.scf import yield_ as scf_yield
+from mlir.dialects.tensor import rank, yield_ as tensor_yield
+from mlir.dialects.builtin import module
+from mlir.extras.dialects.ext import linalg, memref
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.cf import br, cond_br
 from mlir.extras.dialects.ext.func import func
-from mlir.extras.dialects.ext.tensor import S
-from mlir.dialects.func import return_
-from mlir.dialects.memref import alloca_scope, alloca_scope_return
 from mlir.extras.dialects.ext.memref import alloca_scope
-from mlir.dialects.scf import yield_ as scf_yield
 from mlir.extras.dialects.ext.scf import execute_region
-from mlir.dialects.tensor import yield_ as tensor_yield
-from mlir.extras.dialects.ext.tensor import generate
-from mlir.dialects.tensor import rank
+from mlir.extras.dialects.ext.tensor import S, generate
 from mlir.extras.util import bb
 
 # noinspection PyUnresolvedReferences
@@ -465,7 +463,7 @@ def test_bbs_cond_br_operands(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-@func(emit=False)
+@func(emit=False, sym_visibility="private")
 def matmul_i16_i16(
     A: "T.memref(64, 32, T.i16())",
     B: "T.memref(32, 64, T.i16())",
@@ -476,16 +474,24 @@ def matmul_i16_i16(
 
 def test_defer_emit(ctx: MLIRContext):
 
-    matmul_i16_i16.emit()
+    matmul_i16_i16.emit(decl=True)
+
+    @module
+    def mod():
+        matmul_i16_i16.emit(force=True)
 
     correct = dedent(
         """\
     module {
-      func.func @matmul_i16_i16(%arg0: memref<64x32xi16>, %arg1: memref<32x64xi16>, %arg2: memref<64x64xi16>) {
-        linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<64x32xi16>, memref<32x64xi16>) outs(%arg2 : memref<64x64xi16>)
-        return
+      func.func private @matmul_i16_i16(memref<64x32xi16>, memref<32x64xi16>, memref<64x64xi16>)
+      module {
+        func.func private @matmul_i16_i16(%arg0: memref<64x32xi16>, %arg1: memref<32x64xi16>, %arg2: memref<64x64xi16>) {
+          linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<64x32xi16>, memref<32x64xi16>) outs(%arg2 : memref<64x64xi16>)
+          return
+        }
       }
     }
     """
     )
+
     filecheck(correct, ctx.module)
