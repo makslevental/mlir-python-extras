@@ -190,7 +190,7 @@ class FuncBase:
             self._func_op = self.func_op_ctor(
                 self.func_name,
                 function_type,
-                sym_visibility=self.sym_visibility,
+                sym_visibility=StringAttr.get(self.sym_visibility),
                 arg_attrs=self.arg_attrs,
                 res_attrs=self.res_attrs,
                 loc=self.loc,
