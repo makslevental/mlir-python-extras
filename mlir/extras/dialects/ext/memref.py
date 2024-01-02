@@ -1,5 +1,5 @@
 import re
-from functools import cached_property
+from functools import cached_property, reduce
 from typing import Tuple, Sequence, Optional, Union
 
 from ....ir import Type, Value, MemRefType, ShapedType, MLIRError
@@ -162,6 +162,11 @@ class MemRef(Value):
     @cached_property
     def shape(self) -> Tuple[int, ...]:
         return tuple(self._shaped_type.shape)
+
+    @cached_property
+    def n_elements(self) -> int:
+        assert self.has_static_shape()
+        return reduce(lambda acc, v: acc * v, self._shaped_type.shape, 1)
 
     @cached_property
     def dtype(self) -> Type:
