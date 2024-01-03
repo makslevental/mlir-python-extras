@@ -118,14 +118,6 @@ def find_ops(op, pred: Callable[[OpView], bool], single=False):
     return matching
 
 
-@dataclass
-class Successor:
-    op: OpView | Operation
-    operands: list[Value]
-    block: Block
-    pos: int
-
-
 _np_dtype_to_mlir_type_ctor = {
     np.int8: T.i8,
     np.int16: T.i16,
@@ -285,6 +277,21 @@ def make_maybe_no_args_decorator(decorator):
     return new_dec
 
 
+@dataclass
+class Successor:
+    op: OpView | Operation
+    operands: list[Value]
+    block: Block
+    pos: int
+
+    def __enter__(self):
+        self.bb_ctx_manager = bb(self)
+        return self.bb_ctx_manager.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.bb_ctx_manager.__exit__(exc_type, exc_val, exc_tb)
+
+
 @contextlib.contextmanager
 def bb(*preds: tuple[Successor | OpView]):
     current_ip = InsertionPoint.current
@@ -292,9 +299,7 @@ def bb(*preds: tuple[Successor | OpView]):
     op_region = op.regions[0]
     args = []
     if len(preds):
-        if isinstance(preds[0], OpView):
-            args = preds[0].operands
-        elif isinstance(preds[0], Successor):
+        if isinstance(preds[0], (OpView, Successor)):
             args = preds[0].operands
         else:
             raise NotImplementedError(f"{preds[0]=} not supported.")

@@ -388,10 +388,10 @@ def test_bbs_cond_br(ctx: MLIRContext):
             three = constant(3)
             cond = two < three
             x = cond_br(cond)
-        with bb(x.true) as (b2, _):
+        with x.true as (b2, _):
             four = constant(4)
             return_([])
-        with bb(x.false) as (b3, _):
+        with x.false as (b3, _):
             five = constant(5)
 
     foo1.emit()
@@ -431,10 +431,10 @@ def test_bbs_cond_br_operands(ctx: MLIRContext):
             x = cond_br(
                 cond, true_dest_operands=[two, three], false_dest_operands=[two, three]
             )
-        with bb(x.true) as (b2, _):
+        with x.true as (b2, _):
             four = constant(4)
             return_([])
-        with bb(x.false) as (b3, _):
+        with x.false as (b3, _):
             five = constant(5)
 
     foo1.emit()
@@ -516,6 +516,46 @@ def test_defer_emit_2(ctx: MLIRContext):
         func.func private @matmul_i16_i16(memref<64x32xi16>, memref<32x64xi16>, memref<64x64xi16>)
       }
     }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_successor_ctx_manager(ctx: MLIRContext):
+    @func
+    def foo1():
+        one = constant(1)
+        return_([])
+        with bb() as (b1, _):
+            two = constant(2)
+            three = constant(3)
+            cond = two < three
+            x = cond_br(cond)
+        with x.true as (b2, _):
+            four = constant(4)
+            return_([])
+        with x.false as (b3, _):
+            five = constant(5)
+
+    foo1()
+    correct = dedent(
+        """\
+    module {
+      func.func @foo1() {
+        %c1_i32 = arith.constant 1 : i32
+        return
+      ^bb1:  // no predecessors
+        %c2_i32 = arith.constant 2 : i32
+        %c3_i32 = arith.constant 3 : i32
+        %0 = arith.cmpi ult, %c2_i32, %c3_i32 : i32
+        cf.cond_br %0, ^bb2, ^bb3
+      ^bb2:  // pred: ^bb1
+        %c4_i32 = arith.constant 4 : i32
+        return
+      ^bb3:  // pred: ^bb1
+        %c5_i32_0 = arith.constant 5 : i32
+        return
+      }
     """
     )
     filecheck(correct, ctx.module)

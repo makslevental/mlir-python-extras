@@ -1,7 +1,8 @@
 import pytest
 
 import mlir.extras.types as T
-from mlir.extras.dialects.ext.tensor import S
+from mlir.extras.dialects.ext.tensor import S, empty
+from mlir.extras.dialects.ext.memref import alloc
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -32,3 +33,11 @@ def test_shaped_types(ctx: MLIRContext):
 
     v = vector(3, 3, 3, T.f64())
     assert repr(v) == "VectorType(vector<3x3x3xf64>)"
+
+
+def test_n_elements(ctx: MLIRContext):
+    ten = empty((1, 2, 3, 4), T.i32())
+    assert ten.n_elements == 1 * 2 * 3 * 4
+
+    mem = alloc((1, 2, 3, 4), T.i32())
+    assert mem.n_elements == 1 * 2 * 3 * 4

@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, reduce
 from typing import Union, Tuple, Sequence, Optional, Any
 
 import numpy as np
@@ -131,6 +131,11 @@ class Tensor(ArithValue):
     @cached_property
     def shape(self) -> Tuple[int, ...]:
         return tuple(self._shaped_type.shape)
+
+    @cached_property
+    def n_elements(self) -> int:
+        assert self.has_static_shape()
+        return reduce(lambda acc, v: acc * v, self._shaped_type.shape, 1)
 
     @cached_property
     def dtype(self) -> Type:
