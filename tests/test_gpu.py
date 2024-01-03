@@ -349,7 +349,7 @@ def test_launch_op(ctx: MLIRContext):
         data = alloc((2, 6), T.i32())
         sum = alloc((2,), T.i32())
 
-        power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
+        power_csts = [constant(0)] + [constant(2 ** i) for i in range(5)]
         odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
         cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
@@ -439,7 +439,7 @@ def test_launch_op_reduce_op(ctx: MLIRContext):
         data = alloc((2, 6), T.i32())
         sum = alloc((2,), T.i32())
 
-        power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
+        power_csts = [constant(0)] + [constant(2 ** i) for i in range(5)]
         odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
         cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)

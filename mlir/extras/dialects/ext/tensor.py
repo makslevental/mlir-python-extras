@@ -1,7 +1,7 @@
 import inspect
 from dataclasses import dataclass
 from functools import cached_property, reduce
-from typing import Union, Tuple, Sequence, Optional, Any
+from typing import Union, Tuple, Sequence, Optional, Any, List
 
 import numpy as np
 from ....dialects.transform.structured import _get_int_array_array_attr
@@ -209,7 +209,7 @@ class Tensor(ArithValue):
         *,
         loc=None,
         ip=None,
-    ) -> tuple["Tensor", "Tensor"]:
+    ) -> Tuple["Tensor", "Tensor"]:
         if loc is None:
             loc = get_user_code_loc()
         if isinstance(other, np.ndarray):
@@ -240,9 +240,9 @@ class Tensor(ArithValue):
 
 @dataclass(frozen=True)
 class _Indexer:
-    indices: tuple[Union[int, Scalar, slice, "Ellipsis", None]]
-    newaxis_dims: tuple[int, ...]
-    in_shape: tuple[Value | int]
+    indices: Tuple[Union[int, Scalar, slice, "Ellipsis", None]]
+    newaxis_dims: Tuple[int, "Ellipsis"]
+    in_shape: Tuple[Union[Value, int]]
 
     def is_constant(self):
         return all(_is_constant_index(i) for i in self.indices)
@@ -473,7 +473,7 @@ def _canonicalize_tuple_index(idx: Tuple[Any], rank: int):
 
 
 def _indices_to_indexer(
-    idx: tuple[Union[Scalar, slice, "Ellipsis", None]], in_shape: tuple[int]
+    idx: Tuple[Union[Scalar, slice, "Ellipsis", None]], in_shape: Tuple[int]
 ) -> _Indexer:
     """Processes sequence of index objects and constructs _Indexer with
     corresponding indexing tensor and collapse dims (i.e., scatter/gather dims).
@@ -490,8 +490,8 @@ def _indices_to_indexer(
 
     in_axis = 0  # Current axis in input.
     out_axis = 0  # Current axis in output.
-    indices: list[Union[Scalar, slice, Ellipsis, None]] = [slice(None)] * len(in_shape)
-    newaxis_dims: list[int] = []
+    indices: List[Union[Scalar, slice, Ellipsis, None]] = [slice(None)] * len(in_shape)
+    newaxis_dims: List[int] = []
 
     if any(_is_index_tensor(i) or _is_int_arraylike(i) for i in idx):
         raise ValueError("indexing by tensor is not currently supported")
@@ -672,8 +672,8 @@ def parallel_insert_slice(
 
 def pad_(
     source: Value,
-    low: list[int],
-    high: list[int],
+    low: List[int],
+    high: List[int],
     *,
     nofold=None,
     loc=None,

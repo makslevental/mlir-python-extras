@@ -4,7 +4,7 @@ import sys
 import tempfile
 from contextlib import ExitStack
 from io import StringIO
-from typing import Optional
+from typing import Optional, List
 
 from ...ir import StringAttr, Module
 from ...passmanager import PassManager
@@ -84,7 +84,7 @@ def run_pipeline(
 
 
 class Pipeline:
-    _pipeline: list[str] = []
+    _pipeline: List[str] = []
 
     def __init__(self, pipeline=None, wrapper=None):
         if pipeline is None:
@@ -420,7 +420,7 @@ class Pipeline:
         cache_size: int = None,
         separate: bool = None,
         tile_size: int = None,
-        tile_sizes: list[int] = None,
+        tile_sizes: List[int] = None,
     ):
         """Tile affine loop nests
         Args:
@@ -613,8 +613,8 @@ class Pipeline:
 
     def affine_super_vectorize(
         self,
-        virtual_vector_size: list[int] = None,
-        test_fastest_varying: list[int] = None,
+        virtual_vector_size: List[int] = None,
+        test_fastest_varying: List[int] = None,
         vectorize_reductions: bool = None,
     ):
         """Vectorize to a target independent n-D vector abstraction
@@ -679,7 +679,7 @@ class Pipeline:
         return self
 
     def arith_emulate_unsupported_floats(
-        self, source_types: list[str] = None, target_type: str = None
+        self, source_types: List[str] = None, target_type: str = None
     ):
         """Emulate operations on unsupported floats with extf/truncf
 
@@ -733,7 +733,7 @@ class Pipeline:
         self.add_pass("arith-expand", include_bf16=include_bf16)
         return self
 
-    def arith_int_narrowing(self, int_bitwidths_supported: list[int] = None):
+    def arith_int_narrowing(self, int_bitwidths_supported: List[int] = None):
         """Reduce integer operation bitwidth
 
         Reduce bitwidths of integer types used in arith operations. This pass
@@ -989,8 +989,8 @@ class Pipeline:
         max_iterations: int = None,
         max_num_rewrites: int = None,
         test_convergence: bool = None,
-        disable_patterns: list[str] = None,
-        enable_patterns: list[str] = None,
+        disable_patterns: List[str] = None,
+        enable_patterns: List[str] = None,
     ):
         """Canonicalize operations
 
@@ -1925,7 +1925,7 @@ class Pipeline:
     def inline(
         self,
         default_pipeline: str = None,
-        op_pipelines: list["OpPassManager"] = None,
+        op_pipelines: List["OpPassManager"] = None,
         max_iterations: int = None,
     ):
         """Inline function calls
@@ -2312,9 +2312,9 @@ class Pipeline:
         bufferize_function_boundaries: bool = None,
         copy_before_write: bool = None,
         create_deallocs: bool = None,
-        dialect_filter: list[str] = None,
+        dialect_filter: List[str] = None,
         dump_alias_sets: bool = None,
-        no_analysis_func_filter: list[str] = None,
+        no_analysis_func_filter: List[str] = None,
         function_boundary_type_conversion: str = None,
         must_infer_memory_space: bool = None,
         test_analysis_only: bool = None,
@@ -2459,7 +2459,7 @@ class Pipeline:
         return self
 
     def opt_reduction_pass(
-        self, opt_pass: str = None, test: str = None, test_arg: list[str] = None
+        self, opt_pass: str = None, test: str = None, test_arg: List[str] = None
     ):
         """A wrapper pass that reduces the file with optimization passes
         Args:
@@ -2658,7 +2658,7 @@ class Pipeline:
         return self
 
     def reduction_tree(
-        self, traversal_mode: int = None, test: str = None, test_arg: list[str] = None
+        self, traversal_mode: int = None, test: str = None, test_arg: List[str] = None
     ):
         """Reduce the input with reduction-tree algorithm
         Args:
@@ -2793,7 +2793,7 @@ class Pipeline:
         return self
 
     def scf_parallel_loop_tiling(
-        self, parallel_loop_tile_sizes: list[int] = None, no_min_max_bounds: bool = None
+        self, parallel_loop_tile_sizes: List[int] = None, no_min_max_bounds: bool = None
     ):
         """Tile parallel loops
         Args:
@@ -3245,7 +3245,7 @@ class Pipeline:
         self.add_pass("symbol-dce")
         return self
 
-    def symbol_privatize(self, exclude: list[str] = None):
+    def symbol_privatize(self, exclude: List[str] = None):
         """Mark symbols private
 
         This pass marks all top-level symbols of the operation run as `private`
@@ -3266,9 +3266,9 @@ class Pipeline:
 
     def test_scf_parallel_loop_collapsing(
         self,
-        collapsed_indices_0: list[int] = None,
-        collapsed_indices_1: list[int] = None,
-        collapsed_indices_2: list[int] = None,
+        collapsed_indices_0: List[int] = None,
+        collapsed_indices_1: List[int] = None,
+        collapsed_indices_2: List[int] = None,
     ):
         """Test parallel loops collapsing transformation
 

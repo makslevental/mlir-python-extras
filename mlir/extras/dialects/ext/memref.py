@@ -50,7 +50,7 @@ def alloca(
     )
 
 
-def load(mem: Value, indices: Sequence[Value | int], *, loc=None, ip=None):
+def load(mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
     indices = list(indices)
@@ -61,7 +61,7 @@ def load(mem: Value, indices: Sequence[Value | int], *, loc=None, ip=None):
 
 
 def store(
-    value: Value, mem: Value, indices: Sequence[Value | int], *, loc=None, ip=None
+    value: Value, mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None
 ):
     if loc is None:
         loc = get_user_code_loc()

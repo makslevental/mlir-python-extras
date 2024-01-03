@@ -10,6 +10,7 @@ from opcode import opmap
 from types import CodeType
 
 from bytecode import ConcreteBytecode
+from typing import List, Union
 
 from ..ast.util import get_module_cst, copy_func
 
@@ -58,7 +59,7 @@ def transform_func(f, *transformer_ctors: type(Transformer)):
 
 
 def transform_ast(
-    f, transformers: list[type(Transformer) | type(StrictTransformer)] = None
+    f, transformers: List[Union[type(Transformer), type(StrictTransformer)]] = None
 ):
     if transformers is None:
         return f
@@ -107,7 +108,7 @@ class BytecodePatcher(ABC):
         pass
 
 
-def patch_bytecode(f, patchers: list[type(BytecodePatcher)] = None):
+def patch_bytecode(f, patchers: List[type(BytecodePatcher)] = None):
     if patchers is None:
         return f
     code = ConcreteBytecode.from_code(f.__code__)
@@ -121,12 +122,12 @@ def patch_bytecode(f, patchers: list[type(BytecodePatcher)] = None):
 class Canonicalizer(ABC):
     @property
     @abstractmethod
-    def cst_transformers(self) -> list[StrictTransformer]:
+    def cst_transformers(self) -> List[StrictTransformer]:
         pass
 
     @property
     @abstractmethod
-    def bytecode_patchers(self) -> list[BytecodePatcher]:
+    def bytecode_patchers(self) -> List[BytecodePatcher]:
         pass
 
 
