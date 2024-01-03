@@ -8,9 +8,10 @@ from abc import ABC, abstractmethod
 from dis import findlinestarts
 from opcode import opmap
 from types import CodeType
-
-from bytecode import ConcreteBytecode
 from typing import List, Union
+
+import astunparse
+from bytecode import ConcreteBytecode
 
 from ..ast.util import get_module_cst, copy_func
 
@@ -33,14 +34,14 @@ def transform_func(f, *transformer_ctors: type(Transformer)):
     module = get_module_cst(f)
     context = types.SimpleNamespace()
     for transformer_ctor in transformer_ctors:
-        orig_code = ast.unparse(module)
+        orig_code = astunparse.unparse(module)
         func_node = module.body[0]
         replace = transformer_ctor(
             context=context, first_lineno=f.__code__.co_firstlineno - 1
         )
         logger.debug("[transformer] %s", replace.__class__.__name__)
         func_node = replace.generic_visit(func_node)
-        new_code = ast.unparse(func_node)
+        new_code = astunparse.unparse(func_node)
 
         diff = list(
             difflib.unified_diff(

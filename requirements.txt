@@ -4,3 +4,4 @@ black
 bytecode
 inflection
 numpy
+astunparse

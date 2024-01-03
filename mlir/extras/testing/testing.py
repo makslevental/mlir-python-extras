@@ -24,7 +24,9 @@ def filecheck(correct: str, module):
     # try to find using which
     if not filecheck_path.exists():
         filecheck_path = shutil.which(filecheck_name)
-    assert Path(filecheck_path).exists() is not None, "couldn't find FileCheck"
+    assert (
+        filecheck_path is not None and Path(filecheck_path).exists() is not None
+    ), "couldn't find FileCheck"
 
     correct = "\n".join(filter(None, correct.splitlines()))
     correct = dedent(correct)

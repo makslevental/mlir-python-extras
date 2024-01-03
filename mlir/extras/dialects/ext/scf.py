@@ -455,7 +455,7 @@ class InsertEmptyYield(StrictTransformer):
     def visit_If(self, updated_node: ast.If) -> ast.If:
         updated_node = self.generic_visit(updated_node)
 
-        new_yield = ast.Expr(ast.Yield())
+        new_yield = ast.Expr(ast.Yield(value=None))
         if not is_yield(updated_node.body[-1]):
             updated_node.body = append_hidden_node(
                 updated_node.body, deepcopy(new_yield)
@@ -469,7 +469,7 @@ class InsertEmptyYield(StrictTransformer):
 
     def visit_For(self, updated_node: ast.For) -> ast.For:
         updated_node = self.generic_visit(updated_node)
-        new_yield = ast.Expr(ast.Yield())
+        new_yield = ast.Expr(ast.Yield(value=None))
         if not is_yield(updated_node.body[-1]):
             updated_node.body = append_hidden_node(updated_node.body, new_yield)
         return updated_node
@@ -536,7 +536,7 @@ class CanonicalizeWhile(StrictTransformer):
             next.__name__,
             [
                 ast.Name(f"w_{updated_node.lineno}", ctx=ast.Load()),
-                ast.Constant(False),
+                ast.Constant(False, kind="bool"),
             ],
         )
         next_ = ast.fix_missing_locations(ast.copy_location(next_, updated_node))
@@ -603,7 +603,8 @@ class ReplaceIfWithWith(StrictTransformer):
         if updated_node.orelse:
             if_op_name = ast.Name(f"__if_op__{updated_node.lineno}", ctx=ast.Load())
             withitem = ast.withitem(
-                context_expr=ast_call(else_ctx_manager.__name__, args=[if_op_name])
+                context_expr=ast_call(else_ctx_manager.__name__, args=[if_op_name]),
+                optional_vars=None,
             )
             else_with = ast.With(items=[withitem])
             if is_elif:

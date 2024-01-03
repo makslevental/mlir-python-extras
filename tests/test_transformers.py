@@ -1,6 +1,7 @@
 import ast
 import sys
 from textwrap import dedent
+from typing import Tuple
 
 import astpretty
 import pytest
@@ -22,7 +23,7 @@ from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 pytest.mark.usefixtures("ctx")
 
 
-def _fields(n: ast.AST, show_offsets: bool = True) -> tuple[str, ...]:
+def _fields(n: ast.AST, show_offsets: bool = True) -> Tuple[str, ...]:
     strip = {"type_ignores", "decorator_list", "type_comment", "ctx", "kind"}
     fields = tuple(f for f in n._fields if f not in strip)
     attributes = ("lineno",) if "lineno" in n._attributes else ()

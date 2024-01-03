@@ -39,6 +39,10 @@ except ImportError:
     TypeID = object
 
 
+def is_relative_to(self, other):
+    return other == self or other in self.parents
+
+
 def get_user_code_loc(user_base: Optional[Path] = None):
     from .. import extras
 
@@ -52,9 +56,9 @@ def get_user_code_loc(user_base: Optional[Path] = None):
         user_base = Path(prev_frame.f_code.co_filename)
 
     while prev_frame.f_back and (
-        Path(prev_frame.f_code.co_filename).is_relative_to(mlir_extras_root_path)
-        or Path(prev_frame.f_code.co_filename).is_relative_to(sys.prefix)
-        or Path(prev_frame.f_code.co_filename).is_relative_to(user_base)
+        is_relative_to(Path(prev_frame.f_code.co_filename), mlir_extras_root_path)
+        or is_relative_to(Path(prev_frame.f_code.co_filename), sys.prefix)
+        or is_relative_to(Path(prev_frame.f_code.co_filename), user_base)
     ):
         prev_frame = prev_frame.f_back
     frame_info = inspect.getframeinfo(prev_frame)
@@ -62,10 +66,8 @@ def get_user_code_loc(user_base: Optional[Path] = None):
         return Location.file(
             frame_info.filename, frame_info.lineno, frame_info.positions.col_offset
         )
-    elif sys.version_info.minor == 10:
-        return Location.file(frame_info.filename, frame_info.lineno, col=0)
     else:
-        raise NotImplementedError(f"{sys.version_info.minor} not supported.")
+        return Location.file(frame_info.filename, frame_info.lineno, col=0)
 
 
 @contextlib.contextmanager

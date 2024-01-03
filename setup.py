@@ -27,7 +27,7 @@ setup(
         "jax": ["jax[cpu]"],
         "mlir": ["mlir-python-bindings"],
     },
-    python_requires=">=3.10",
+    python_requires=">=3.8",
     # lhs is package namespace, rhs is path (relative to this setup.py)
     package_dir={
         f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras": "mlir/extras",

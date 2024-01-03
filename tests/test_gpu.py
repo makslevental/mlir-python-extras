@@ -1,3 +1,4 @@
+import sys
 from textwrap import dedent
 
 import pytest
@@ -138,6 +139,7 @@ def test_class(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
 def test_class_call(ctx: MLIRContext):
     scale = 1
     M, N, K = 4 * scale, 16 * scale, 8 * scale
@@ -163,7 +165,10 @@ def test_class_call(ctx: MLIRContext):
     b = alloc((N, K), T.f32())
     c = alloc((M, K), T.f32())
 
-    MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c)
+    # this is to avoid python 3.8 parser
+    eval(
+        "MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c)"
+    )
 
     correct = dedent(
         """\
@@ -196,6 +201,7 @@ def test_class_call(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
 def test_class_call_from_func(ctx: MLIRContext):
     scale = 1
     M, N, K = 4 * scale, 16 * scale, 8 * scale
@@ -227,8 +233,9 @@ def test_class_call_from_func(ctx: MLIRContext):
         b = alloc((N, K), T.f32())
         c = alloc((M, K), T.f32())
 
-        MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](
-            a, b, c
+        MyClass1
+        eval(
+            "MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c)"
         )
 
     ctx.module.operation.verify()
@@ -267,6 +274,7 @@ def test_class_call_from_func(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
 def test_async_object(ctx: MLIRContext):
     scale = 1
     M, N, K = 4 * scale, 16 * scale, 8 * scale
@@ -300,12 +308,9 @@ def test_async_object(ctx: MLIRContext):
 
         w = wait()
         stream = mlir_zero(llvm_ptr_t())
-        MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](
-            a,
-            b,
-            c,
-            async_dependencies=[w],
-            stream=stream,
+        MyClass1
+        eval(
+            "MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c, async_dependencies=[w], stream=stream)"
         )
 
     correct = dedent(
