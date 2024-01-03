@@ -7,7 +7,7 @@ import warnings
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Optional, Union, Sequence
+from typing import Callable, Optional, Union, Sequence, List, Tuple
 
 import numpy as np
 
@@ -279,8 +279,8 @@ def make_maybe_no_args_decorator(decorator):
 
 @dataclass
 class Successor:
-    op: OpView | Operation
-    operands: list[Value]
+    op: Union[OpView, Operation]
+    operands: List[Value]
     block: Block
     pos: int
 
@@ -293,7 +293,7 @@ class Successor:
 
 
 @contextlib.contextmanager
-def bb(*preds: tuple[Successor | OpView]):
+def bb(*preds: Tuple[Union[Successor, OpView]]):
     current_ip = InsertionPoint.current
     op = current_ip.block.owner
     op_region = op.regions[0]

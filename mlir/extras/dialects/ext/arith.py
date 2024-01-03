@@ -2,7 +2,7 @@ import operator
 from abc import abstractmethod
 from copy import deepcopy
 from functools import partialmethod, cached_property
-from typing import Union, Optional
+from typing import Union, Optional, Tuple
 
 import numpy as np
 from ....dialects import arith as arith_dialect
@@ -220,7 +220,7 @@ class ArithValueMeta(type(Value)):
 
 
 @register_attribute_builder("Arith_CmpIPredicateAttr", replace=True)
-def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
+def _arith_CmpIPredicateAttr(predicate: Union[str, Attribute], context: Context):
     predicates = {
         "eq": CmpIPredicate.eq,
         "ne": CmpIPredicate.ne,
@@ -240,7 +240,7 @@ def _arith_CmpIPredicateAttr(predicate: str | Attribute, context: Context):
 
 
 @register_attribute_builder("Arith_CmpFPredicateAttr", replace=True)
-def _arith_CmpFPredicateAttr(predicate: str | Attribute, context: Context):
+def _arith_CmpFPredicateAttr(predicate: Union[str, Attribute], context: Context):
     predicates = {
         "false": CmpFPredicate.AlwaysFalse,
         # ordered comparison
@@ -393,7 +393,7 @@ class ArithValue(Value, metaclass=ArithValueMeta):
         pass
 
     @abstractmethod
-    def coerce(self, other) -> tuple["ArithValue", "ArithValue"]:
+    def coerce(self, other) -> Tuple["ArithValue", "ArithValue"]:
         pass
 
     def fold(self) -> bool:
@@ -490,7 +490,7 @@ class Scalar(ArithValue):
     def __float__(self):
         return float(self.literal_value)
 
-    def coerce(self, other) -> tuple["Scalar", "Scalar"]:
+    def coerce(self, other) -> Tuple["Scalar", "Scalar"]:
         if isinstance(other, (int, float, bool)):
             other = Scalar(other, dtype=self.dtype)
         elif isinstance(other, Scalar) and _is_index_type(self.type):

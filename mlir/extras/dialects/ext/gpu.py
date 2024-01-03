@@ -1,6 +1,6 @@
 import inspect
 from functools import partial
-from typing import Optional, Any
+from typing import Optional, Any, List, Tuple
 
 from ....dialects._ods_common import get_default_loc_context, _cext
 from ....dialects.gpu import *
@@ -46,7 +46,7 @@ def set_container_module(module):
 
 @register_attribute_builder("DeviceMappingArrayAttr")
 def get_device_mapping_array_attr(
-    mapping: list[Attribute], context: Optional[Context] = None
+    mapping: List[Attribute], context: Optional[Context] = None
 ) -> ArrayAttr:
     if context is None:
         context = Context.current
@@ -83,7 +83,7 @@ def memory_space_attr(address_space: AddressSpace):
 @_cext.register_operation(_Dialect, replace=True)
 class GPUModuleOp(GPUModuleOp):
     def __init__(
-        self, sym_name, targets: Optional[list[Attribute]] = None, *, loc=None, ip=None
+        self, sym_name, targets: Optional[List[Attribute]] = None, *, loc=None, ip=None
     ):
         if loc is None:
             loc = get_user_code_loc()
@@ -180,8 +180,8 @@ class GPUFuncOp(GPUFuncOp):
 class LaunchOp(LaunchOp):
     def __init__(
         self,
-        grid_size: tuple[Any, Any, Any],
-        block_size: tuple[Any, Any, Any],
+        grid_size: Tuple[Any, Any, Any],
+        block_size: Tuple[Any, Any, Any],
         async_dependencies=None,
         dynamic_shared_memory_size: Optional[Value] = None,
         *,
@@ -216,8 +216,8 @@ class LaunchOp(LaunchOp):
 
 
 def launch_(
-    grid_size: tuple[Any, Any, Any],
-    block_size: tuple[Any, Any, Any],
+    grid_size: Tuple[Any, Any, Any],
+    block_size: Tuple[Any, Any, Any],
     async_dependencies=None,
     dynamic_shared_memory_size: Optional[Value] = None,
     *,
@@ -247,10 +247,10 @@ launch = region_op(launch_, terminator=lambda *args: TerminatorOp())
 class LaunchFuncOp(LaunchFuncOp):
     def __init__(
         self,
-        kernel: list[str],
-        grid_size: tuple[Any, Any, Any],
-        block_size: tuple[Any, Any, Any],
-        kernel_operands: list[Value] = None,
+        kernel: List[str],
+        grid_size: Tuple[Any, Any, Any],
+        block_size: Tuple[Any, Any, Any],
+        kernel_operands: List[Value] = None,
         async_dependencies=None,
         dynamic_shared_memory_size: Optional[Value] = None,
         async_object=None,
@@ -290,9 +290,9 @@ class LaunchFuncOp(LaunchFuncOp):
 class GPUFunc(FuncBase):
     def __call__(
         self,
-        *kernel_operands: list[Value],
-        grid_size: tuple[Any, Any, Any],
-        block_size: tuple[Any, Any, Any],
+        *kernel_operands: List[Value],
+        grid_size: Tuple[Any, Any, Any],
+        block_size: Tuple[Any, Any, Any],
         async_dependencies=None,
         dynamic_shared_memory_size: Optional[Value] = None,
         stream=None,
@@ -400,7 +400,7 @@ def all_reduce_(value: Value, *, op=None, uniform=None, loc=None, ip=None):
 all_reduce = region_op(all_reduce__, terminator=YieldOp)
 
 
-def wait(async_dependencies: Optional[list[Value]] = None, *, loc=None, ip=None):
+def wait(async_dependencies: Optional[List[Value]] = None, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
     if async_dependencies is None:

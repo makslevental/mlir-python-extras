@@ -2,7 +2,7 @@ import ast
 import logging
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Union, List
 
 from bytecode import ConcreteBytecode
 
@@ -84,7 +84,7 @@ class ForallOp(ForallOp):
         steps,
         shared_outs: Optional[Union[Operation, OpView, Sequence[Value]]] = None,
         *,
-        device_mapping: Optional[list[Attribute]] = None,
+        device_mapping: Optional[List[Attribute]] = None,
         loc=None,
         ip=None,
     ):
@@ -517,7 +517,7 @@ class CanonicalizeElIfs(StrictTransformer):
 
 
 class CanonicalizeWhile(StrictTransformer):
-    def visit_While(self, updated_node: ast.While) -> list[ast.AST]:
+    def visit_While(self, updated_node: ast.While) -> List[ast.AST]:
         # postorder
         updated_node = self.generic_visit(updated_node)
         if isinstance(updated_node.test, ast.NamedExpr):
@@ -563,7 +563,7 @@ class ReplaceYieldWithSCFYield(StrictTransformer):
 
 
 class ReplaceIfWithWith(StrictTransformer):
-    def visit_If(self, updated_node: ast.If) -> ast.With | list[ast.With, ast.With]:
+    def visit_If(self, updated_node: ast.If) -> Union[ast.With, List[ast.With]]:
         is_elif = (
             len(updated_node.orelse) >= 1
             and isinstance(updated_node.orelse[0], ast.If)

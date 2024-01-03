@@ -1,4 +1,4 @@
-from typing import Optional, Union, Sequence
+from typing import Optional, Union, Sequence, List
 
 from ...meta import region_op
 from ...util import get_user_code_loc
@@ -34,8 +34,8 @@ def sequence_(
     target: Optional[Union[Operation, Value, Type, str]] = None,
     target_tag=None,
     failure_propagation_mode: FailurePropagationMode = None,
-    results_: list[Type] = None,
-    extra_bindings: list[Value] = None,
+    results_: List[Type] = None,
+    extra_bindings: List[Value] = None,
     *,
     loc=None,
     ip=None,
@@ -139,7 +139,7 @@ def match(
 def tile(
     target: Value,
     *,
-    sizes: list[int],
+    sizes: List[int],
     interchange=None,
     loc=None,
     ip=None,

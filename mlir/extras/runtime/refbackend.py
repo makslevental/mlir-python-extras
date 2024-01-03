@@ -4,6 +4,7 @@ import os
 import platform
 import warnings
 from pathlib import Path
+from typing import Union
 
 import numpy as np
 from ... import _mlir_libs
@@ -259,7 +260,7 @@ class LLVMJITBackend:
     def compile(
         self,
         module: Module,
-        pipeline: str | Pipeline,
+        pipeline: Union[str, Pipeline],
         kernel_name="main",
         enable_ir_printing=False,
         generate_kernel_wrapper=True,

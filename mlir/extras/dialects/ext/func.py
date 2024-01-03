@@ -1,7 +1,7 @@
 import inspect
 import sys
 from functools import update_wrapper
-from typing import Union, Optional
+from typing import Union, Optional, List
 
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
@@ -19,8 +19,8 @@ from ....ir import (
 
 
 def call(
-    callee_or_results: Union[FuncOp, list[Type]],
-    arguments_or_callee: Union[list[Value], FlatSymbolRefAttr, str],
+    callee_or_results: Union[FuncOp, List[Type]],
+    arguments_or_callee: Union[List[Value], FlatSymbolRefAttr, str],
     arguments: Optional[list] = None,
     *,
     call_op_ctor=CallOp.__base__,

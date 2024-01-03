@@ -1,3 +1,5 @@
+from typing import Union, List
+
 from ....dialects.cf import *
 from ....dialects._cf_ops_gen import _Dialect
 from ....dialects._ods_common import (
@@ -22,7 +24,9 @@ class CondBranchOp(CondBranchOp):
         return Successor(self, self.falseDestOperands, self.successors[1], 1)
 
 
-def br(dest: Value | Block = None, *dest_operands: list[Value], loc=None, ip=None):
+def br(
+    dest: Union[Value, Block] = None, *dest_operands: List[Value], loc=None, ip=None
+):
     if isinstance(dest, Value):
         dest_operands = [dest] + list(dest_operands)
         dest = None
@@ -35,10 +39,10 @@ def br(dest: Value | Block = None, *dest_operands: list[Value], loc=None, ip=Non
 
 def cond_br(
     condition: Value,
-    true_dest: Value | Block = None,
-    false_dest: Value | Block = None,
-    true_dest_operands: list[Value] = None,
-    false_dest_operands: list[Value] = None,
+    true_dest: Union[Value, Block] = None,
+    false_dest: Union[Value, Block] = None,
+    true_dest_operands: List[Value] = None,
+    false_dest_operands: List[Value] = None,
     *,
     loc=None,
     ip=None,
