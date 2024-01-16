@@ -325,6 +325,8 @@ def bb(*preds: Tuple[Union[Successor, OpView]]):
 def region_adder(terminator=None):
     def wrapper(op_region_adder):
         def region_adder_decorator(op, *args, **kwargs):
+            if isinstance(op, Value):
+                op = op.owner.opview
             region = op_region_adder(op, *args, **kwargs)
 
             return op_region_builder(op, region, terminator)
