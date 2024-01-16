@@ -424,7 +424,7 @@ def test_launch_op(ctx: MLIRContext):
           %0 = memref.load %alloc[%arg0, %arg3] : memref<2x6xi32>
           %1 = gpu.all_reduce  %0 uniform {
           ^bb0(%arg12: i32, %arg13: i32):
-            "gpu.yield"(%arg12) : (i32) -> ()
+            gpu.yield %arg12 : i32
           } : (i32) -> i32
           memref.store %1, %alloc_0[%arg0] : memref<2xi32>
           gpu.terminator
