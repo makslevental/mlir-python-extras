@@ -7,7 +7,13 @@ from mlir.ir import MLIRError, Type
 import mlir.extras.types as T
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext.arith import Scalar, constant
-from mlir.extras.dialects.ext.memref import alloc, S
+from mlir.extras.dialects.ext.memref import (
+    alloc,
+    alloca,
+    S,
+    alloca_scope,
+    alloca_scope_return,
+)
 from mlir.extras.dialects.ext.scf import (
     range_,
     yield_,
@@ -37,6 +43,32 @@ def test_simple_literal_indexing(ctx: MLIRContext):
       %c6 = arith.constant 6 : index
       %c8 = arith.constant 8 : index
       %0 = memref.load %alloc[%c2, %c4, %c6, %c8] : memref<10x22x333x4444xi32>
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_simple_literal_indexing_alloca(ctx: MLIRContext):
+    @alloca_scope([])
+    def demo_scope2():
+        mem = alloca((10, 22, 333, 4444), T.i32())
+
+        w = mem[2, 4, 6, 8]
+        assert isinstance(w, Scalar)
+        alloca_scope_return([])
+
+    correct = dedent(
+        """\
+    module {
+      memref.alloca_scope  {
+        %alloca = memref.alloca() : memref<10x22x333x4444xi32>
+        %c2 = arith.constant 2 : index
+        %c4 = arith.constant 4 : index
+        %c6 = arith.constant 6 : index
+        %c8 = arith.constant 8 : index
+        %0 = memref.load %alloca[%c2, %c4, %c6, %c8] : memref<10x22x333x4444xi32>
+      }
     }
     """
     )
