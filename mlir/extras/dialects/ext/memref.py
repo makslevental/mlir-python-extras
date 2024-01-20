@@ -45,9 +45,7 @@ def alloca(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return get_op_result_or_op_results(
-        _alloc(AllocaOp, sizes, element_type, loc=loc, ip=ip)
-    )
+    return _alloc(AllocaOp, sizes, element_type, loc=loc, ip=ip)
 
 
 def load(mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None):
