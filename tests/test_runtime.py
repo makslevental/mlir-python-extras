@@ -5,11 +5,12 @@ from textwrap import dedent
 
 import numpy as np
 import pytest
-from mlir.ir import UnitAttr, Module, StridedLayoutAttr
+from mlir.ir import UnitAttr, Module, StridedLayoutAttr, InsertionPoint, Context
 from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
 import mlir.extras.types as T
 from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.context import RAIIMLIRContext, ExplicitlyManagedModule
 from mlir.extras.dialects.ext import linalg
 from mlir.dialects.arith import sitofp, index_cast
 from mlir.extras.dialects.ext.arith import constant
@@ -872,3 +873,50 @@ def test_linalg_tensor(ctx: MLIRContext, backend: LLVMJITBackend):
     #
     # invoker.memfoo_capi_wrapper(AA, BB, CC)
     # # assert np.array_equal(A + B, C)
+
+
+def test_raii_context():
+    def foo():
+        ctx = RAIIMLIRContext()
+        mod = Module.create()
+        with InsertionPoint(mod.body):
+
+            @func(emit=True)
+            def foo(x: T.i32()):
+                return x
+
+        correct = dedent(
+            """\
+        module {
+          func.func @foo(%arg0: i32) -> i32 {
+            return %arg0 : i32
+          }
+        }
+        """
+        )
+        filecheck(correct, mod)
+
+    foo()
+    assert Context.current is None
+
+
+def test_explicit_module():
+    ctx = RAIIMLIRContext()
+    mod = ExplicitlyManagedModule()
+
+    @func(emit=True)
+    def foo(x: T.i32()):
+        return x
+
+    mod.finish()
+
+    correct = dedent(
+        """\
+    module {
+      func.func @foo(%arg0: i32) -> i32 {
+        return %arg0 : i32
+      }
+    }
+    """
+    )
+    filecheck(correct, mod)
