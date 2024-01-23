@@ -8,6 +8,7 @@ import mlir.extras.types as T
 from mlir.extras.context import mlir_mod_ctx
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
+from mlir.extras.dialects.ext import linalg
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -169,3 +170,30 @@ def test_func_no_context():
     """
     )
     filecheck(correct, mod_ctx.module)
+
+
+M = N = 16
+
+
+@func
+def matmul_i32_i32(
+    A: lambda: T.memref(M, N, T.i32()),
+    B: lambda: T.memref(M, N, T.i32()),
+    C: lambda: T.memref(M, N, T.i32()),
+):
+    linalg.matmul(A, B, C)
+
+
+def test_func_no_context_2(ctx: MLIRContext):
+    matmul_i32_i32.emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @matmul_i32_i32(%arg0: memref<16x16xi32>, %arg1: memref<16x16xi32>, %arg2: memref<16x16xi32>) {
+        linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<16x16xi32>, memref<16x16xi32>) outs(%arg2 : memref<16x16xi32>)
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)

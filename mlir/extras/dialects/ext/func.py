@@ -71,6 +71,11 @@ def call(
         raise ValueError(f"unexpected type {callee_or_results=}")
 
 
+def isalambda(v):
+    LAMBDA = lambda: 0
+    return isinstance(v, type(LAMBDA)) and v.__name__ == LAMBDA.__name__
+
+
 def prep_func_types(sig, return_types):
     assert not (
         not sig.return_annotation is inspect.Signature.empty and len(return_types) > 0
@@ -93,7 +98,7 @@ def prep_func_types(sig, return_types):
         if not p.annotation is inspect.Signature.empty
     ]
     assert all(
-        isinstance(r, (str, Type)) for r in input_types
+        isinstance(r, (str, Type)) or isalambda(r) for r in input_types
     ), f"all input types must be mlir types {input_types=}"
     user_loc = get_user_code_loc()
     # If ir.Context is none (like for deferred func emit)
@@ -178,6 +183,8 @@ class FuncBase:
                 for i, v in enumerate(input_types):
                     if isinstance(v, str):
                         input_types[i] = Type(eval(v, {"T": T}))
+                    elif isalambda(v):
+                        input_types[i] = v()
             else:
                 input_types = [a.type for a in call_args]
 

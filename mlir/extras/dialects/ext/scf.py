@@ -360,7 +360,7 @@ def yield_(*args):
         args = list(args[0])
     y = yield__(args)
     parent_op = y.operation.parent.opview
-    if len(parent_op.results_):
+    if len(parent_op.results):
         results = get_op_result_or_op_results(parent_op)
         assert (
             isinstance(results, (OpResultList, Value))
