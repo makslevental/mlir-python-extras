@@ -41,6 +41,43 @@ def mlir_mod_ctx(
     context._clear_live_operations()
 
 
+class RAIIMLIRContext:
+    context: ir.Context
+    location: ir.Location
+
+    def __init__(self, location: Optional[ir.Location] = None):
+        self.context = ir.Context()
+        self.context.__enter__()
+        if location is None:
+            location = ir.Location.unknown()
+        self.location = location
+        self.location.__enter__()
+
+    def __del__(self):
+        self.location.__exit__(None, None, None)
+        self.context.__exit__(None, None, None)
+        assert ir.Context is None
+
+
+class ExplicitlyManagedModule:
+    module: ir.Module
+    _ip: ir.InsertionPoint
+
+    def __init__(self, src: Optional[str] = None):
+        if src is not None:
+            self.module = ir.Module.parse(src)
+        else:
+            self.module = ir.Module.create()
+        self._ip = ir.InsertionPoint(self.module.body)
+        self._ip.__enter__()
+
+    def finish(self):
+        self._ip.__exit__(None, None, None)
+
+    def __str__(self):
+        return str(self.module)
+
+
 @contextlib.contextmanager
 def enable_multithreading(context=None):
     from ..ir import Context

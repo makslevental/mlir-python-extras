@@ -521,6 +521,42 @@ def test_defer_emit_2(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+M, K, N = 64, 32, 64
+
+
+@func(emit=False, sym_visibility="private")
+def matmul_i16_i16(
+    A: "T.memref(M, K, T.i16())",
+    B: "T.memref(K, N, T.i16())",
+    C: "T.memref(M, N, T.i16())",
+):
+    linalg.matmul(A, B, C)
+
+
+def test_defer_emit_3(ctx: MLIRContext):
+
+    matmul_i16_i16.emit(force=True)
+
+    @module
+    def mod():
+        matmul_i16_i16.emit(decl=True)
+
+    correct = dedent(
+        """\
+    module {
+      func.func private @matmul_i16_i16(%arg0: memref<64x32xi16>, %arg1: memref<32x64xi16>, %arg2: memref<64x64xi16>) {
+        linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<64x32xi16>, memref<32x64xi16>) outs(%arg2 : memref<64x64xi16>)
+        return
+      }
+      module {
+        func.func private @matmul_i16_i16(memref<64x32xi16>, memref<32x64xi16>, memref<64x64xi16>)
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
 def test_successor_ctx_manager(ctx: MLIRContext):
     @func
     def foo1():

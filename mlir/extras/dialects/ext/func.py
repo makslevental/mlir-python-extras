@@ -182,7 +182,7 @@ class FuncBase:
                 input_types = self.input_types[:]
                 for i, v in enumerate(input_types):
                     if isinstance(v, str):
-                        input_types[i] = Type(eval(v, {"T": T}))
+                        input_types[i] = Type(eval(v, self.body_builder.__globals__))
                     elif isalambda(v):
                         input_types[i] = v()
             else:
