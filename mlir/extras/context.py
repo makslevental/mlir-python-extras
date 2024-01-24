@@ -56,23 +56,23 @@ class RAIIMLIRContext:
     def __del__(self):
         self.location.__exit__(None, None, None)
         self.context.__exit__(None, None, None)
-        assert ir.Context is None
+        # i guess the extension gets destroyed before this object sometimes?
+        if ir is not None:
+            assert ir.Context.current is None, str(ir.Context.current)
 
 
 class ExplicitlyManagedModule:
     module: ir.Module
     _ip: ir.InsertionPoint
 
-    def __init__(self, src: Optional[str] = None):
-        if src is not None:
-            self.module = ir.Module.parse(src)
-        else:
-            self.module = ir.Module.create()
+    def __init__(self):
+        self.module = ir.Module.create()
         self._ip = ir.InsertionPoint(self.module.body)
         self._ip.__enter__()
 
     def finish(self):
         self._ip.__exit__(None, None, None)
+        return self.module
 
     def __str__(self):
         return str(self.module)
