@@ -1,5 +1,5 @@
-from ....dialects import linalg
 from ...util import get_user_code_loc
+from ....dialects import linalg
 
 
 def abs(I, O, *, loc=None, ip=None):

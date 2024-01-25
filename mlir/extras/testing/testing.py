@@ -12,9 +12,12 @@ import pytest
 from ..context import MLIRContext, mlir_mod_ctx
 from .generate_test_checks import main
 from ..runtime.refbackend import LLVMJITBackend
+from ...ir import Module
 
 
 def filecheck(correct: str, module):
+    if isinstance(module, Module):
+        assert module.operation.verify()
     filecheck_name = "FileCheck"
     if platform.system() == "Windows":
         filecheck_name += ".exe"

@@ -5,8 +5,10 @@ from functools import partialmethod, cached_property
 from typing import Union, Optional, Tuple
 
 import numpy as np
+
+from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
+from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import arith as arith_dialect
-from ....dialects.arith import *
 from ....dialects import complex as complex_dialect
 from ....dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
@@ -14,8 +16,9 @@ from ....dialects._arith_enum_gen import (
     CmpIPredicate,
     _arith_cmpipredicateattr,
 )
-from ....dialects.arith import _is_integer_like_type
 from ....dialects._ods_common import get_op_result_or_value, get_op_result_or_op_results
+from ....dialects.arith import *
+from ....dialects.arith import _is_integer_like_type
 from ....dialects.linalg.opdsl.lang.emitter import (
     _is_floating_point_type,
     _is_integer_type,
@@ -43,9 +46,6 @@ from ....ir import (
     F64Type,
     FloatAttr,
 )
-
-from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
-from ...._mlir_libs._mlir import register_value_caster
 
 
 def constant(

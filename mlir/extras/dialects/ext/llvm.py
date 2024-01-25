@@ -1,5 +1,5 @@
-from ....ir import Type
 from ....dialects.llvm import *
+from ....ir import Type
 
 
 def llvm_ptr_t():
