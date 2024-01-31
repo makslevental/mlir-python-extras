@@ -12,6 +12,7 @@ from typing import Callable, Optional, Union, Sequence, List, Tuple
 import numpy as np
 
 from .meta import op_region_builder
+from ..extras import types as T
 from ..ir import (
     Block,
     Context,
@@ -20,15 +21,12 @@ from ..ir import (
     InsertionPoint,
     IntegerType,
     Location,
-    OpResult,
-    OpResultList,
     OpView,
     Operation,
     RankedTensorType,
     Value,
     _GlobalDebug,
 )
-from ..extras import types as T
 
 try:
     from ..ir import TypeID
@@ -349,3 +347,16 @@ class ModuleMeta(type):
                 v.qualname = name
         ip.__exit__(None, None, None)
         return new
+
+
+def _get_sym_name(previous_frame, check_func_call=None):
+    try:
+        with open(inspect.getfile(previous_frame)) as src_file:
+            src_lines = src_file.readlines()
+            src_line = src_lines[previous_frame.f_lineno - 1].strip()
+            ident, func_call = map(lambda x: x.strip(), src_line.split("=", maxsplit=1))
+            if check_func_call is None:
+                assert check_func_call in func_call
+        return ident
+    except:
+        return None
