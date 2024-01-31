@@ -1,7 +1,7 @@
 from textwrap import dedent
 
 import pytest
-from mlir.dialects import linalg, arith
+from mlir.dialects import linalg as linalg_dialect, arith as arith_dialect
 from mlir.dialects import pdl
 from mlir.dialects.builtin import module
 from mlir.dialects.gpu import MappingId
@@ -9,16 +9,21 @@ from mlir.dialects.transform import (
     get_parent_op,
     apply_patterns_canonicalization,
     apply_cse,
+    apply_licm,
     any_op_t,
 )
-from mlir.dialects.transform.extras import named_sequence, apply_patterns, sequence
+from mlir.dialects.transform.extras import named_sequence, apply_patterns
+from mlir.dialects.transform.loop import apply_patterns_scf_for_loop_canonicalization
 from mlir.dialects.transform.loop import loop_unroll
-from mlir.dialects.transform.structured import structured_match
-from mlir.ir import UnitAttr
+from mlir.dialects.transform.structured import (
+    apply_patterns_linalg_tiling_canonicalization,
+    MatchInterfaceEnum,
+)
+from mlir.ir import UnitAttr, StringAttr
 
 from mlir.extras import types as T
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import linalg
+from mlir.extras.dialects.ext import linalg, arith, tensor
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import block_attr, thread_attr
 from mlir.extras.dialects.ext.scf import (
@@ -28,8 +33,18 @@ from mlir.extras.dialects.ext.scf import (
 from mlir.extras.dialects.ext.tensor import pad
 from mlir.extras.dialects.ext.transform import (
     match,
-    tile,
+    tile_to_scf_for,
     tile_to_scf_forall,
+    split_handle,
+    structured_fuse_into_containing_op,
+    structured_pack,
+    get_producer_of_operand,
+    structured_pack_transpose,
+    include,
+    structured_bufferize_to_allocation,
+    get_consumers_of_result,
+    structured_lower_pack,
+    transform_op_t,
 )
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
@@ -53,7 +68,7 @@ def test_basic_unroll(ctx: MLIRContext):
     def mod():
         @named_sequence("__transform_main", [any_op_t()], [])
         def basic(target):
-            m = structured_match(any_op_t(), target, ops=["arith.addi"])
+            m = match(target, ops=["arith.addi"])
             loop = get_parent_op(pdl.op_t(), m, op_name="scf.for")
             loop_unroll(loop, 4)
 
@@ -134,7 +149,7 @@ def test_basic_tile(ctx):
         @named_sequence("__transform_main", [any_op_t()], [])
         def basic(target):
             m = match(target, ["tensor.pad"])
-            tiled_linalg_op, loops = tile(m, sizes=[2, 3])
+            tiled_linalg_op, loops = tile_to_scf_for(m, sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -248,7 +263,7 @@ def test_linalg_tile(ctx: MLIRContext):
         @named_sequence("__transform_main", [any_op_t()], [])
         def basic(target):
             m = match(target, ["linalg.matmul"])
-            tiled_linalg_op, loops = tile(m, sizes=[2, 3])
+            tiled_linalg_op, loops = tile_to_scf_for(m, sizes=[2, 3])
 
     correct = dedent(
         """\
@@ -384,7 +399,7 @@ def test_common_extension_sugar(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def select_cmp_eq_select(arg0: T.i64(), arg1: T.i64()):
         a = arg0 == arg1
-        b = arith.select(a, arg0, arg1)
+        b = arith_dialect.select(a, arg0, arg1)
         return b
 
     select_cmp_eq_select.emit()
@@ -638,3 +653,427 @@ def test_two_schedules(ctx: MLIRContext):
     )
 
     filecheck(correct, mod)
+
+
+# based off of https://github.com/nod-ai/iree-amd-aie/blob/89361beb07f4846e65d3a171503b96dcc9267fed/tests/samples/matmul_fill_spec_pack.mlir
+def test_matmul_schedule(ctx: MLIRContext):
+    M, K, N = 16, 256, 256
+
+    @func
+    def matmul_i8_i8(
+        A: T.tensor(M, K, T.i8()),
+        B: T.tensor(K, N, T.i8()),
+    ):
+        empty = tensor.empty((M, N), T.i8())
+        filled = linalg_dialect.fill(arith.constant(0), outs=[empty])
+        return linalg.matmul(A, B, filled)
+
+    @module(attrs={"transform.target_tag": StringAttr.get("payload")})
+    def payload():
+        matmul_i8_i8.emit(force=True)
+
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod_transform():
+        @named_sequence(
+            "cleanup",
+            [any_op_t()],
+            [],
+            arg_attrs=[{"transform.readonly": UnitAttr.get()}],
+        )
+        def cleanup(target: any_op_t()):
+            top_func = match(target, ["func.func"])
+
+            @apply_patterns(top_func)
+            def pats():
+                apply_patterns_linalg_tiling_canonicalization()
+                # transform.apply_patterns.iree.fold_fill_into_pad
+                apply_patterns_scf_for_loop_canonicalization()
+                apply_patterns_canonicalization()
+
+            all_loops = match(target, interface=MatchInterfaceEnum.LoopLikeInterface)
+            apply_licm(all_loops)
+            apply_cse(top_func)
+
+        @named_sequence(
+            "main", [any_op_t()], [], arg_attrs=[{"transform.readonly": UnitAttr.get()}]
+        )
+        def main(variant_op: any_op_t()):
+            ops = match(variant_op, ops=["linalg.fill", "linalg.matmul"])
+            fill, matmul = split_handle(ops)
+            # First level tile to forall with tile_sizes [16, 64].
+            tiled_matmul, (forall,) = tile_to_scf_forall(
+                matmul,
+                [16, 64],
+                mapping=[
+                    thread_attr(MappingId.DimY),
+                    thread_attr(MappingId.DimX),
+                ],
+            )
+            # Fuse fill operation into the loop
+            structured_fuse_into_containing_op(fill, forall)
+            # Pack by applying data tiling, and the linalg.matmul becomes linalg.generic.
+            packed = structured_pack(tiled_matmul, packed_sizes=[16, 64, 64])
+
+            # Transpose B matrix from [K N n k] to [K N k n]
+            pack_producer_b0 = get_producer_of_operand(packed, 1)
+            packed_b0, pack_b0, empty_unpack_b0 = structured_pack_transpose(
+                pack_producer_b0, packed, inner_perm=[1, 0]
+            )
+
+            # Run canonicalization to fold fill with pack and unpack operations.
+            include("cleanup", [variant_op])
+
+            # TODO(max): can't bufferize right now because missing what's the rule/wisdom on upstreaming transform extension patterns into upstream? can this go?
+            # https://github.com/openxla/iree/blob/010710b6b13f6385e514d53eeb1de1daf7d683d3/compiler/src/iree/compiler/Codegen/Common/TransformExtensions/CommonExtensions.cpp#L126
+            # https://github.com/openxla/iree/blob/dc4e59ec0c513872e320836142e79707edf28b1d/compiler/src/iree/compiler/Codegen/Interfaces/BufferizationInterfaces.cpp#L648
+            # # Bufferize to shared memory allocation
+            pack_producer_a0 = get_producer_of_operand(packed_b0, 0)
+            pack_producer_c0 = get_producer_of_operand(packed_b0, 2)
+            buffer_a0, new_a0 = structured_bufferize_to_allocation(
+                pack_b0,
+                memory_space="shared",
+                bufferize_destination_only=True,
+                emit_dealloc=True,
+            )
+            buffer_b0, new_b0 = structured_bufferize_to_allocation(
+                pack_producer_a0,
+                memory_space="shared",
+                bufferize_destination_only=True,
+                emit_dealloc=True,
+            )
+            buffer_c0, new_c0 = structured_bufferize_to_allocation(
+                pack_producer_c0,
+                memory_space="shared",
+                bufferize_destination_only=True,
+                emit_dealloc=True,
+            )
+
+            # Second level tile to forall with tile_sizes [1, 1].
+            tiled_matmul_1, (forall_1,) = tile_to_scf_forall(
+                matmul,
+                [1, 1],
+                mapping=[
+                    thread_attr(MappingId.DimY),
+                    thread_attr(MappingId.DimX),
+                ],
+            )
+            # Find the fill operation to fuse.
+            # TODO(ravishankarm): Find a better way to find the fill operation.
+            fused_fill_1 = get_producer_of_operand(forall_1, 0)
+            structured_fuse_into_containing_op(fused_fill_1, forall_1)
+
+            # Pack by applying data tiling, and the linalg.matmul becomes linalg.generic.
+            packed_2 = structured_pack(tiled_matmul_1, packed_sizes=[0, 0, 0, 4, 8, 8])
+
+            # Transpose A matrix from [M K m k m0 k0] to [M K k m m0 k0]
+            pack_producer_a = get_producer_of_operand(packed_2, 0)
+            packed_a, pack_a, empty_unpack_a = structured_pack_transpose(
+                pack_producer_a, packed_2, outer_perm=[0, 1, 3, 2]
+            )
+
+            # Transpose B matrix from [K N k n n0 k0] to [K N n k k0 n0]
+            pack_producer_b = get_producer_of_operand(packed_a, 1)
+            packed_b, pack_b, empty_unpack_b = structured_pack_transpose(
+                pack_producer_b, packed_a, inner_perm=[1, 0], outer_perm=[0, 1, 3, 2]
+            )
+
+            # Transpose C matrix from [M N m n m0 n0] to [M N n m m0 n0]
+            unpack = get_consumers_of_result(packed_b, 0)
+            packed_c, pack_c, unpack_c = structured_pack_transpose(
+                unpack, packed_b, outer_perm=[0, 1, 3, 2]
+            )
+
+            # Fold fill operation with pack and unpack.
+            include("cleanup", [variant_op])
+
+            # Bufferize to local memory allocation
+            buffer_a, new_a = structured_bufferize_to_allocation(
+                pack_a,
+                memory_space="local",
+                bufferize_destination_only=True,
+            )
+            buffer_b, new_b = structured_bufferize_to_allocation(
+                pack_b,
+                memory_space="local",
+                bufferize_destination_only=True,
+            )
+
+            # Earlier handle for pack operation is now defunct. Find it again.
+            fused_pack_fill = get_producer_of_operand(packed_c, 2)
+            buffer_c, new_c = structured_bufferize_to_allocation(
+                fused_pack_fill,
+                memory_space="local",
+                bufferize_destination_only=True,
+            )
+
+            # Tile reduction dimension.
+            tiled_reduction, loop = tile_to_scf_for(packed_c, sizes=[0, 0, 1])
+
+            # Clean up.
+            include("cleanup", [variant_op])
+
+    correct = """\
+        module {
+          module attributes {transform.target_tag = "payload"} {
+            func.func @matmul_i8_i8(%arg0: tensor<16x256xi8>, %arg1: tensor<256x256xi8>) -> tensor<16x256xi8> {
+              %0 = tensor.empty() : tensor<16x256xi8>
+              %c0_i32 = arith.constant 0 : i32
+              %1 = linalg.fill ins(%c0_i32 : i32) outs(%0 : tensor<16x256xi8>) -> tensor<16x256xi8>
+              %2 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : tensor<16x256xi8>, tensor<256x256xi8>) outs(%1 : tensor<16x256xi8>) -> tensor<16x256xi8>
+              return %2 : tensor<16x256xi8>
+            }
+          }
+          module attributes {transform.with_named_sequence} {
+            transform.named_sequence @cleanup(%arg0: !transform.any_op {transform.readonly}) {
+              %0 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+              transform.apply_patterns to %0 {
+                transform.apply_patterns.linalg.tiling_canonicalization
+                transform.apply_patterns.scf.for_loop_canonicalization
+                transform.apply_patterns.canonicalization
+              } : !transform.any_op
+              %1 = transform.structured.match interface{LoopLikeInterface} in %arg0 : (!transform.any_op) -> !transform.any_op
+              transform.apply_licm to %1 : !transform.any_op
+              transform.apply_cse to %0 : !transform.any_op
+              transform.yield 
+            }
+            transform.named_sequence @main(%arg0: !transform.any_op {transform.readonly}) {
+              %0 = transform.structured.match ops{["linalg.fill", "linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+              %1:2 = transform.split_handle %0 : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %tiled_op, %forall_op = transform.structured.tile_using_forall %1#1 tile_sizes [16, 64](mapping = [#gpu.thread<y>, #gpu.thread<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %fused_op, %new_containing_op = transform.structured.fuse_into_containing_op %1#0 into %forall_op : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %2 = transform.structured.pack %tiled_op packed_sizes = [16, 64, 64] : (!transform.any_op) -> !transform.any_op
+              %3 = transform.get_producer_of_operand %2[1] : (!transform.any_op) -> !transform.any_op
+              %packed_op, %pack_op, %un_pack_op = transform.structured.pack_transpose %3 with_compute_op(%2) inner_perm = [1, 0] : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+              transform.include @cleanup failures(propagate) (%arg0) : (!transform.any_op) -> ()
+              %4 = transform.get_producer_of_operand %packed_op[0] : (!transform.any_op) -> !transform.any_op
+              %5 = transform.get_producer_of_operand %packed_op[2] : (!transform.any_op) -> !transform.any_op
+              %allocated_buffer, %new_ops = transform.structured.bufferize_to_allocation %pack_op {bufferize_destination_only, emit_dealloc, memory_space = "shared"} : !transform.any_op
+              %allocated_buffer_0, %new_ops_1 = transform.structured.bufferize_to_allocation %4 {bufferize_destination_only, emit_dealloc, memory_space = "shared"} : !transform.any_op
+              %allocated_buffer_2, %new_ops_3 = transform.structured.bufferize_to_allocation %5 {bufferize_destination_only, emit_dealloc, memory_space = "shared"} : !transform.any_op
+              %tiled_op_4, %forall_op_5 = transform.structured.tile_using_forall %1#1 tile_sizes [1, 1](mapping = [#gpu.thread<y>, #gpu.thread<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %6 = transform.get_producer_of_operand %forall_op_5[0] : (!transform.any_op) -> !transform.any_op
+              %fused_op_6, %new_containing_op_7 = transform.structured.fuse_into_containing_op %6 into %forall_op_5 : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %7 = transform.structured.pack %tiled_op_4 packed_sizes = [0, 0, 0, 4, 8, 8] : (!transform.any_op) -> !transform.any_op
+              %8 = transform.get_producer_of_operand %7[0] : (!transform.any_op) -> !transform.any_op
+              %packed_op_8, %pack_op_9, %un_pack_op_10 = transform.structured.pack_transpose %8 with_compute_op(%7) outer_perm = [0, 1, 3, 2] : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+              %9 = transform.get_producer_of_operand %packed_op_8[1] : (!transform.any_op) -> !transform.any_op
+              %packed_op_11, %pack_op_12, %un_pack_op_13 = transform.structured.pack_transpose %9 with_compute_op(%packed_op_8) outer_perm = [0, 1, 3, 2] inner_perm = [1, 0] : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+              %10 = transform.get_consumers_of_result %packed_op_11[0] : (!transform.any_op) -> !transform.any_op
+              %packed_op_14, %pack_op_15, %un_pack_op_16 = transform.structured.pack_transpose %10 with_compute_op(%packed_op_11) outer_perm = [0, 1, 3, 2] : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+              transform.include @cleanup failures(propagate) (%arg0) : (!transform.any_op) -> ()
+              %allocated_buffer_17, %new_ops_18 = transform.structured.bufferize_to_allocation %pack_op_9 {bufferize_destination_only, memory_space = "local"} : !transform.any_op
+              %allocated_buffer_19, %new_ops_20 = transform.structured.bufferize_to_allocation %pack_op_12 {bufferize_destination_only, memory_space = "local"} : !transform.any_op
+              %11 = transform.get_producer_of_operand %packed_op_14[2] : (!transform.any_op) -> !transform.any_op
+              %allocated_buffer_21, %new_ops_22 = transform.structured.bufferize_to_allocation %11 {bufferize_destination_only, memory_space = "local"} : !transform.any_op
+              %tiled_linalg_op, %loops = transform.structured.tile_using_for %packed_op_14[0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              transform.include @cleanup failures(propagate) (%arg0) : (!transform.any_op) -> ()
+              transform.yield 
+            }
+          }
+        }
+    """
+    filecheck(correct, ctx.module)
+
+
+# based off of https://github.com/nod-ai/iree-amd-aie/blob/89361beb07f4846e65d3a171503b96dcc9267fed/tests/samples/matmul_fill_spec_pack.mlir
+def test_matmul_schedule_run(ctx: MLIRContext):
+    M, K, N = 16, 256, 256
+
+    @func
+    def matmul_i8_i8(
+        A: T.tensor(M, K, T.i8()),
+        B: T.tensor(K, N, T.i8()),
+    ):
+        empty = tensor.empty((M, N), T.i8())
+        filled = linalg_dialect.fill(arith.constant(0), outs=[empty])
+        return linalg.matmul(A, B, filled)
+
+    @module(attrs={"transform.target_tag": StringAttr.get("payload")})
+    def payload():
+        matmul_i8_i8.emit(force=True)
+
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod_transform():
+        @named_sequence(
+            "cleanup",
+            [any_op_t()],
+            [],
+            arg_attrs=[{"transform.readonly": UnitAttr.get()}],
+        )
+        def cleanup(target: any_op_t()):
+            top_func = match(target, ["func.func"])
+
+            @apply_patterns(top_func)
+            def pats():
+                apply_patterns_linalg_tiling_canonicalization()
+                # transform.apply_patterns.iree.fold_fill_into_pad
+                apply_patterns_scf_for_loop_canonicalization()
+                apply_patterns_canonicalization()
+
+            all_loops = match(target, interface=MatchInterfaceEnum.LoopLikeInterface)
+            apply_licm(all_loops)
+            apply_cse(top_func)
+
+        @named_sequence(
+            "main", [any_op_t()], [], arg_attrs=[{"transform.readonly": UnitAttr.get()}]
+        )
+        def main(variant_op: any_op_t()):
+            ops = match(variant_op, ops=["linalg.fill", "linalg.matmul"])
+            fill, matmul = split_handle(ops)
+            # First level tile to forall with tile_sizes [16, 64].
+            tiled_matmul, (forall,) = tile_to_scf_forall(
+                matmul,
+                [16, 64],
+                mapping=[
+                    thread_attr(MappingId.DimY),
+                    thread_attr(MappingId.DimX),
+                ],
+            )
+            # Fuse fill operation into the loop
+            structured_fuse_into_containing_op(fill, forall)
+            # Pack by applying data tiling, and the linalg.matmul becomes linalg.generic.
+            packed = structured_pack(tiled_matmul, packed_sizes=[16, 64, 64])
+
+            # Transpose B matrix from [K N n k] to [K N k n]
+            pack_producer_b0 = get_producer_of_operand(packed, 1)
+            packed_b0, pack_b0, empty_unpack_b0 = structured_pack_transpose(
+                pack_producer_b0, packed, inner_perm=[1, 0]
+            )
+
+            # Run canonicalization to fold fill with pack and unpack operations.
+            include("cleanup", [variant_op])
+
+    mod = run_pipeline(
+        ctx.module,
+        Pipeline().transform_interpreter(
+            entry_point="main", debug_payload_root_tag="payload"
+        ),
+    )
+    correct = """\
+        #map = affine_map<(d0) -> (d0 * 16)>
+        #map1 = affine_map<(d0) -> (d0 * 64)>
+        #map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d3, d5)>
+        #map3 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d2, d1, d5, d4)>
+        #map4 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d3, d4)>
+        module {
+          module attributes {transform.target_tag = "payload"} {
+            func.func @matmul_i8_i8(%arg0: tensor<16x256xi8>, %arg1: tensor<256x256xi8>) -> tensor<16x256xi8> {
+              %c0_i32 = arith.constant 0 : i32
+              %0 = tensor.empty() : tensor<16x256xi8>
+              %1 = tensor.empty() : tensor<1x4x16x64xi8>
+              %2 = tensor.empty() : tensor<4x1x64x64xi8>
+              %3 = tensor.empty() : tensor<1x1x16x64xi8>
+              %4 = scf.forall (%arg2, %arg3) in (1, 4) shared_outs(%arg4 = %0) -> (tensor<16x256xi8>) {
+                %5 = affine.apply #map(%arg2)
+                %6 = affine.apply #map1(%arg3)
+                %extracted_slice = tensor.extract_slice %arg0[%5, 0] [16, 256] [1, 1] : tensor<16x256xi8> to tensor<16x256xi8>
+                %extracted_slice_0 = tensor.extract_slice %arg1[0, %6] [256, 64] [1, 1] : tensor<256x256xi8> to tensor<256x64xi8>
+                %extracted_slice_1 = tensor.extract_slice %arg4[%5, %6] [16, 64] [1, 1] : tensor<16x256xi8> to tensor<16x64xi8>
+                %pack = tensor.pack %extracted_slice inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %1 : tensor<16x256xi8> -> tensor<1x4x16x64xi8>
+                %pack_2 = tensor.pack %extracted_slice_0 outer_dims_perm = [0, 1] inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %2 : tensor<256x64xi8> -> tensor<4x1x64x64xi8>
+                %7 = linalg.fill ins(%c0_i32 : i32) outs(%3 : tensor<1x1x16x64xi8>) -> tensor<1x1x16x64xi8>
+                %8 = linalg.generic {indexing_maps = [#map2, #map3, #map4], iterator_types = ["parallel", "parallel", "reduction", "parallel", "parallel", "reduction"]} ins(%pack, %pack_2 : tensor<1x4x16x64xi8>, tensor<4x1x64x64xi8>) outs(%7 : tensor<1x1x16x64xi8>) {
+                ^bb0(%in: i8, %in_3: i8, %out: i8):
+                  %9 = arith.muli %in, %in_3 : i8
+                  %10 = arith.addi %out, %9 : i8
+                  linalg.yield %10 : i8
+                } -> tensor<1x1x16x64xi8>
+                %unpack = tensor.unpack %8 inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %extracted_slice_1 : tensor<1x1x16x64xi8> -> tensor<16x64xi8>
+                scf.forall.in_parallel {
+                  tensor.parallel_insert_slice %unpack into %arg4[%5, %6] [16, 64] [1, 1] : tensor<16x64xi8> into tensor<16x256xi8>
+                }
+              } {mapping = [#gpu.thread<y>, #gpu.thread<x>]}
+              return %4 : tensor<16x256xi8>
+            }
+          }
+          module attributes {transform.with_named_sequence} {
+            transform.named_sequence @cleanup(%arg0: !transform.any_op {transform.readonly}) {
+              %0 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+              transform.apply_patterns to %0 {
+                transform.apply_patterns.linalg.tiling_canonicalization
+                transform.apply_patterns.scf.for_loop_canonicalization
+                transform.apply_patterns.canonicalization
+              } : !transform.any_op
+              %1 = transform.structured.match interface{LoopLikeInterface} in %arg0 : (!transform.any_op) -> !transform.any_op
+              transform.apply_licm to %1 : !transform.any_op
+              transform.apply_cse to %0 : !transform.any_op
+              transform.yield 
+            }
+            transform.named_sequence @main(%arg0: !transform.any_op {transform.readonly}) {
+              %0 = transform.structured.match ops{["linalg.fill", "linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+              %1:2 = transform.split_handle %0 : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %tiled_op, %forall_op = transform.structured.tile_using_forall %1#1 tile_sizes [16, 64](mapping = [#gpu.thread<y>, #gpu.thread<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %fused_op, %new_containing_op = transform.structured.fuse_into_containing_op %1#0 into %forall_op : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %2 = transform.structured.pack %tiled_op packed_sizes = [16, 64, 64] : (!transform.any_op) -> !transform.any_op
+              %3 = transform.get_producer_of_operand %2[1] : (!transform.any_op) -> !transform.any_op
+              %packed_op, %pack_op, %un_pack_op = transform.structured.pack_transpose %3 with_compute_op(%2) inner_perm = [1, 0] : (!transform.any_op, !transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+              transform.include @cleanup failures(propagate) (%arg0) : (!transform.any_op) -> ()
+              transform.yield 
+            }
+          }
+        }
+    """
+    filecheck(correct, mod)
+
+
+def test_tensor_pack_schedule_lower_pack_run(ctx: MLIRContext):
+    @func
+    def tensor_pack(
+        src: T.tensor(129, 47, 16, 16, T.f32()),
+        dst: T.tensor(17, 2, 16, 16, 32, 8, T.f32()),
+    ):
+        return tensor.pack(
+            src,
+            dst,
+            inner_dims_pos=[1, 0],
+            inner_tiles=[32, 8],
+            padding_value=arith.constant(0.0),
+        )
+
+    @module(attrs={"transform.target_tag": StringAttr.get("payload")})
+    def payload():
+        tensor_pack.emit(force=True)
+
+    @module(attrs={"transform.with_named_sequence": UnitAttr.get()})
+    def mod_transform():
+        @named_sequence("main", [any_op_t()], [])
+        def main(variant_op: any_op_t()):
+            packed = match(
+                variant_op,
+                ops=["tensor.pack"],
+                matched_op=transform_op_t("tensor.pack"),
+            )
+            lowered_pack = structured_lower_pack(packed)
+
+    mod = run_pipeline(
+        ctx.module,
+        Pipeline().transform_interpreter(
+            entry_point="main", debug_payload_root_tag="payload"
+        ),
+    )
+
+    correct = dedent(
+        """\
+        module {
+          module attributes {transform.target_tag = "payload"} {
+            func.func @tensor_pack(%arg0: tensor<129x47x16x16xf32>, %arg1: tensor<17x2x16x16x32x8xf32>) -> tensor<17x2x16x16x32x8xf32> {
+              %cst = arith.constant 0.000000e+00 : f32
+              %padded = tensor.pad %arg0 low[0, 0, 0, 0] high[7, 17, 0, 0] {
+              ^bb0(%arg2: index, %arg3: index, %arg4: index, %arg5: index):
+                tensor.yield %cst : f32
+              } : tensor<129x47x16x16xf32> to tensor<136x64x16x16xf32>
+              %expanded = tensor.expand_shape %padded [[0, 1], [2, 3], [4], [5]] : tensor<136x64x16x16xf32> into tensor<17x8x2x32x16x16xf32>
+              %transposed = linalg.transpose ins(%expanded : tensor<17x8x2x32x16x16xf32>) outs(%arg1 : tensor<17x2x16x16x32x8xf32>) permutation = [0, 2, 4, 5, 3, 1] 
+              return %transposed : tensor<17x2x16x16x32x8xf32>
+            }
+          }
+          module attributes {transform.with_named_sequence} {
+            transform.named_sequence @main(%arg0: !transform.any_op) {
+              %0 = transform.structured.match ops{["tensor.pack"]} in %arg0 : (!transform.any_op) -> !transform.op<"tensor.pack">
+              %pad_op, %expand_shape_op, %transpose_op = transform.structured.lower_pack %0 : (!transform.op<"tensor.pack">) -> (!transform.op<"tensor.pad">, !transform.op<"tensor.expand_shape">, !transform.op<"linalg.transpose">)
+              transform.yield 
+            }
+          }
+        }
+    """
+    )
