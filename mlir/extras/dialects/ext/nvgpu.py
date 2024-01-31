@@ -6,7 +6,7 @@ from ....dialects._nvgpu_enum_gen import (
     TensorMapOOBKind,
     TensorMapInterleaveKind,
 )
-from ....ir import Attribute, Type
+from ....ir import Type
 
 
 def tensormap_descriptor(

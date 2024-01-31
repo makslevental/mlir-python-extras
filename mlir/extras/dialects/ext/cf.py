@@ -1,16 +1,12 @@
 from typing import Union, List
 
-from ....dialects.cf import *
+from ...util import get_user_code_loc, Successor
 from ....dialects._cf_ops_gen import _Dialect
 from ....dialects._ods_common import (
-    get_op_result_or_value,
-    get_op_results_or_values,
-    get_default_loc_context,
-    segmented_accessor,
     _cext,
 )
-from ....ir import Value, InsertionPoint, Block, OpView
-from ...util import get_user_code_loc, Successor
+from ....dialects.cf import *
+from ....ir import Value, InsertionPoint, Block
 
 
 @_cext.register_operation(_Dialect, replace=True)

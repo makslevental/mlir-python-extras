@@ -6,12 +6,10 @@ from typing import Union, Optional, List
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects.func import *
-from ....extras import types as T
 from ....ir import (
     FlatSymbolRefAttr,
     FunctionType,
     InsertionPoint,
-    StringAttr,
     Type,
     TypeAttr,
     Value,

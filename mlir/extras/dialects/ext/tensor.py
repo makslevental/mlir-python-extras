@@ -4,8 +4,17 @@ from functools import cached_property, reduce
 from typing import Union, Tuple, Sequence, Optional, Any, List
 
 import numpy as np
-from ....dialects.transform.structured import _get_int_array_array_attr
+
+from .arith import ArithValue, Scalar, constant
+from ... import types as T
+from ...meta import region_op
+from ...util import get_user_code_loc, _update_caller_vars
+from ...._mlir_libs._mlir import register_value_caster
+from ....dialects import tensor
+from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
+from ....dialects.tensor import *
+from ....dialects.transform.structured import _get_int_array_array_attr
 from ....ir import (
     Type,
     Value,
@@ -13,15 +22,6 @@ from ....ir import (
     DenseElementsAttr,
     ShapedType,
 )
-
-from ... import types as T
-from ....dialects import tensor
-from ....dialects.tensor import *
-from .arith import ArithValue, Scalar, constant
-from ...meta import region_op
-from ...._mlir_libs._mlir import register_value_caster
-from ...util import get_user_code_loc, _update_caller_vars
-from ....dialects._ods_common import get_op_result_or_op_results
 
 S = ShapedType.get_dynamic_size()
 

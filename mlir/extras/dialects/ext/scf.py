@@ -6,13 +6,16 @@ from typing import Optional, Sequence, Union, List
 
 from bytecode import ConcreteBytecode
 
+# gotta come first
+from ....dialects.scf import *
+from .arith import constant, index_cast
+from .gpu import get_device_mapping_array_attr
 from ...ast.canonicalize import (
     StrictTransformer,
     Canonicalizer,
     BytecodePatcher,
 )
 from ...ast.util import ast_call, set_lineno
-from .gpu import get_device_mapping_array_attr
 from ...meta import region_op
 from ...util import get_user_code_loc, region_adder
 from ....dialects._ods_common import (
@@ -21,7 +24,6 @@ from ....dialects._ods_common import (
     _cext,
 )
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
-from ....dialects.scf import *
 from ....dialects.scf import _Dialect, yield_ as yield__, reduce_return, condition
 from ....ir import (
     InsertionPoint,
@@ -34,7 +36,6 @@ from ....ir import (
     Attribute,
     OpaqueType,
 )
-from .arith import constant, index_cast
 
 logger = logging.getLogger(__name__)
 

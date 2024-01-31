@@ -1,18 +1,16 @@
-import re
 from functools import cached_property, reduce
-from typing import Tuple, Sequence, Optional, Union
+from typing import Tuple, Sequence, Union
 
-from ....ir import Type, Value, MemRefType, ShapedType, MLIRError
-
-from ... import types as T
-from ....dialects.memref import *
-from ....dialects import memref, arith
 from .arith import Scalar, constant
 from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
+from ... import types as T
 from ...meta import region_op
-from ...._mlir_libs._mlir import register_value_caster
 from ...util import get_user_code_loc
+from ...._mlir_libs._mlir import register_value_caster
+from ....dialects import memref, arith
 from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects.memref import *
+from ....ir import Type, Value, MemRefType, ShapedType
 
 S = ShapedType.get_dynamic_size()
 
@@ -68,71 +66,6 @@ def store(
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
     return get_op_result_or_op_results(StoreOp(value, mem, indices, loc=loc, ip=ip))
-
-
-def subview(
-    source: "MemRef",
-    offsets: Optional[Sequence[Value]] = None,
-    strides: Optional[Sequence[Value]] = None,
-    static_offsets: Optional[Sequence[int]] = None,
-    static_sizes: Optional[Sequence[int]] = None,
-    static_strides: Optional[Sequence[int]] = None,
-    *,
-    loc=None,
-    ip=None,
-):
-    if loc is None:
-        loc = get_user_code_loc()
-    if offsets is None:
-        offsets = []
-    if static_offsets is None:
-        static_offsets = []
-    if strides is None:
-        strides = []
-    if static_strides is None:
-        static_strides = []
-    assert static_sizes, f"this convenience method only handles static sizes"
-    sizes = []
-    wrong_type = T.memref(*static_sizes, source.dtype)
-    if offsets and static_offsets:
-        assert all(s == S for s in static_offsets)
-    if strides and static_strides:
-        assert all(s == S for s in static_strides)
-    val = memref.subview(
-        wrong_type,
-        source,
-        offsets,
-        sizes,
-        strides,
-        static_offsets,
-        static_sizes,
-        static_strides,
-        loc=loc,
-        ip=ip,
-    )
-    # dumbest hack ever - the default builder doesn't connect to inferReturnTypes
-    # but the diag message does
-    try:
-        val.owner.verify()
-        return val
-    except MLIRError as e:
-        diag = str(e.error_diagnostics[0])
-        correct_type = re.findall(r"'memref<(.*)>'", diag)
-        assert len(correct_type) == 1
-        correct_type = Type.parse(f"memref<{correct_type[0]}>")
-        val.owner.erase()
-        return memref.subview(
-            correct_type,
-            source,
-            offsets,
-            sizes,
-            strides,
-            static_offsets,
-            static_sizes,
-            static_strides,
-            loc=loc,
-            ip=ip,
-        )
 
 
 @register_value_caster(MemRefType.static_typeid)
@@ -266,16 +199,15 @@ def _subview(
     if indexer.is_constant():
         out = subview(
             out,
-            static_offsets=indexer.static_offsets(),
-            static_sizes=indexer.static_sizes(),
-            static_strides=indexer.static_strides(),
+            offsets=indexer.static_offsets(),
+            sizes=indexer.static_sizes(),
+            strides=indexer.static_strides(),
             loc=loc,
             ip=ip,
         )
     else:
         # special tile case
         offsets = [None] * len(indexer.in_shape)
-        static_offsets = [None] * len(indexer.in_shape)
         static_sizes = [None] * len(indexer.in_shape)
         static_strides = [None] * len(indexer.in_shape)
         for i, ind in enumerate(indexer.indices):
@@ -292,7 +224,6 @@ def _subview(
                 and ind.step.is_constant()
             ):
                 offsets[i] = ind.start
-                static_offsets[i] = S
                 static_sizes[i] = maybe_size.literal_value
                 static_strides[i] = (
                     ind.step.literal_value if isinstance(ind.step, Scalar) else ind.step
@@ -300,7 +231,6 @@ def _subview(
             else:
                 raise RuntimeError(f"indexing not supported {indexer.indices}")
         offsets = list(filter(None, offsets))
-        static_offsets = list(filter(None, static_offsets))
         static_sizes = list(filter(None, static_sizes))
         static_strides = list(filter(None, static_strides))
         assert (
@@ -312,9 +242,8 @@ def _subview(
         out = subview(
             out,
             offsets=offsets,
-            static_offsets=static_offsets,
-            static_sizes=static_sizes,
-            static_strides=static_strides,
+            sizes=static_sizes,
+            strides=static_strides,
             loc=loc,
             ip=ip,
         )

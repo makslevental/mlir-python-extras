@@ -2,9 +2,17 @@ import inspect
 from functools import partial
 from typing import Optional, Any, List, Tuple
 
-from ....dialects._ods_common import get_default_loc_context, _cext
-from ....dialects.gpu import *
+from .arith import constant
+from .func import FuncBase
+from ... import types as T
+from ...meta import (
+    region_op,
+)
+from ...util import get_user_code_loc, make_maybe_no_args_decorator, ModuleMeta
 from ....dialects._gpu_ops_gen import _Dialect
+from ....dialects._ods_common import get_default_loc_context, _cext
+from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects.gpu import *
 from ....ir import (
     Type,
     Attribute,
@@ -16,15 +24,6 @@ from ....ir import (
     InsertionPoint,
     Value,
 )
-
-from ... import types as T
-from .arith import constant
-from .func import FuncBase
-from ...meta import (
-    region_op,
-)
-from ....dialects._ods_common import get_op_result_or_op_results
-from ...util import get_user_code_loc, make_maybe_no_args_decorator, ModuleMeta
 
 
 def block_id_x():

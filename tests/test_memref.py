@@ -1,3 +1,4 @@
+import numpy as np
 import re
 from textwrap import dedent
 
@@ -26,6 +27,10 @@ from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
+
+
+def get_np_view_offset(np_view):
+    return np_view.ctypes.data - np_view.base.ctypes.data
 
 
 def test_simple_literal_indexing(ctx: MLIRContext):
@@ -99,7 +104,22 @@ def test_ellipsis_and_full_slice(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32())
+    sizes = (10, 22, 333, 4444)
+    dtype_size_in_bytes = np.int32().dtype.itemsize
+    golden_mem = np.zeros(sizes, dtype=np.int32)
+    golden_w_1 = golden_mem[1:2, ...]
+    golden_w_2 = golden_mem[1:2, :, ...]
+    golden_w_3 = golden_mem[1:2, :, :, ...]
+
+    golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
+    golden_w_3_strides = (np.array(golden_w_3.strides) // dtype_size_in_bytes).tolist()
+
+    golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
+    golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
+
+    mem = alloc(sizes, T.i32())
     w = mem[1, ...]
     w = mem[1, :, ...]
     w = mem[1, :, :, ...]
@@ -113,51 +133,115 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
         )
 
     correct = dedent(
-        """\
-    module {
+        f"""\
+    module {{
       %alloc = memref.alloc() : memref<10x22x333x4444xi32>
       %c1 = arith.constant 1 : index
-      %subview = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556744>>
+      %subview = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_1_strides}, offset: {golden_w_1_offset}>>
       %c1_0 = arith.constant 1 : index
-      %subview_1 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556744>>
+      %subview_1 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
       %c1_2 = arith.constant 1 : index
-      %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556744>>
+      %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: {golden_w_3_offset}>>
       %c1_4 = arith.constant 1 : index
-    }
+    }}
     """
     )
     filecheck(correct, ctx.module)
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32())
+    sizes = (10, 22, 333, 4444)
+    dtype_size_in_bytes = np.int32().dtype.itemsize
+    golden_mem = np.zeros(sizes, dtype=np.int32)
+    golden_w_1 = golden_mem[1:2, :]
+    golden_w_2 = golden_mem[1:2, :, :]
+    golden_w_3 = golden_mem[1:2, :, :, :]
+    golden_w_4 = golden_mem[:, 1:2]
+    golden_w_5 = golden_mem[:, :, 1:2]
+
+    golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
+    golden_w_3_strides = (np.array(golden_w_3.strides) // dtype_size_in_bytes).tolist()
+    golden_w_4_strides = (np.array(golden_w_4.strides) // dtype_size_in_bytes).tolist()
+    golden_w_5_strides = (np.array(golden_w_5.strides) // dtype_size_in_bytes).tolist()
+
+    golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
+    golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
+    golden_w_4_offset = get_np_view_offset(golden_w_4) // dtype_size_in_bytes
+    golden_w_5_offset = get_np_view_offset(golden_w_5) // dtype_size_in_bytes
+
+    mem = alloc(sizes, T.i32())
     w = mem[1, :]
     w = mem[1, :, :]
     w = mem[1, :, :, :]
     w = mem[:, 1]
     w = mem[:, :, 1]
     correct = dedent(
-        """\
-    module {
+        f"""\
+    module {{
       %alloc = memref.alloc() : memref<10x22x333x4444xi32>
       %c1 = arith.constant 1 : index
-      %subview = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556744>>
+      %subview = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_1_strides}, offset: {golden_w_1_offset}>>
       %c1_0 = arith.constant 1 : index
-      %subview_1 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556744>>
+      %subview_2 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
       %c1_2 = arith.constant 1 : index
-      %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556744>>
+      %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: {golden_w_3_offset}>>
       %c1_4 = arith.constant 1 : index
-      %subview_5 = memref.subview %alloc[0, 1, 0, 0] [10, 1, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 1479852>>
+      %subview_5 = memref.subview %alloc[0, 1, 0, 0] [10, 1, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x333x4444xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
       %c1_6 = arith.constant 1 : index
-      %subview_7 = memref.subview %alloc[0, 0, 1, 0] [10, 22, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x1x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 4444>>
-    }
+      %subview_7 = memref.subview %alloc[0, 0, 1, 0] [10, 22, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x1x4444xi32, strided<{golden_w_5_strides}, offset: {golden_w_5_offset}>>
+    }}
     """
     )
     filecheck(correct, ctx.module)
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32())
+    sizes = (10, 22, 333, 4444)
+    dtype_size_in_bytes = np.int32().dtype.itemsize
+    golden_mem = np.zeros(sizes, dtype=np.int32)
+    golden_w_1 = golden_mem[:, :, :, 1:2]
+    golden_w_2 = golden_mem[:, 1:2, :, 1:2]
+    golden_w_3 = golden_mem[1:2, :, :, 1:2]
+    golden_w_4 = golden_mem[1:2, 1:2, :, :]
+    golden_w_5 = golden_mem[:, :, 1:2, 1:2]
+    golden_w_6 = golden_mem[:, 1:2, 1:2, :]
+    golden_w_7 = golden_mem[1:2, :, 1:2, :]
+    golden_w_8 = golden_mem[1:2, 1:2, :, 1:2]
+    golden_w_9 = golden_mem[1:2, :, 1:2, 1:2]
+    golden_w_10 = golden_mem[:, 1:2, 1:2, 1:2]
+    golden_w_11 = golden_mem[1:2, 1:2, 1:2, :]
+
+    golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
+    golden_w_3_strides = (np.array(golden_w_3.strides) // dtype_size_in_bytes).tolist()
+    golden_w_4_strides = (np.array(golden_w_4.strides) // dtype_size_in_bytes).tolist()
+    golden_w_5_strides = (np.array(golden_w_5.strides) // dtype_size_in_bytes).tolist()
+    golden_w_6_strides = (np.array(golden_w_6.strides) // dtype_size_in_bytes).tolist()
+    golden_w_7_strides = (np.array(golden_w_7.strides) // dtype_size_in_bytes).tolist()
+    golden_w_8_strides = (np.array(golden_w_8.strides) // dtype_size_in_bytes).tolist()
+    golden_w_9_strides = (np.array(golden_w_9.strides) // dtype_size_in_bytes).tolist()
+    golden_w_10_strides = (
+        np.array(golden_w_10.strides) // dtype_size_in_bytes
+    ).tolist()
+    golden_w_11_strides = (
+        np.array(golden_w_11.strides) // dtype_size_in_bytes
+    ).tolist()
+
+    golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
+    golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
+    golden_w_4_offset = get_np_view_offset(golden_w_4) // dtype_size_in_bytes
+    golden_w_5_offset = get_np_view_offset(golden_w_5) // dtype_size_in_bytes
+    golden_w_6_offset = get_np_view_offset(golden_w_6) // dtype_size_in_bytes
+    golden_w_7_offset = get_np_view_offset(golden_w_7) // dtype_size_in_bytes
+    golden_w_8_offset = get_np_view_offset(golden_w_8) // dtype_size_in_bytes
+    golden_w_9_offset = get_np_view_offset(golden_w_9) // dtype_size_in_bytes
+    golden_w_10_offset = get_np_view_offset(golden_w_10) // dtype_size_in_bytes
+    golden_w_11_offset = get_np_view_offset(golden_w_11) // dtype_size_in_bytes
+
+    mem = alloc(sizes, T.i32())
 
     w = mem[:, :, :, 1]
     w = mem[:, 1, :, 1]
@@ -172,46 +256,46 @@ def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
     w = mem[1, 1, 1, :]
 
     correct = dedent(
-        """\
-    module {
+        f"""\
+    module {{
       %alloc = memref.alloc() : memref<10x22x333x4444xi32>
       %c1 = arith.constant 1 : index
-      %subview = memref.subview %alloc[0, 0, 0, 1] [10, 22, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 1>>
+      %subview = memref.subview %alloc[0, 0, 0, 1] [10, 22, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x1xi32, strided<{golden_w_1_strides}, offset: {golden_w_1_offset}>>
       %c1_0 = arith.constant 1 : index
       %c1_1 = arith.constant 1 : index
-      %subview_2 = memref.subview %alloc[0, 1, 0, 1] [10, 1, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x333x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 1479853>>
+      %subview_2 = memref.subview %alloc[0, 1, 0, 1] [10, 1, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x333x1xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
       %c1_3 = arith.constant 1 : index
       %c1_4 = arith.constant 1 : index
-      %subview_5 = memref.subview %alloc[1, 0, 0, 1] [1, 22, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 32556745>>
+      %subview_3 = memref.subview %alloc[1, 0, 0, 1] [1, 22, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x1xi32, strided<{golden_w_3_strides}, offset: {golden_w_3_offset}>>
       %c1_6 = arith.constant 1 : index
       %c1_7 = arith.constant 1 : index
-      %subview_8 = memref.subview %alloc[1, 1, 0, 0] [1, 1, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x1x333x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 34036596>>
+      %subview_8 = memref.subview %alloc[1, 1, 0, 0] [1, 1, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x1x333x4444xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
       %c1_9 = arith.constant 1 : index
       %c1_10 = arith.constant 1 : index
-      %subview_11 = memref.subview %alloc[0, 0, 1, 1] [10, 22, 1, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x1x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 4445>>
+      %subview_11 = memref.subview %alloc[0, 0, 1, 1] [10, 22, 1, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x1x1xi32, strided<{golden_w_5_strides}, offset: {golden_w_5_offset}>>
       %c1_12 = arith.constant 1 : index
       %c1_13 = arith.constant 1 : index
-      %subview_14 = memref.subview %alloc[0, 1, 1, 0] [10, 1, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x1x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 1484296>>
+      %subview_14 = memref.subview %alloc[0, 1, 1, 0] [10, 1, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x1x4444xi32, strided<{golden_w_6_strides}, offset: {golden_w_6_offset}>>
       %c1_15 = arith.constant 1 : index
       %c1_16 = arith.constant 1 : index
-      %subview_17 = memref.subview %alloc[1, 0, 1, 0] [1, 22, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x1x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 32561188>>
+      %subview_17 = memref.subview %alloc[1, 0, 1, 0] [1, 22, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x1x4444xi32, strided<{golden_w_7_strides}, offset: {golden_w_7_offset}>>
       %c1_18 = arith.constant 1 : index
       %c1_19 = arith.constant 1 : index
       %c1_20 = arith.constant 1 : index
-      %subview_21 = memref.subview %alloc[1, 1, 0, 1] [1, 1, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x1x333x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 34036597>>
+      %subview_21 = memref.subview %alloc[1, 1, 0, 1] [1, 1, 333, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x1x333x1xi32, strided<{golden_w_8_strides}, offset: {golden_w_8_offset}>>
       %c1_22 = arith.constant 1 : index
       %c1_23 = arith.constant 1 : index
       %c1_24 = arith.constant 1 : index
-      %subview_25 = memref.subview %alloc[1, 0, 1, 1] [1, 22, 1, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x1x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 32561189>>
+      %subview_25 = memref.subview %alloc[1, 0, 1, 1] [1, 22, 1, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x1x1xi32, strided<{golden_w_9_strides}, offset: {golden_w_9_offset}>>
       %c1_26 = arith.constant 1 : index
       %c1_27 = arith.constant 1 : index
       %c1_28 = arith.constant 1 : index
-      %subview_29 = memref.subview %alloc[0, 1, 1, 1] [10, 1, 1, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x1x1xi32, strided<[32556744, 1479852, 4444, 1], offset: 1484297>>
+      %subview_29 = memref.subview %alloc[0, 1, 1, 1] [10, 1, 1, 1] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x1x1xi32, strided<{golden_w_10_strides}, offset: {golden_w_10_offset}>>
       %c1_30 = arith.constant 1 : index
       %c1_31 = arith.constant 1 : index
       %c1_32 = arith.constant 1 : index
-      %subview_33 = memref.subview %alloc[1, 1, 1, 0] [1, 1, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x1x1x4444xi32, strided<[32556744, 1479852, 4444, 1], offset: 34041040>>
-    }
+      %subview_33 = memref.subview %alloc[1, 1, 1, 0] [1, 1, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x1x1x4444xi32, strided<{golden_w_11_strides}, offset: {golden_w_11_offset}>>
+    }}
     """
     )
     filecheck(correct, ctx.module)
@@ -268,27 +352,71 @@ def test_none_indices(ctx: MLIRContext):
 
 
 def test_nontrivial_slices(ctx: MLIRContext):
-    mem = alloc((7, 22, 333, 4444), T.i32())
+    sizes = (7, 22, 333, 4444)
+    dtype_size_in_bytes = np.int32().dtype.itemsize
+    golden_mem = np.zeros(sizes, dtype=np.int32)
+    golden_w_1 = golden_mem[:, 0:22:2]
+    golden_w_2 = golden_mem[:, 0:22:2, 0:330:30]
+    golden_w_3 = golden_mem[:, 0:22:2, 0:330:30, 0:4400:400]
+    golden_w_4 = golden_mem[:, :, 100:200:5, 1000:2000:50]
+
+    golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
+    golden_w_3_strides = (np.array(golden_w_3.strides) // dtype_size_in_bytes).tolist()
+    golden_w_4_strides = (np.array(golden_w_4.strides) // dtype_size_in_bytes).tolist()
+
+    golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
+    golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
+    golden_w_4_offset = get_np_view_offset(golden_w_4) // dtype_size_in_bytes
+
+    assert golden_w_1_offset == golden_w_2_offset == golden_w_3_offset == 0
+
+    mem = alloc(sizes, T.i32())
     w = mem[:, 0:22:2]
     w = mem[:, 0:22:2, 0:330:30]
     w = mem[:, 0:22:2, 0:330:30, 0:4400:400]
     w = mem[:, :, 100:200:5, 1000:2000:50]
     correct = dedent(
-        """\
-    module {
+        f"""\
+    module {{
       %alloc = memref.alloc() : memref<7x22x333x4444xi32>
-      %subview = memref.subview %alloc[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : memref<7x22x333x4444xi32> to memref<7x11x333x4444xi32>
-      %subview_0 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : memref<7x22x333x4444xi32> to memref<7x11x11x4444xi32>
-      %subview_1 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : memref<7x22x333x4444xi32> to memref<7x11x11x11xi32>
-      %subview_2 = memref.subview %alloc[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : memref<7x22x333x4444xi32> to memref<7x22x20x20xi32, strided<[32556744, 1479852, 22220, 50], offset: 445400>>
-    }
+      %subview = memref.subview %alloc[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : memref<7x22x333x4444xi32> to memref<7x11x333x4444xi32, strided<{golden_w_1_strides}>>
+      %subview_0 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : memref<7x22x333x4444xi32> to memref<7x11x11x4444xi32, strided<{golden_w_2_strides}>>
+      %subview_1 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : memref<7x22x333x4444xi32> to memref<7x11x11x11xi32, strided<{golden_w_3_strides}>>
+      %subview_2 = memref.subview %alloc[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : memref<7x22x333x4444xi32> to memref<7x22x20x20xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
+    }}
     """
     )
     filecheck(correct, ctx.module)
 
 
 def test_nontrivial_slices_insertion(ctx: MLIRContext):
-    mem = alloc((7, 22, 333, 4444), T.i32())
+    sizes = (7, 22, 333, 4444)
+    dtype_size_in_bytes = np.int32().dtype.itemsize
+    golden_mem = np.zeros(sizes, dtype=np.int32)
+    golden_w_1 = golden_mem[:, 0:22:2]
+    golden_mem[:, 0:22:2] = golden_w_1
+    golden_w_2 = golden_mem[:, 0:22:2, 0:330:30]
+    golden_mem[:, 0:22:2, 0:330:30] = golden_w_2
+    golden_w_3 = golden_mem[:, 0:22:2, 0:330:30, 0:4400:400]
+    golden_mem[:, 0:22:2, 0:330:30, 0:4400:400] = golden_w_3
+    golden_w_4 = golden_mem[:, :, 100:200:5, 1000:2000:50]
+    golden_mem[:, :, 100:200:5, 1000:2000:50] = golden_w_4
+
+    golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
+    golden_w_3_strides = (np.array(golden_w_3.strides) // dtype_size_in_bytes).tolist()
+    golden_w_4_strides = (np.array(golden_w_4.strides) // dtype_size_in_bytes).tolist()
+
+    golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
+    golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
+    golden_w_4_offset = get_np_view_offset(golden_w_4) // dtype_size_in_bytes
+
+    assert golden_w_1_offset == golden_w_2_offset == golden_w_3_offset == 0
+
+    mem = alloc(sizes, T.i32())
     w = mem[:, 0:22:2]
     mem[:, 0:22:2] = w
     w = mem[:, 0:22:2, 0:330:30]
@@ -299,40 +427,53 @@ def test_nontrivial_slices_insertion(ctx: MLIRContext):
     mem[:, :, 100:200:5, 1000:2000:50] = w
 
     correct = dedent(
-        """\
-    module {
+        f"""\
+    module {{
       %alloc = memref.alloc() : memref<7x22x333x4444xi32>
-      %subview = memref.subview %alloc[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : memref<7x22x333x4444xi32> to memref<7x11x333x4444xi32>
-      %subview_0 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : memref<7x22x333x4444xi32> to memref<7x11x333x4444xi32>
-      memref.copy %subview, %subview_0 : memref<7x11x333x4444xi32> to memref<7x11x333x4444xi32>
-      %subview_1 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : memref<7x22x333x4444xi32> to memref<7x11x11x4444xi32>
-      %subview_2 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : memref<7x22x333x4444xi32> to memref<7x11x11x4444xi32>
-      memref.copy %subview_1, %subview_2 : memref<7x11x11x4444xi32> to memref<7x11x11x4444xi32>
-      %subview_3 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : memref<7x22x333x4444xi32> to memref<7x11x11x11xi32>
-      %subview_4 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : memref<7x22x333x4444xi32> to memref<7x11x11x11xi32>
-      memref.copy %subview_3, %subview_4 : memref<7x11x11x11xi32> to memref<7x11x11x11xi32>
-      %subview_5 = memref.subview %alloc[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : memref<7x22x333x4444xi32> to memref<7x22x20x20xi32, strided<[32556744, 1479852, 22220, 50], offset: 445400>>
-      %subview_6 = memref.subview %alloc[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : memref<7x22x333x4444xi32> to memref<7x22x20x20xi32, strided<[32556744, 1479852, 22220, 50], offset: 445400>>
-      memref.copy %subview_5, %subview_6 : memref<7x22x20x20xi32, strided<[32556744, 1479852, 22220, 50], offset: 445400>> to memref<7x22x20x20xi32, strided<[32556744, 1479852, 22220, 50], offset: 445400>>
-    }
+      %subview = memref.subview %alloc[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : memref<7x22x333x4444xi32> to memref<7x11x333x4444xi32, strided<{golden_w_1_strides}>>
+      %subview_0 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : memref<7x22x333x4444xi32> to memref<7x11x333x4444xi32, strided<{golden_w_1_strides}>>
+      memref.copy %subview, %subview_0 : memref<7x11x333x4444xi32, strided<{golden_w_1_strides}>> to memref<7x11x333x4444xi32, strided<{golden_w_1_strides}>>
+      %subview_1 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : memref<7x22x333x4444xi32> to memref<7x11x11x4444xi32, strided<{golden_w_2_strides}>>
+      %subview_2 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : memref<7x22x333x4444xi32> to memref<7x11x11x4444xi32, strided<{golden_w_2_strides}>>
+      memref.copy %subview_1, %subview_2 : memref<7x11x11x4444xi32, strided<{golden_w_2_strides}>> to memref<7x11x11x4444xi32, strided<{golden_w_2_strides}>>
+      %subview_3 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : memref<7x22x333x4444xi32> to memref<7x11x11x11xi32, strided<{golden_w_3_strides}>>
+      %subview_4 = memref.subview %alloc[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : memref<7x22x333x4444xi32> to memref<7x11x11x11xi32, strided<{golden_w_3_strides}>>
+      memref.copy %subview_3, %subview_4 : memref<7x11x11x11xi32, strided<{golden_w_3_strides}>> to memref<7x11x11x11xi32, strided<{golden_w_3_strides}>>
+      %subview_5 = memref.subview %alloc[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : memref<7x22x333x4444xi32> to memref<7x22x20x20xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
+      %subview_6 = memref.subview %alloc[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : memref<7x22x333x4444xi32> to memref<7x22x20x20xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
+      memref.copy %subview_5, %subview_6 : memref<7x22x20x20xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>> to memref<7x22x20x20xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
+    }}
     """
     )
     filecheck(correct, ctx.module)
 
 
 def test_move_slice(ctx: MLIRContext):
-    mem = alloc((8, 8), T.i32())
+    sizes = (8, 8)
+    dtype_size_in_bytes = np.int32().dtype.itemsize
+    golden_mem = np.zeros(sizes, dtype=np.int32)
+    golden_w_1 = golden_mem[0:4, 0:4]
+    golden_w_2 = golden_mem[4:8, 4:8]
+    golden_w_2[:, :] = golden_w_1
+
+    golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    assert golden_w_1_offset == 0
+    golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
+    golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
+
+    mem = alloc(sizes, T.i32())
     w = mem[0:4, 0:4]
     mem[4:8, 4:8] = w
 
     correct = dedent(
-        """\
-    module {
+        f"""\
+    module {{
       %alloc = memref.alloc() : memref<8x8xi32>
-      %subview = memref.subview %alloc[0, 0] [4, 4] [1, 1] : memref<8x8xi32> to memref<4x4xi32>
-      %subview_0 = memref.subview %alloc[4, 4] [4, 4] [1, 1] : memref<8x8xi32> to memref<4x4xi32, strided<[8, 1], offset: 36>>
-      memref.copy %subview, %subview_0 : memref<4x4xi32> to memref<4x4xi32, strided<[8, 1], offset: 36>>
-    }
+      %subview = memref.subview %alloc[0, 0] [4, 4] [1, 1] : memref<8x8xi32> to memref<4x4xi32, strided<{golden_w_1_strides}>>
+      %subview_0 = memref.subview %alloc[4, 4] [4, 4] [1, 1] : memref<8x8xi32> to memref<4x4xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
+      memref.copy %subview, %subview_0 : memref<4x4xi32, strided<{golden_w_1_strides}>> to memref<4x4xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
+    }}
     """
     )
     filecheck(correct, ctx.module)
@@ -406,14 +547,10 @@ def test_subview_mixed_offsets(ctx: MLIRContext):
         mem = alloc((10, 10), T.i32())
         i, j = constant(0, index=True), constant(0, index=True)
         v = subview(
-            T.memref(5, 5, T.i32()),
             mem,
             offsets=[i, j],
-            sizes=[],
-            strides=[],
-            static_offsets=[S, S],
-            static_sizes=[5, 5],
-            static_strides=[1, 1],
+            sizes=[5, 5],
+            strides=[1, 1],
         )
         try:
             v.owner.verify()
@@ -424,14 +561,11 @@ def test_subview_mixed_offsets(ctx: MLIRContext):
             correct_type = Type.parse(f"memref<{correct_type[0]}>")
             v.owner.erase()
             v = subview(
-                correct_type,
                 mem,
                 offsets=[i, j],
-                sizes=[],
-                strides=[],
-                static_offsets=[S, S],
-                static_sizes=[5, 5],
-                static_strides=[1, 1],
+                sizes=[5, 5],
+                strides=[1, 1],
+                result_type=correct_type,
             )
 
     tenfoo()
@@ -441,7 +575,7 @@ def test_subview_mixed_offsets(ctx: MLIRContext):
       %alloc = memref.alloc() : memref<10x10xi32>
       %c0 = arith.constant 0 : index
       %c0_0 = arith.constant 0 : index
-      %subview = memref.subview %alloc[%c0, %c0_0] [5, 5] [1, 1] : memref<10x10xi32> to memref<5x5xi32, strided<[10, 1], offset: ?>>
+      %subview = memref.subview %alloc[0, 0] [5, 5] [1, 1] : memref<10x10xi32> to memref<5x5xi32, strided<[10, 1]>>
     }
     """
     )
