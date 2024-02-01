@@ -25,6 +25,7 @@ from mlir.extras.dialects.ext.transform import (
     match,
     tile_to_scf_for,
     get_parent_op,
+    transform_any_op_t,
 )
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
@@ -65,7 +66,9 @@ def test_np_constructor(ctx: MLIRContext):
             matmul = match(module_op, ops=["linalg.matmul"])
             tiled_matmul, (_, _, inner_loop) = tile_to_scf_for(matmul, sizes=[2, 2, 2])
             transform.structured.vectorize_children_and_apply_patterns(
-                get_parent_op(tiled_matmul, isolated_from_above=True)
+                get_parent_op(
+                    transform_any_op_t(), tiled_matmul, isolated_from_above=True
+                )
             )
             new_mod = transform.bufferization.one_shot_bufferize(
                 module_op,
@@ -97,7 +100,6 @@ def test_np_constructor(ctx: MLIRContext):
                 )
 
     module = module.finish()
-    print(module)
 
     vectorized_module = run_pipeline(
         module,
@@ -105,8 +107,6 @@ def test_np_constructor(ctx: MLIRContext):
             entry_point="main", debug_payload_root_tag="payload"
         ),
     )
-
-    print(vectorized_module)
 
     # https://github.com/makslevental/llvm-project/blob/f6643263631bcb0d191ef923963ac1a5ca9ac5fd/mlir/test/lib/Dialect/LLVM/TestLowerToLLVM.cpp#L44
     lower_to_llvm = (
@@ -153,8 +153,6 @@ def test_np_constructor(ctx: MLIRContext):
         kernel_name=smol_matmul.__name__,
         pipeline=lower_to_llvm,
     )
-
-    print(compiled_module)
 
     A = np.random.randint(0, 10, (M, K)).astype(np.float32)
     B = np.random.randint(0, 10, (K, N)).astype(np.float32)

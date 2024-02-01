@@ -24,6 +24,7 @@ from mlir.extras.dialects.ext.transform import (
     match,
     tile_to_scf_for,
     get_parent_op,
+    transform_any_op_t,
 )
 from mlir.extras.dialects.ext import transform
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
@@ -57,7 +58,7 @@ def mod_transform():
         matmul = match(module_op, ops=["linalg.matmul"])
         tiled_matmul, (_, _, inner_loop) = tile_to_scf_for(matmul, sizes=[2, 2, 2])
         transform.structured.vectorize_children_and_apply_patterns(
-            get_parent_op(tiled_matmul, isolated_from_above=True)
+            get_parent_op(transform_any_op_t(), tiled_matmul, isolated_from_above=True)
         )
         new_mod = transform.bufferization.one_shot_bufferize(
             module_op,
