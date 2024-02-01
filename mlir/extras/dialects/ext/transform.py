@@ -469,3 +469,32 @@ def structured_vectorize(
         loc=loc,
         ip=ip,
     )
+
+
+_structured_vectorize_children_and_apply_patterns = (
+    structured_vectorize_children_and_apply_patterns
+)
+
+
+def structured_vectorize_children_and_apply_patterns(
+    target,
+    *,
+    vectorize_padding=None,
+    vectorize_nd_extract=None,
+    flatten_1d_depthwise_conv=None,
+    disable_multi_reduction_to_contract_patterns=None,
+    disable_transfer_permutation_map_lowering_patterns=None,
+    loc=None,
+    ip=None,
+):
+    return _structured_vectorize_children_and_apply_patterns(
+        transformed=transform_any_op_t(),
+        target=target,
+        vectorize_padding=vectorize_padding,
+        vectorize_nd_extract=vectorize_nd_extract,
+        flatten_1d_depthwise_conv=flatten_1d_depthwise_conv,
+        disable_multi_reduction_to_contract_patterns=disable_multi_reduction_to_contract_patterns,
+        disable_transfer_permutation_map_lowering_patterns=disable_transfer_permutation_map_lowering_patterns,
+        loc=loc,
+        ip=ip,
+    )
