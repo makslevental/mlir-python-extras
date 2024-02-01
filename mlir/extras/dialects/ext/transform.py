@@ -8,7 +8,10 @@ from ....dialects.transform import *
 from ....dialects.transform.extras import OpHandle
 from ....dialects.transform.loop import *
 from ....dialects.transform.structured import *
-from ....dialects._ods_common import _dispatch_mixed_values
+from ....dialects._ods_common import (
+    _dispatch_mixed_values,
+    _dispatch_dynamic_index_list,
+)
 from ....ir import Type, Operation, StringAttr, Attribute, Value
 from ....dialects._structured_transform_ops_gen import (
     TileUsingForallOp,
@@ -435,6 +438,34 @@ def structured_lower_pack(target, *, loc=None, ip=None):
         expand_shape_op=transform_op_t("tensor.expand_shape"),
         transpose_op=transform_op_t("linalg.transpose"),
         target=target,
+        loc=loc,
+        ip=ip,
+    )
+
+
+_structured_vectorize = structured_vectorize
+
+
+def structured_vectorize(
+    target,
+    vector_sizes,
+    *,
+    vectorize_nd_extract=None,
+    loc=None,
+    ip=None,
+):
+    (
+        dynamic_vector_sizes,
+        static_vector_sizes,
+        scalable_sizes,
+    ) = _dispatch_dynamic_index_list(vector_sizes)
+
+    return _structured_vectorize(
+        target=target,
+        vector_sizes=dynamic_vector_sizes,
+        vectorize_nd_extract=vectorize_nd_extract,
+        scalable_sizes=scalable_sizes,
+        static_vector_sizes=static_vector_sizes,
         loc=loc,
         ip=ip,
     )
