@@ -55,7 +55,6 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
 
     foo.emit()
 
-    print(ctx.module)
     module = backend.compile(
         ctx.module,
         kernel_name="foo",
@@ -475,7 +474,6 @@ def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run_cast_np_array(
         generate_kernel_wrapper=False,
         generate_return_consumer=False,
     )
-    print(module)
     invoker = backend.load(module)
     A = np.ones((4, 4)).astype(np.float32)
     invoker.foo(A)

@@ -1,22 +1,76 @@
-from typing import Optional, Union, Sequence, List
+import inspect
+import pkgutil
+from types import SimpleNamespace
+from typing import List
 
+from mlir.dialects.transform.extras import OpHandle
 from ...meta import region_op
 from ...util import get_user_code_loc
 from ....dialects import pdl
-from ....dialects._ods_common import get_op_result_or_op_results
-from ....dialects.transform import *
-from ....dialects.transform.extras import OpHandle
-from ....dialects.transform.loop import *
-from ....dialects.transform.structured import *
+from ....dialects import transform
 from ....dialects._ods_common import (
     _dispatch_mixed_values,
-    _dispatch_dynamic_index_list,
 )
-from ....ir import Type, Operation, StringAttr, Attribute, Value
+from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects._structured_transform_ops_gen import (
     TileUsingForallOp,
     MatchOp,
 )
+from ....dialects.transform import *
+from ....dialects.transform.structured import TileUsingForOp
+from ....ir import Type, Operation, StringAttr, Attribute, Value
+
+transform_fully_qualified_name = transform.__spec__.name
+
+
+def create_simple_namespace(name):
+    return SimpleNamespace(__name__=name)
+
+
+# transform.apply_patterns is both a namespace and an op...
+delattr(transform, "apply_patterns")
+
+skips = {"_Dialect"}
+for mod in pkgutil.iter_modules(transform.__path__):
+    if mod.name.startswith("_") or mod.name == "extras":
+        continue
+    imported_module = __import__(
+        f"{transform_fully_qualified_name}.{mod.name}", fromlist=["*"]
+    )
+    for name, obj in inspect.getmembers(imported_module):
+        if (
+            inspect.isclass(obj)
+            and hasattr(obj, "OPERATION_NAME")
+            and obj.__name__ not in skips
+        ):
+            if "_ops_gen" not in obj.__module__:
+                obj = obj.__base__
+
+            namespaces = obj.OPERATION_NAME.split(".")
+            assert namespaces[0] == "transform"
+            namespaces = namespaces[1:]
+            value_builder_name = "_".join(namespaces)
+
+            if namespaces[0] not in globals():
+                globals()[namespaces[0]] = SimpleNamespace(__name__=namespaces[0])
+            simple_namespace = globals()[namespaces[0]]
+
+            for i, n in enumerate(namespaces[1:-1]):
+                if not hasattr(simple_namespace, n):
+                    # dumb: without the prefix, this somehow always names the modules "mlir.dialect.module.transform.<n>" instead of suffixing
+                    setattr(
+                        simple_namespace,
+                        n,
+                        SimpleNamespace(__name__=f"{simple_namespace.__name__}.{n}"),
+                    )
+                simple_namespace = getattr(simple_namespace, n)
+
+            setattr(
+                simple_namespace,
+                namespaces[-1],
+                getattr(imported_module, value_builder_name),
+            )
+
 
 pdl_operation_t = lambda: pdl.OperationType.get()
 
@@ -81,33 +135,6 @@ def sequence_(
 sequence = region_op(sequence_, terminator=YieldOp)
 
 StrOrAttrList = Sequence[Union[StringAttr, str]]
-
-
-def get_parent(
-    target: Value,
-    *,
-    isolated_from_above: bool = False,
-    op_name: Optional[str] = None,
-    deduplicate: bool = False,
-    nth_parent: int = 1,
-    loc=None,
-    ip=None,
-):
-    if loc is None:
-        loc = get_user_code_loc()
-
-    return get_op_result_or_op_results(
-        GetParentOp(
-            pdl_operation_t(),
-            target,
-            isolated_from_above=isolated_from_above,
-            op_name=op_name,
-            deduplicate=deduplicate,
-            nth_parent=nth_parent,
-            loc=loc,
-            ip=ip,
-        )
-    )
 
 
 def unroll(target: Value, factor=None, *, loc=None, ip=None):
@@ -226,28 +253,10 @@ def tile_to_scf_forall(
     return t[0], t[1:]
 
 
-def apply_patterns_(
-    target,
-    *,
-    loc=None,
-    ip=None,
-):
-    if loc is None:
-        loc = get_user_code_loc()
-    return ApplyPatternsOp(
-        target,
-        loc=loc,
-        ip=ip,
-    )
+__structured_fuse_into_containing_op = structured.fuse_into_containing_op
 
 
-apply_patterns = region_op(apply_patterns_)
-
-
-_structured_fuse_into_containing_op = structured_fuse_into_containing_op
-
-
-def structured_fuse_into_containing_op(
+def _structured_fuse_into_containing_op(
     producer_op,
     containing_op,
     *,
@@ -256,7 +265,7 @@ def structured_fuse_into_containing_op(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return _structured_fuse_into_containing_op(
+    return __structured_fuse_into_containing_op(
         transform_any_op_t(),
         transform_any_op_t(),
         producer_op,
@@ -265,6 +274,8 @@ def structured_fuse_into_containing_op(
         ip=ip,
     )
 
+
+structured.fuse_into_containing_op = _structured_fuse_into_containing_op
 
 _split_handle = split_handle
 
@@ -287,13 +298,12 @@ def split_handle(
     )
 
 
-_structured_pack = structured_pack
+__structured_pack = structured.pack
 
 
-def structured_pack(target, packed_sizes, *, packed_op=None, loc=None, ip=None):
+def _structured_pack(target, packed_sizes, *, packed_op=None, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-
     (
         dynamic_packed_sizes,
         # packed here means %1:2 packing (results packing)
@@ -304,7 +314,7 @@ def structured_pack(target, packed_sizes, *, packed_op=None, loc=None, ip=None):
     if packed_op is None:
         packed_op = transform_any_op_t()
 
-    return _structured_pack(
+    return __structured_pack(
         packed_op=packed_op,
         target=target,
         packed_sizes=dynamic_packed_sizes,
@@ -314,25 +324,18 @@ def structured_pack(target, packed_sizes, *, packed_op=None, loc=None, ip=None):
     )
 
 
+structured.pack = _structured_pack
+
 _get_producer_of_operand = get_producer_of_operand
 
+get_producer_of_operand = lambda *args, **kwargs: _get_producer_of_operand(
+    transform_any_op_t(), *args, **kwargs
+)
 
-def get_producer_of_operand(target, operand_number, *, loc=None, ip=None):
-    if loc is None:
-        loc = get_user_code_loc()
-    return _get_producer_of_operand(
-        producer=transform_any_op_t(),
-        target=target,
-        operand_number=operand_number,
-        loc=loc,
-        ip=ip,
-    )
+__structured_pack_transpose = structured.pack_transpose
 
 
-_structured_pack_transpose = structured_pack_transpose
-
-
-def structured_pack_transpose(
+def _structured_pack_transpose(
     target_pack_or_un_pack_op,
     target_linalg_op,
     *,
@@ -343,7 +346,7 @@ def structured_pack_transpose(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return _structured_pack_transpose(
+    return __structured_pack_transpose(
         packed_op=transform_any_op_t(),
         pack_op=transform_any_op_t(),
         un_pack_op=transform_any_op_t(),
@@ -354,6 +357,9 @@ def structured_pack_transpose(
         loc=loc,
         ip=ip,
     )
+
+
+structured.pack_transpose = _structured_pack_transpose
 
 
 _include = include
@@ -372,10 +378,10 @@ def include(target, operands, *, loc=None, ip=None):
     )
 
 
-_structured_bufferize_to_allocation = structured_bufferize_to_allocation
+__structured_bufferize_to_allocation = structured.bufferize_to_allocation
 
 
-def structured_bufferize_to_allocation(
+def _structured_bufferize_to_allocation(
     target,
     *,
     memory_space=None,
@@ -396,7 +402,7 @@ def structured_bufferize_to_allocation(
         except:
             memory_space = StringAttr.get(memory_space)
 
-    return _structured_bufferize_to_allocation(
+    return __structured_bufferize_to_allocation(
         allocated_buffer=transform_any_value_t(),
         new_ops=transform_any_op_t(),
         target=target,
@@ -410,91 +416,33 @@ def structured_bufferize_to_allocation(
     )
 
 
-_get_consumers_of_result = get_consumers_of_result
+structured.bufferize_to_allocation = _structured_bufferize_to_allocation
 
 
-def get_consumers_of_result(target, result_number, *, loc=None, ip=None):
-    if loc is None:
-        loc = get_user_code_loc()
-    return _unwrap_op_handle(
-        _get_consumers_of_result(
-            consumers=transform_any_op_t(),
-            target=target,
-            result_number=result_number,
-            loc=loc,
-            ip=ip,
-        )
-    )
-
-
-_structured_lower_pack = structured_lower_pack
-
-
-def structured_lower_pack(target, *, loc=None, ip=None):
-    if loc is None:
-        loc = get_user_code_loc()
-    return _structured_lower_pack(
-        pad_op=transform_op_t("tensor.pad"),
-        expand_shape_op=transform_op_t("tensor.expand_shape"),
-        transpose_op=transform_op_t("linalg.transpose"),
-        target=target,
-        loc=loc,
-        ip=ip,
-    )
-
-
-_structured_vectorize = structured_vectorize
-
-
-def structured_vectorize(
+_structured_lower_pack = structured.lower_pack
+structured.lower_pack = lambda target: _structured_lower_pack(
+    transform_op_t("tensor.pad"),
+    transform_op_t("tensor.expand_shape"),
+    transform_op_t("linalg.transpose"),
     target,
-    vector_sizes,
-    *,
-    vectorize_nd_extract=None,
-    loc=None,
-    ip=None,
-):
-    (
-        dynamic_vector_sizes,
-        static_vector_sizes,
-        scalable_sizes,
-    ) = _dispatch_dynamic_index_list(vector_sizes)
-
-    return _structured_vectorize(
-        target=target,
-        vector_sizes=dynamic_vector_sizes,
-        vectorize_nd_extract=vectorize_nd_extract,
-        scalable_sizes=scalable_sizes,
-        static_vector_sizes=static_vector_sizes,
-        loc=loc,
-        ip=ip,
-    )
-
-
-_structured_vectorize_children_and_apply_patterns = (
-    structured_vectorize_children_and_apply_patterns
 )
 
 
-def structured_vectorize_children_and_apply_patterns(
-    target,
-    *,
-    vectorize_padding=None,
-    vectorize_nd_extract=None,
-    flatten_1d_depthwise_conv=None,
-    disable_multi_reduction_to_contract_patterns=None,
-    disable_transfer_permutation_map_lowering_patterns=None,
-    loc=None,
-    ip=None,
-):
-    return _structured_vectorize_children_and_apply_patterns(
-        transformed=transform_any_op_t(),
-        target=target,
-        vectorize_padding=vectorize_padding,
-        vectorize_nd_extract=vectorize_nd_extract,
-        flatten_1d_depthwise_conv=flatten_1d_depthwise_conv,
-        disable_multi_reduction_to_contract_patterns=disable_multi_reduction_to_contract_patterns,
-        disable_transfer_permutation_map_lowering_patterns=disable_transfer_permutation_map_lowering_patterns,
-        loc=loc,
-        ip=ip,
+apply_patterns.canonicalization = transform.apply_patterns_canonicalization
+
+
+_structured_vectorize_children_and_apply_patterns = (
+    structured.vectorize_children_and_apply_patterns
+)
+structured.vectorize_children_and_apply_patterns = (
+    lambda *args, **kwargs: _structured_vectorize_children_and_apply_patterns(
+        transform_any_op_t(), *args, **kwargs
     )
+)
+
+_bufferization_one_shot_bufferize = bufferization.one_shot_bufferize
+bufferization.one_shot_bufferize = (
+    lambda *args, **kwargs: _bufferization_one_shot_bufferize(
+        transform_any_op_t(), *args, **kwargs
+    )
+)

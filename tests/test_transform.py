@@ -7,18 +7,13 @@ from mlir.dialects.builtin import module
 from mlir.dialects.gpu import MappingId
 from mlir.dialects.transform import (
     get_parent_op,
-    apply_patterns_canonicalization,
     apply_cse,
     apply_licm,
     any_op_t,
 )
 from mlir.dialects.transform.extras import named_sequence, apply_patterns
-from mlir.dialects.transform.loop import apply_patterns_scf_for_loop_canonicalization
 from mlir.dialects.transform.loop import loop_unroll
-from mlir.dialects.transform.structured import (
-    apply_patterns_linalg_tiling_canonicalization,
-    MatchInterfaceEnum,
-)
+from mlir.dialects.transform.structured import MatchInterfaceEnum
 from mlir.ir import UnitAttr, StringAttr
 
 from mlir.extras import types as T
@@ -31,20 +26,17 @@ from mlir.extras.dialects.ext.scf import (
     canonicalizer,
 )
 from mlir.extras.dialects.ext.tensor import pad
+from mlir.extras.dialects.ext import transform
 from mlir.extras.dialects.ext.transform import (
     match,
     tile_to_scf_for,
     tile_to_scf_forall,
     split_handle,
-    structured_fuse_into_containing_op,
-    structured_pack,
-    get_producer_of_operand,
-    structured_pack_transpose,
     include,
-    structured_bufferize_to_allocation,
-    get_consumers_of_result,
-    structured_lower_pack,
     transform_op_t,
+    transform_any_op_t,
+    get_producer_of_operand,
+    get_consumers_of_result,
 )
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
@@ -412,7 +404,7 @@ def test_common_extension_sugar(ctx: MLIRContext):
 
             @apply_patterns(m)
             def pats():
-                apply_patterns_canonicalization()
+                transform.apply_patterns.canonicalization()
 
     correct = dedent(
         """\
@@ -482,7 +474,7 @@ def test_apply_cse(ctx: MLIRContext):
 
             @apply_patterns(top_func)
             def pats():
-                apply_patterns_canonicalization()
+                transform.apply_patterns.canonicalization()
 
             top_func = match(variant_op, ["func.func"])
             apply_cse(top_func)
@@ -685,10 +677,10 @@ def test_matmul_schedule(ctx: MLIRContext):
 
             @apply_patterns(top_func)
             def pats():
-                apply_patterns_linalg_tiling_canonicalization()
+                transform.apply_patterns.linalg.tiling_canonicalization()
                 # transform.apply_patterns.iree.fold_fill_into_pad
-                apply_patterns_scf_for_loop_canonicalization()
-                apply_patterns_canonicalization()
+                transform.apply_patterns.scf.for_loop_canonicalization()
+                transform.apply_patterns.canonicalization()
 
             all_loops = match(target, interface=MatchInterfaceEnum.LoopLikeInterface)
             apply_licm(all_loops)
@@ -710,13 +702,13 @@ def test_matmul_schedule(ctx: MLIRContext):
                 ],
             )
             # Fuse fill operation into the loop
-            structured_fuse_into_containing_op(fill, forall)
+            transform.structured.fuse_into_containing_op(fill, forall)
             # Pack by applying data tiling, and the linalg.matmul becomes linalg.generic.
-            packed = structured_pack(tiled_matmul, packed_sizes=[16, 64, 64])
+            packed = transform.structured.pack(tiled_matmul, packed_sizes=[16, 64, 64])
 
             # Transpose B matrix from [K N n k] to [K N k n]
             pack_producer_b0 = get_producer_of_operand(packed, 1)
-            packed_b0, pack_b0, empty_unpack_b0 = structured_pack_transpose(
+            packed_b0, pack_b0, empty_unpack_b0 = transform.structured.pack_transpose(
                 pack_producer_b0, packed, inner_perm=[1, 0]
             )
 
@@ -729,19 +721,19 @@ def test_matmul_schedule(ctx: MLIRContext):
             # # Bufferize to shared memory allocation
             pack_producer_a0 = get_producer_of_operand(packed_b0, 0)
             pack_producer_c0 = get_producer_of_operand(packed_b0, 2)
-            buffer_a0, new_a0 = structured_bufferize_to_allocation(
+            buffer_a0, new_a0 = transform.structured.bufferize_to_allocation(
                 pack_b0,
                 memory_space="shared",
                 bufferize_destination_only=True,
                 emit_dealloc=True,
             )
-            buffer_b0, new_b0 = structured_bufferize_to_allocation(
+            buffer_b0, new_b0 = transform.structured.bufferize_to_allocation(
                 pack_producer_a0,
                 memory_space="shared",
                 bufferize_destination_only=True,
                 emit_dealloc=True,
             )
-            buffer_c0, new_c0 = structured_bufferize_to_allocation(
+            buffer_c0, new_c0 = transform.structured.bufferize_to_allocation(
                 pack_producer_c0,
                 memory_space="shared",
                 bufferize_destination_only=True,
@@ -760,26 +752,28 @@ def test_matmul_schedule(ctx: MLIRContext):
             # Find the fill operation to fuse.
             # TODO(ravishankarm): Find a better way to find the fill operation.
             fused_fill_1 = get_producer_of_operand(forall_1, 0)
-            structured_fuse_into_containing_op(fused_fill_1, forall_1)
+            transform.structured.fuse_into_containing_op(fused_fill_1, forall_1)
 
             # Pack by applying data tiling, and the linalg.matmul becomes linalg.generic.
-            packed_2 = structured_pack(tiled_matmul_1, packed_sizes=[0, 0, 0, 4, 8, 8])
+            packed_2 = transform.structured.pack(
+                tiled_matmul_1, packed_sizes=[0, 0, 0, 4, 8, 8]
+            )
 
             # Transpose A matrix from [M K m k m0 k0] to [M K k m m0 k0]
             pack_producer_a = get_producer_of_operand(packed_2, 0)
-            packed_a, pack_a, empty_unpack_a = structured_pack_transpose(
+            packed_a, pack_a, empty_unpack_a = transform.structured.pack_transpose(
                 pack_producer_a, packed_2, outer_perm=[0, 1, 3, 2]
             )
 
             # Transpose B matrix from [K N k n n0 k0] to [K N n k k0 n0]
             pack_producer_b = get_producer_of_operand(packed_a, 1)
-            packed_b, pack_b, empty_unpack_b = structured_pack_transpose(
+            packed_b, pack_b, empty_unpack_b = transform.structured.pack_transpose(
                 pack_producer_b, packed_a, inner_perm=[1, 0], outer_perm=[0, 1, 3, 2]
             )
 
             # Transpose C matrix from [M N m n m0 n0] to [M N n m m0 n0]
-            unpack = get_consumers_of_result(packed_b, 0)
-            packed_c, pack_c, unpack_c = structured_pack_transpose(
+            unpack = get_consumers_of_result(transform_any_op_t(), packed_b, 0)
+            packed_c, pack_c, unpack_c = transform.structured.pack_transpose(
                 unpack, packed_b, outer_perm=[0, 1, 3, 2]
             )
 
@@ -787,12 +781,12 @@ def test_matmul_schedule(ctx: MLIRContext):
             include("cleanup", [variant_op])
 
             # Bufferize to local memory allocation
-            buffer_a, new_a = structured_bufferize_to_allocation(
+            buffer_a, new_a = transform.structured.bufferize_to_allocation(
                 pack_a,
                 memory_space="local",
                 bufferize_destination_only=True,
             )
-            buffer_b, new_b = structured_bufferize_to_allocation(
+            buffer_b, new_b = transform.structured.bufferize_to_allocation(
                 pack_b,
                 memory_space="local",
                 bufferize_destination_only=True,
@@ -800,7 +794,7 @@ def test_matmul_schedule(ctx: MLIRContext):
 
             # Earlier handle for pack operation is now defunct. Find it again.
             fused_pack_fill = get_producer_of_operand(packed_c, 2)
-            buffer_c, new_c = structured_bufferize_to_allocation(
+            buffer_c, new_c = transform.structured.bufferize_to_allocation(
                 fused_pack_fill,
                 memory_space="local",
                 bufferize_destination_only=True,
@@ -905,10 +899,10 @@ def test_matmul_schedule_run(ctx: MLIRContext):
 
             @apply_patterns(top_func)
             def pats():
-                apply_patterns_linalg_tiling_canonicalization()
+                transform.apply_patterns.linalg.tiling_canonicalization()
                 # transform.apply_patterns.iree.fold_fill_into_pad
-                apply_patterns_scf_for_loop_canonicalization()
-                apply_patterns_canonicalization()
+                transform.apply_patterns.scf.for_loop_canonicalization()
+                transform.apply_patterns.canonicalization()
 
             all_loops = match(target, interface=MatchInterfaceEnum.LoopLikeInterface)
             apply_licm(all_loops)
@@ -930,13 +924,13 @@ def test_matmul_schedule_run(ctx: MLIRContext):
                 ],
             )
             # Fuse fill operation into the loop
-            structured_fuse_into_containing_op(fill, forall)
+            transform.structured.fuse_into_containing_op(fill, forall)
             # Pack by applying data tiling, and the linalg.matmul becomes linalg.generic.
-            packed = structured_pack(tiled_matmul, packed_sizes=[16, 64, 64])
+            packed = transform.structured.pack(tiled_matmul, packed_sizes=[16, 64, 64])
 
             # Transpose B matrix from [K N n k] to [K N k n]
             pack_producer_b0 = get_producer_of_operand(packed, 1)
-            packed_b0, pack_b0, empty_unpack_b0 = structured_pack_transpose(
+            packed_b0, pack_b0, empty_unpack_b0 = transform.structured.pack_transpose(
                 pack_producer_b0, packed, inner_perm=[1, 0]
             )
 
@@ -1043,7 +1037,7 @@ def test_tensor_pack_schedule_lower_pack_run(ctx: MLIRContext):
                 ops=["tensor.pack"],
                 matched_op=transform_op_t("tensor.pack"),
             )
-            lowered_pack = structured_lower_pack(packed)
+            lowered_pack = transform.structured.lower_pack(packed)
 
     mod = run_pipeline(
         ctx.module,
