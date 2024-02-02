@@ -34,7 +34,7 @@ def get_np_view_offset(np_view):
 
 
 def test_simple_literal_indexing(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32())
+    mem = alloc(10, 22, 333, 4444, T.i32())
 
     w = mem[2, 4, 6, 8]
     assert isinstance(w, Scalar)
@@ -57,7 +57,7 @@ def test_simple_literal_indexing(ctx: MLIRContext):
 def test_simple_literal_indexing_alloca(ctx: MLIRContext):
     @alloca_scope([])
     def demo_scope2():
-        mem = alloca((10, 22, 333, 4444), T.i32())
+        mem = alloca(10, 22, 333, 4444, T.i32())
 
         w = mem[2, 4, 6, 8]
         assert isinstance(w, Scalar)
@@ -81,7 +81,7 @@ def test_simple_literal_indexing_alloca(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32())
+    mem = alloc(10, 22, 333, 4444, T.i32())
 
     w = mem[...]
     assert w == mem
@@ -119,7 +119,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
     golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
     golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
 
-    mem = alloc(sizes, T.i32())
+    mem = alloc(*sizes, T.i32())
     w = mem[1, ...]
     w = mem[1, :, ...]
     w = mem[1, :, :, ...]
@@ -171,7 +171,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
     golden_w_4_offset = get_np_view_offset(golden_w_4) // dtype_size_in_bytes
     golden_w_5_offset = get_np_view_offset(golden_w_5) // dtype_size_in_bytes
 
-    mem = alloc(sizes, T.i32())
+    mem = alloc(*sizes, T.i32())
     w = mem[1, :]
     w = mem[1, :, :]
     w = mem[1, :, :, :]
@@ -241,7 +241,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
     golden_w_10_offset = get_np_view_offset(golden_w_10) // dtype_size_in_bytes
     golden_w_11_offset = get_np_view_offset(golden_w_11) // dtype_size_in_bytes
 
-    mem = alloc(sizes, T.i32())
+    mem = alloc(*sizes, T.i32())
 
     w = mem[:, :, :, 1]
     w = mem[:, 1, :, 1]
@@ -302,7 +302,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
 
 
 def test_none_indices(ctx: MLIRContext):
-    mem = alloc((10, 22, 333, 4444), T.i32())
+    mem = alloc(10, 22, 333, 4444, T.i32())
     w = mem[None]
     w = mem[:, None]
     w = mem[None, None]
@@ -372,7 +372,7 @@ def test_nontrivial_slices(ctx: MLIRContext):
 
     assert golden_w_1_offset == golden_w_2_offset == golden_w_3_offset == 0
 
-    mem = alloc(sizes, T.i32())
+    mem = alloc(*sizes, T.i32())
     w = mem[:, 0:22:2]
     w = mem[:, 0:22:2, 0:330:30]
     w = mem[:, 0:22:2, 0:330:30, 0:4400:400]
@@ -416,7 +416,7 @@ def test_nontrivial_slices_insertion(ctx: MLIRContext):
 
     assert golden_w_1_offset == golden_w_2_offset == golden_w_3_offset == 0
 
-    mem = alloc(sizes, T.i32())
+    mem = alloc(*sizes, T.i32())
     w = mem[:, 0:22:2]
     mem[:, 0:22:2] = w
     w = mem[:, 0:22:2, 0:330:30]
@@ -462,7 +462,7 @@ def test_move_slice(ctx: MLIRContext):
     golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
     golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
 
-    mem = alloc(sizes, T.i32())
+    mem = alloc(*sizes, T.i32())
     w = mem[0:4, 0:4]
     mem[4:8, 4:8] = w
 
@@ -480,7 +480,7 @@ def test_move_slice(ctx: MLIRContext):
 
 
 def test_for_loops(ctx: MLIRContext):
-    mem = alloc((10, 10), T.i32())
+    mem = alloc(10, 10, T.i32())
     for i, it_mem in range_(0, 10, iter_args=[mem]):
         it_mem[i, i] = it_mem[i, i] + it_mem[i, i]
         res = yield_(it_mem)
@@ -511,7 +511,7 @@ def test_for_loops(ctx: MLIRContext):
 def test_for_loops_canonicalizer(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def tenfoo():
-        mem = alloc((10, 10), T.i32())
+        mem = alloc(10, 10, T.i32())
         for i, it_mem in range_(0, 10, iter_args=[mem]):
             it_mem[i, i] = it_mem[i, i] + it_mem[i, i]
             res = yield it_mem
@@ -544,7 +544,7 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
 
 def test_subview_mixed_offsets(ctx: MLIRContext):
     def tenfoo():
-        mem = alloc((10, 10), T.i32())
+        mem = alloc(10, 10, T.i32())
         i, j = constant(0, index=True), constant(0, index=True)
         v = subview(
             mem,

@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 
 opaque = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
+range_ = for_
+
 
 def placeholder_opaque_t():
     return opaque("scf", "placeholder")
@@ -232,29 +234,6 @@ def _parfor_cm(op_ctor):
 
 
 forall = _parfor_cm(ForallOp)
-
-
-def range_(
-    start,
-    stop=None,
-    step=None,
-    iter_args: Optional[Sequence[Value]] = None,
-    *,
-    loc=None,
-    ip=None,
-):
-    if loc is None:
-        loc = get_user_code_loc()
-    for_op = _for(start, stop, step, iter_args, loc=loc, ip=ip)
-    iv = for_op.induction_variable
-    iter_args = tuple(for_op.inner_iter_args)
-    with InsertionPoint(for_op.body):
-        if len(iter_args) > 1:
-            yield iv, iter_args
-        elif len(iter_args) == 1:
-            yield iv, iter_args[0]
-        else:
-            yield iv
 
 
 class ParallelOp(ParallelOp):

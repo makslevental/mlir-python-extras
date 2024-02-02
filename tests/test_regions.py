@@ -137,8 +137,8 @@ def test_empty_results_list(ctx: MLIRContext):
 
     @func
     def demo_fun1():
-        mem1 = memref.alloc((10, 10), T.f32())
-        mem2 = memref.alloc((10, 10), T.f32())
+        mem1 = memref.alloc(10, 10, T.f32())
+        mem2 = memref.alloc(10, 10, T.f32())
         x = linalg.copy(mem1, mem2)
 
     demo_fun1.emit()

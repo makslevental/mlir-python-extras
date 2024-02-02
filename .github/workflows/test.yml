@@ -133,6 +133,7 @@ jobs:
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 100/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
           BRANCH=${{ github.ref_name }} jupyter run examples/mlir_python_extras.ipynb
+          BRANCH=${{ github.ref_name }} jupyter run examples/vectorization_e2e.ipynb
 
   mlir-bindings-aarch64:
 

@@ -656,7 +656,7 @@ def test_matmul_schedule(ctx: MLIRContext):
         A: T.tensor(M, K, T.i8()),
         B: T.tensor(K, N, T.i8()),
     ):
-        empty = tensor.empty((M, N), T.i8())
+        empty = tensor.empty(M, N, T.i8())
         filled = linalg_dialect.fill(arith.constant(0), outs=[empty])
         return linalg.matmul(A, B, filled)
 
@@ -878,7 +878,7 @@ def test_matmul_schedule_run(ctx: MLIRContext):
         A: T.tensor(M, K, T.i8()),
         B: T.tensor(K, N, T.i8()),
     ):
-        empty = tensor.empty((M, N), T.i8())
+        empty = tensor.empty(M, N, T.i8())
         filled = linalg_dialect.fill(arith.constant(0), outs=[empty])
         return linalg.matmul(A, B, filled)
 

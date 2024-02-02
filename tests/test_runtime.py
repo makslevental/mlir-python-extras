@@ -195,6 +195,7 @@ def test_munge_calling_conventions_setup(
         pipeline=Pipeline().bufferize().lower_to_llvm(),
         generate_kernel_wrapper=False,
         generate_return_consumer=False,
+        return_consumer=cb._func_op,
     )
     invoker = backend.load(module, consume_return_callback=callback)
     invoker.foo_wrapper(AA)
@@ -282,6 +283,7 @@ def test_munge_calling_conventions_setup_mutate(
         pipeline=Pipeline().bufferize().lower_to_llvm(),
         generate_kernel_wrapper=False,
         generate_return_consumer=False,
+        return_consumer=cb._func_op,
     )
     invoker = backend.load(module, consume_return_callback=callback)
     invoker.foo_wrapper(AA)
@@ -356,6 +358,7 @@ def test_munge_calling_conventions_setup_auto_cb(
         pipeline=Pipeline().bufferize().lower_to_llvm(),
         generate_kernel_wrapper=False,
         generate_return_consumer=False,
+        return_consumer=cb._func_op,
     )
     invoker = backend.load(module)
     results = invoker.foo_wrapper(AA)

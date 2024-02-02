@@ -2355,7 +2355,7 @@ def test_forall_3(ctx: MLIRContext):
 
 
 def test_forall_insert_slice(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32())
+    ten = empty(10, 10, T.i32())
 
     @forall_([1, 1], [2, 2], [3, 3], shared_outs=[ten])
     def forfoo(i, j, shared_outs):
@@ -2393,7 +2393,7 @@ def test_forall_insert_slice(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32())
+    ten = empty(10, 10, T.i32())
 
     @forall_([1, 1], [2, 2], [3, 3], shared_outs=[ten])
     def forfoo(i, j, shared_outs):
@@ -2432,7 +2432,7 @@ def test_forall_insert_slice_no_region(ctx: MLIRContext):
 
 @pytest.mark.xfail
 def test_parange_no_inits(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32())
+    ten = empty(10, 10, T.i32())
 
     @parange_([1, 1], [2, 2], [3, 3], inits=[])
     def forfoo(i, j):
@@ -2460,7 +2460,7 @@ def test_parange_no_inits(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region_with_for(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32())
+    ten = empty(10, 10, T.i32())
 
     for i, j, shared_outs in forall([1, 1], [2, 2], [3, 3], shared_outs=[ten]):
         one = constant(1.0)
@@ -2498,7 +2498,7 @@ def test_forall_insert_slice_no_region_with_for(ctx: MLIRContext):
 
 @pytest.mark.xfail
 def test_parange_no_inits_with_for(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32())
+    ten = empty(10, 10, T.i32())
 
     for i, j in parange([1, 1], [2, 2], [3, 3], inits=[]):
         one = constant(1.0)
@@ -2525,11 +2525,11 @@ def test_parange_no_inits_with_for(ctx: MLIRContext):
 
 
 def test_parange_inits_with_for(ctx: MLIRContext):
-    ten = empty((10, 10), T.i32())
+    ten = empty(10, 10, T.i32())
 
     for i, j in parange([1, 1], [2, 2], [3, 3], inits=[ten]):
         one = constant(1.0)
-        twenty = empty((10, 10), T.i32())
+        twenty = empty(10, 10, T.i32())
 
         @reduce(twenty)
         def res(lhs: Tensor, rhs: Tensor):

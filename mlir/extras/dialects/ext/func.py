@@ -1,11 +1,10 @@
-import inspect
 import sys
 from functools import update_wrapper
-from typing import Union, Optional, List
 
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects.func import *
+from ....dialects._ods_common import get_op_result_or_op_results
 from ....ir import (
     FlatSymbolRefAttr,
     FunctionType,
@@ -13,6 +12,8 @@ from ....ir import (
     Type,
     TypeAttr,
     Value,
+    Operation,
+    OpView,
 )
 
 
@@ -38,12 +39,21 @@ def call(
             raise ValueError(
                 "unexpected third argument when constructing a call" + "to a function"
             )
-        return call_op_ctor(
-            callee_or_results.function_type.value.results,
-            FlatSymbolRefAttr.get(callee_or_results.sym_name.value),
-            arguments_or_callee,
-            loc=loc,
-            ip=ip,
+        if not all(
+            isinstance(a, (Value, Operation, OpView)) for a in arguments_or_callee
+        ):
+            raise ValueError(
+                f"{arguments_or_callee} must all be Value, Operation, or OpView"
+            )
+
+        return get_op_result_or_op_results(
+            call_op_ctor(
+                callee_or_results.function_type.value.results,
+                FlatSymbolRefAttr.get(callee_or_results.sym_name.value),
+                arguments_or_callee,
+                loc=loc,
+                ip=ip,
+            )
         )
 
     if isinstance(arguments_or_callee, list):
@@ -54,16 +64,20 @@ def call(
         )
 
     if isinstance(arguments_or_callee, FlatSymbolRefAttr):
-        return call_op_ctor(
-            callee_or_results, arguments_or_callee, arguments, loc=loc, ip=ip
+        return get_op_result_or_op_results(
+            call_op_ctor(
+                callee_or_results, arguments_or_callee, arguments, loc=loc, ip=ip
+            )
         )
     elif isinstance(arguments_or_callee, str):
-        return call_op_ctor(
-            callee_or_results,
-            FlatSymbolRefAttr.get(arguments_or_callee),
-            arguments,
-            loc=loc,
-            ip=ip,
+        return get_op_result_or_op_results(
+            call_op_ctor(
+                callee_or_results,
+                FlatSymbolRefAttr.get(arguments_or_callee),
+                arguments,
+                loc=loc,
+                ip=ip,
+            )
         )
     else:
         raise ValueError(f"unexpected type {callee_or_results=}")
