@@ -75,7 +75,7 @@ def test_basic():
 
 
 def test_context():
-    p = pipe().Context(
+    p = pipe().Nested(
         "aie.device",
         pipe().add_pass("aie-localize-locks").add_pass("aie-normalize-address-spaces"),
     )

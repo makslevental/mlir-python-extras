@@ -91,19 +91,19 @@ class Pipeline:
             pipeline = []
         self._pipeline = pipeline
 
-    def Context(self, context, p: "Pipeline"):
+    def Nested(self, context, p: "Pipeline"):
         self._pipeline.append(f"{context}({p.materialize(module=False)})")
         return self
 
     def Func(self, p: "Pipeline"):
-        return self.Context("func.func", p)
+        return self.Nested("func.func", p)
 
     def Spirv(self, p: "Pipeline"):
-        return self.Context("spirv.module", p)
+        return self.Nested("spirv.module", p)
 
     def Gpu(self, p: "Pipeline"):
         assert isinstance(p, Pipeline)
-        return self.Context("gpu.module", p)
+        return self.Nested("gpu.module", p)
 
     def materialize(self, module=True):
         pipeline_str = ",".join(self._pipeline)
@@ -221,22 +221,6 @@ class Pipeline:
             .convert_func_to_llvm(index_bitwidth=index_bitwidth)
             .reconcile_unrealized_casts()
             .launch_func_to_vulkan()
-        )
-
-    def transform_dialect_erase_schedule(self):
-        return self.add_pass("test-transform-dialect-erase-schedule")
-
-    def transform_interpreter(
-        self,
-        debug_payload_root_tag=None,
-        disable_expensive_checks=None,
-        entry_point=None,
-    ):
-        return self.add_pass(
-            "transform-interpreter",
-            debug_payload_root_tag=debug_payload_root_tag,
-            disable_expensive_checks=disable_expensive_checks,
-            entry_point=entry_point,
         )
 
     ############################
@@ -445,8 +429,6 @@ class Pipeline:
             tile-size: Use this tile size for all loops
             tile-sizes: List of tile sizes for each perfect nest (overridden by -tile-size)
         """
-        if tile_sizes is not None and isinstance(tile_sizes, (list, tuple)):
-            tile_sizes = ",".join(map(str, tile_sizes))
         self.add_pass(
             "affine-loop-tile",
             cache_size=cache_size,
@@ -635,18 +617,10 @@ class Pipeline:
     ):
         """Vectorize to a target independent n-D vector abstraction
         Args:
-            virtual-vector-size: Specify an n-D virtual vector size for vectorization
+            virtual-vector-size: Specify an n-D virtual vector size for vectorization. This must be greater than zero.
             test-fastest-varying: Specify a 1-D, 2-D or 3-D pattern of fastest varying memory dimensions to match. See defaultPatterns in Vectorize.cpp for a description and examples. This is used for testing purposes
             vectorize-reductions: Vectorize known reductions expressed via iter_args. Switched off by default.
         """
-        if virtual_vector_size is not None and isinstance(
-            virtual_vector_size, (list, tuple)
-        ):
-            virtual_vector_size = ",".join(map(str, virtual_vector_size))
-        if test_fastest_varying is not None and isinstance(
-            test_fastest_varying, (list, tuple)
-        ):
-            test_fastest_varying = ",".join(map(str, test_fastest_varying))
         self.add_pass(
             "affine-super-vectorize",
             virtual_vector_size=virtual_vector_size,
@@ -659,8 +633,9 @@ class Pipeline:
         """Allocate SME tiles
 
         This pass does tile allocation for SME "virtual tiles". It is run at the
-        'func.func' op level, replacing 'arm_sme.get_tile_id' ops with (i32) tile
-        ids. An error will be emitted when there's no tiles left.
+        'func.func' op level, and assigns tile IDs (via an attribute) to all ops
+        that implement the `ArmSMETileOpInterface`. An error will be emitted when
+        there's no tiles left.
 
         """
         self.add_pass("allocate-arm-sme-tiles")
@@ -676,6 +651,17 @@ class Pipeline:
             chipset: Chipset that these operations will run on
         """
         self.add_pass("amdgpu-emulate-atomics", chipset=chipset)
+        return self
+
+    def amdgpu_optimize_shared_memory(self):
+        """Optimizes accesses to shared memory memrefs in order to reduce bank conflicts.
+
+        This pass adds a transformation and pass to the AMDGPU dialect that
+        attempts to optimize reads/writes from a memref representing GPU shared
+        memory in order to avoid bank conflicts.
+
+        """
+        self.add_pass("amdgpu-optimize-shared-memory")
         return self
 
     def arith_bufferize(self, alignment: int = None):
@@ -711,8 +697,6 @@ class Pipeline:
             source-types: MLIR types without arithmetic support on a given target
             target-type: MLIR type to convert the unsupported source types to
         """
-        if source_types is not None and isinstance(source_types, (list, tuple)):
-            source_types = ",".join(map(str, source_types))
         self.add_pass(
             "arith-emulate-unsupported-floats",
             source_types=source_types,
@@ -759,10 +743,6 @@ class Pipeline:
         Args:
             int-bitwidths-supported: Integer bitwidths supported
         """
-        if int_bitwidths_supported is not None and isinstance(
-            int_bitwidths_supported, (list, tuple)
-        ):
-            int_bitwidths_supported = ",".join(map(str, int_bitwidths_supported))
         self.add_pass(
             "arith-int-narrowing", int_bitwidths_supported=int_bitwidths_supported
         )
@@ -788,6 +768,57 @@ class Pipeline:
     def arm_neon_2d_to_intr(self):
         """Convert Arm NEON structured ops to intrinsics"""
         self.add_pass("arm-neon-2d-to-intr")
+        return self
+
+    def arm_sve_legalize_vector_storage(self):
+        """Ensures stores of SVE vector types will be legal
+
+        This pass ensures that loads, stores, and allocations of SVE vector types
+        will be legal in the LLVM backend. It does this at the memref level, so this
+        pass must be applied before lowering all the way to LLVM.
+
+        This pass currently addresses two issues.
+
+        #### Loading and storing predicate types
+
+        It is only legal to load/store predicate types equal to (or greater than) a
+        full predicate register, which in MLIR is `vector<[16]xi1>`. Smaller
+        predicate types (`vector<[1|2|4|8]xi1>`) must be converted to/from a full
+        predicate type (referred to as a `svbool`) before and after storing and
+        loading respectively. This pass does this by widening allocations and
+        inserting conversion intrinsics. Note: Non-powers-of-two masks (e.g.
+        `vector<[7]xi1>`), which are not SVE predicates, are ignored.
+
+        For example:
+
+        ```mlir
+        %alloca = memref.alloca() : memref<vector<[4]xi1>>
+        %mask = vector.constant_mask [4] : vector<[4]xi1>
+        memref.store %mask, %alloca[] : memref<vector<[4]xi1>>
+        %reload = memref.load %alloca[] : memref<vector<[4]xi1>>
+        ```
+        Becomes:
+        ```mlir
+        %alloca = memref.alloca() {alignment = 1 : i64} : memref<vector<[16]xi1>>
+        %mask = vector.constant_mask [4] : vector<[4]xi1>
+        %svbool = arm_sve.convert_to_svbool %mask : vector<[4]xi1>
+        memref.store %svbool, %alloca[] : memref<vector<[16]xi1>>
+        %reload_svbool = memref.load %alloca[] : memref<vector<[16]xi1>>
+        %reload = arm_sve.convert_from_svbool %reload_svbool : vector<[4]xi1>
+        ```
+
+        #### Relax alignments for SVE vector allocas
+
+        The storage for SVE vector types only needs to have an alignment that
+        matches the element type (for example 4 byte alignment for `f32`s). However,
+        the LLVM backend currently defaults to aligning to `base size` x
+        `element size` bytes. For non-legal vector types like `vector<[8]xf32>` this
+        results in 8 x 4 = 32-byte alignment, but the backend only supports up to
+        16-byte alignment for SVE vectors on the stack. Explicitly setting a smaller
+        alignment prevents this issue.
+
+        """
+        self.add_pass("arm-sve-legalize-vector-storage")
         return self
 
     def async_func_to_async_runtime(self):
@@ -948,6 +979,18 @@ class Pipeline:
         self.add_pass("buffer-deallocation")
         return self
 
+    def buffer_deallocation_simplification(self):
+        """Optimizes `bufferization.dealloc` operation for more efficient codegen
+
+        This pass uses static alias analysis to reduce the number of alias checks
+        required at runtime. Such checks are sometimes necessary to make sure that
+        memrefs aren't deallocated before their last usage (use after free) or that
+        some memref isn't deallocated twice (double free).
+
+        """
+        self.add_pass("buffer-deallocation-simplification")
+        return self
+
     def buffer_hoisting(self):
         """Optimizes placement of allocation operations by moving them into common dominators and out of nested regions
 
@@ -998,6 +1041,22 @@ class Pipeline:
         self.add_pass("bufferization-bufferize")
         return self
 
+    def bufferization_lower_deallocations(self):
+        """Lowers `bufferization.dealloc` operations to `memref.dealloc`operations
+
+        This pass lowers `bufferization.dealloc` operations to the `memref` dialect.
+        It can be applied to a `builtin.module` or operations implementing the
+        `FunctionOpInterface`. For the latter, only simple `dealloc` operations can
+        be lowered because the library function necessary for the fully generic
+        lowering cannot be inserted. In this case, an error will be emitted.
+        Next to `memref.dealloc` operations, it may also emit operations from the
+        `arith`, `scf`, and `func` dialects to build conditional deallocations and
+        library functions to avoid code-size blow-up.
+
+        """
+        self.add_pass("bufferization-lower-deallocations")
+        return self
+
     def canonicalize(
         self,
         top_down: bool = None,
@@ -1027,10 +1086,6 @@ class Pipeline:
             disable-patterns: Labels of patterns that should be filtered out during application
             enable-patterns: Labels of patterns that should be used during application, all other patterns are filtered out
         """
-        if disable_patterns is not None and isinstance(disable_patterns, (list, tuple)):
-            disable_patterns = ",".join(map(str, disable_patterns))
-        if enable_patterns is not None and isinstance(enable_patterns, (list, tuple)):
-            enable_patterns = ",".join(map(str, enable_patterns))
         self.add_pass(
             "canonicalize",
             top_down=top_down,
@@ -1076,6 +1131,27 @@ class Pipeline:
         self.add_pass("convert-amdgpu-to-rocdl", chipset=chipset)
         return self
 
+    def convert_arith_to_amdgpu(self, saturate_fp8_truncf: bool = None):
+        """Convert Arith operations to AMDGPU-specific implementations
+
+        Convert `arith` operations (currently extf and truncf on 8-bit floats)
+        to operations in the `amdgpu` dialect. This pass is done in two steps
+        in order to avoid running a notional arith-to-rocdl and arith-to-llvm
+        simultaniously.
+
+        Args:
+            saturate-fp8-truncf: Use saturating truncation for 8-bit float types
+        """
+        self.add_pass(
+            "convert-arith-to-amdgpu", saturate_fp8_truncf=saturate_fp8_truncf
+        )
+        return self
+
+    def convert_arith_to_arm_sme(self):
+        """Convert Arith dialect to ArmSME dialect"""
+        self.add_pass("convert-arith-to-arm-sme")
+        return self
+
     def convert_arith_to_llvm(self, index_bitwidth: int = None):
         """Convert Arith dialect to LLVM dialect
 
@@ -1102,16 +1178,24 @@ class Pipeline:
         )
         return self
 
-    def convert_async_to_llvm(self, use_opaque_pointers: bool = None):
+    def convert_arm_sme_to_llvm(self):
+        """Lower the operations from the ArmSME dialect into the LLVM dialect"""
+        self.add_pass("convert-arm-sme-to-llvm")
+        return self
+
+    def convert_arm_sme_to_scf(self):
+        """Lower the operations from the ArmSME dialect into the SCF dialect"""
+        self.add_pass("convert-arm-sme-to-scf")
+        return self
+
+    def convert_async_to_llvm(self):
         """Convert the operations from the async dialect into the LLVM dialect
 
         Convert `async.execute` operations to LLVM coroutines and use async runtime
         API to execute them.
 
-        Args:
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
-        self.add_pass("convert-async-to-llvm", use_opaque_pointers=use_opaque_pointers)
+        self.add_pass("convert-async-to-llvm")
         return self
 
     def convert_bufferization_to_memref(self):
@@ -1121,12 +1205,14 @@ class Pipeline:
         This pass converts bufferization operations into memref operations.
 
         In the current state, this pass only transforms a `bufferization.clone`
-        operation into `memref.alloc` and `memref.copy` operations. This conversion
-        is needed, since some clone operations could remain after applying several
-        transformation processes. Currently, only `canonicalize` transforms clone
-        operations or even eliminates them. This can lead to errors if any clone op
-        survived after all conversion passes (starting from the bufferization
-        dialect) are performed.
+        operation into `memref.alloc` and `memref.copy` operations and
+        `bufferization.dealloc` operations (the same way as the
+        `-bufferization-lower-deallocations` pass). The conversion of `clone`
+        operations is needed, since some clone operations could remain after
+        applying several transformation processes. Currently, only `canonicalize`
+        transforms clone operations or even eliminates them. This can lead to errors
+        if any clone op survived after all conversion passes (starting from the
+        bufferization dialect) are performed.
 
         See:
         https://llvm.discourse.group/t/bufferization-error-related-to-memref-clone/4665
@@ -1144,9 +1230,7 @@ class Pipeline:
         self.add_pass("convert-bufferization-to-memref")
         return self
 
-    def convert_cf_to_llvm(
-        self, index_bitwidth: int = None, use_opaque_pointers: bool = None
-    ):
+    def convert_cf_to_llvm(self, index_bitwidth: int = None):
         """Convert ControlFlow operations to the LLVM dialect
 
         Convert ControlFlow operations into LLVM IR dialect operations.
@@ -1157,13 +1241,8 @@ class Pipeline:
 
         Args:
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
-        self.add_pass(
-            "convert-cf-to-llvm",
-            index_bitwidth=index_bitwidth,
-            use_opaque_pointers=use_opaque_pointers,
-        )
+        self.add_pass("convert-cf-to-llvm", index_bitwidth=index_bitwidth)
         return self
 
     def convert_cf_to_spirv(self, emulate_lt_32_bit_scalar_types: bool = None):
@@ -1215,11 +1294,7 @@ class Pipeline:
         return self
 
     def convert_func_to_llvm(
-        self,
-        use_bare_ptr_memref_call_conv: bool = None,
-        index_bitwidth: int = None,
-        data_layout: str = None,
-        use_opaque_pointers: bool = None,
+        self, use_bare_ptr_memref_call_conv: bool = None, index_bitwidth: int = None
     ):
         """Convert from the Func dialect to the LLVM dialect
 
@@ -1236,6 +1311,11 @@ class Pipeline:
         IR dialect operations, the pass will fail.  Any LLVM IR operations or types
         already present in the IR will be kept as is.
 
+        An LLVM datalayout string can be attached as an attribute to the module on
+        which the pass anchors. Such an attribute is attached by calling the
+        set-module-datalayout pass. If present, an llvm::DataLayout object is
+        created from this attribute and used in the conversion to LLVM.
+
         #### Output IR
 
         Functions converted to LLVM IR. Function arguments types are converted
@@ -1244,18 +1324,18 @@ class Pipeline:
         returns are updated accordingly. Block argument types are updated to use
         LLVM IR types.
 
+        Note that until https://github.com/llvm/llvm-project/issues/70982 is resolved,
+        this pass includes patterns that lower `arith` and `cf` to LLVM. This is legacy
+        code due to when they were all converted in the same pass.
+
         Args:
             use-bare-ptr-memref-call-conv: Replace FuncOp's MemRef arguments with bare pointers to the MemRef element types
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
-            data-layout: String description (LLVM format) of the data layout that is expected on the produced module
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
         self.add_pass(
             "convert-func-to-llvm",
             use_bare_ptr_memref_call_conv=use_bare_ptr_memref_call_conv,
             index_bitwidth=index_bitwidth,
-            data_layout=data_layout,
-            use_opaque_pointers=use_opaque_pointers,
         )
         return self
 
@@ -1284,21 +1364,18 @@ class Pipeline:
         index_bitwidth: int = None,
         has_redux: bool = None,
         use_bare_ptr_memref_call_conv: bool = None,
-        use_opaque_pointers: bool = None,
     ):
         """Generate NVVM operations for gpu operations
         Args:
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
             has-redux: Target gpu supports redux
             use-bare-ptr-memref-call-conv: Replace memref arguments in GPU functions with bare pointers. All memrefs must have static shape.
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
         self.add_pass(
             "convert-gpu-to-nvvm",
             index_bitwidth=index_bitwidth,
             has_redux=has_redux,
             use_bare_ptr_memref_call_conv=use_bare_ptr_memref_call_conv,
-            use_opaque_pointers=use_opaque_pointers,
         )
         return self
 
@@ -1308,7 +1385,6 @@ class Pipeline:
         index_bitwidth: int = None,
         use_bare_ptr_memref_call_conv: bool = None,
         runtime: "gpu::amd::Runtime" = None,
-        use_opaque_pointers: bool = None,
     ):
         """Generate ROCDL operations for gpu operations
         Args:
@@ -1316,7 +1392,6 @@ class Pipeline:
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
             use-bare-ptr-memref-call-conv: Replace memref arguments in GPU functions with bare pointers.All memrefs must have static shape
             runtime: Runtime code will be run on (default is Unknown, can also use HIP or OpenCl)
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
         self.add_pass(
             "convert-gpu-to-rocdl",
@@ -1324,7 +1399,6 @@ class Pipeline:
             index_bitwidth=index_bitwidth,
             use_bare_ptr_memref_call_conv=use_bare_ptr_memref_call_conv,
             runtime=runtime,
-            use_opaque_pointers=use_opaque_pointers,
         )
         return self
 
@@ -1363,13 +1437,35 @@ class Pipeline:
         self.add_pass("convert-index-to-llvm", index_bitwidth=index_bitwidth)
         return self
 
+    def convert_index_to_spirv(self, use_64bit_index: bool = None):
+        """Lower the `index` dialect to the `spirv` dialect.
+
+        This pass lowers Index dialect operations to SPIR-V dialect operations.
+        Operation conversions are 1-to-1 except for the exotic divides: `ceildivs`,
+        `ceildivu`, and `floordivs`. The index bitwidth will be 32 or 64 as
+        specified by use-64bit-index.
+
+        Args:
+            use-64bit-index: Use 64-bit integers to convert index types
+        """
+        self.add_pass("convert-index-to-spirv", use_64bit_index=use_64bit_index)
+        return self
+
     def convert_linalg_to_affine_loops(self):
         """Lower the operations from the linalg dialect into affine loops"""
         self.add_pass("convert-linalg-to-affine-loops")
         return self
 
     def convert_linalg_to_loops(self):
-        """Lower the operations from the linalg dialect into loops"""
+        """Lower the operations from the linalg dialect into loops
+
+        Lowers the `linalg` ops to loop nests using `scf.for`.
+
+        Pre-condition: the operands used by the `linalg` ops have buffer semantics,
+        i.e., tensor operands and results must be converted to memrefs via
+        bufferization.
+
+        """
         self.add_pass("convert-linalg-to-loops")
         return self
 
@@ -1425,30 +1521,35 @@ class Pipeline:
         self.add_pass("convert-math-to-spirv")
         return self
 
-    def convert_memref_to_spirv(self, bool_num_bits: int = None):
+    def convert_memref_to_spirv(
+        self, bool_num_bits: int = None, use_64bit_index: bool = None
+    ):
         """Convert MemRef dialect to SPIR-V dialect
         Args:
             bool-num-bits: The number of bits to store a boolean value
+            use-64bit-index: Use 64-bit integers to convert index types
         """
-        self.add_pass("convert-memref-to-spirv", bool_num_bits=bool_num_bits)
+        self.add_pass(
+            "convert-memref-to-spirv",
+            bool_num_bits=bool_num_bits,
+            use_64bit_index=use_64bit_index,
+        )
         return self
 
-    def convert_nvgpu_to_nvvm(self, use_opaque_pointers: bool = None):
+    def convert_nvgpu_to_nvvm(self):
         """Convert NVGPU dialect to NVVM dialect
 
         This pass converts supported NVGPU ops to NVVM dialect intrinsics.
 
-        Args:
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
-        self.add_pass("convert-nvgpu-to-nvvm", use_opaque_pointers=use_opaque_pointers)
+        self.add_pass("convert-nvgpu-to-nvvm")
         return self
 
     def convert_nvvm_to_llvm(self):
-        """Convert NVVM dialect to LLVM dialect
+        """Convert NVVM to PTX with Inline Assembly in LLVM dialect
 
-        This pass generates inline assembly for the NVVM ops which is not
-        implemented in LLVM core.
+        This pass generates PTX instructions using inline assembly for NVVM
+        operations implements `BasicPtxBuilderInterface`.
 
         """
         self.add_pass("convert-nvvm-to-llvm")
@@ -1479,12 +1580,17 @@ class Pipeline:
         self.add_pass("convert-scf-to-cf")
         return self
 
-    def convert_scf_to_openmp(self, use_opaque_pointers: bool = None):
+    def convert_scf_to_emitc(self):
+        """Convert SCF dialect to EmitC dialect, maintaining structured control flow"""
+        self.add_pass("convert-scf-to-emitc")
+        return self
+
+    def convert_scf_to_openmp(self, num_threads: int = None):
         """Convert SCF parallel loop to OpenMP parallel + workshare constructs.
         Args:
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
+            num-threads: Number of threads to use
         """
-        self.add_pass("convert-scf-to-openmp", use_opaque_pointers=use_opaque_pointers)
+        self.add_pass("convert-scf-to-openmp", num_threads=num_threads)
         return self
 
     def convert_scf_to_spirv(self):
@@ -1520,16 +1626,16 @@ class Pipeline:
         self.add_pass("convert-shape-to-std")
         return self
 
-    def convert_spirv_to_llvm(self, use_opaque_pointers: bool = None):
+    def convert_spirv_to_llvm(self, client_api: "::mlir::spirv::ClientAPI" = None):
         """Convert SPIR-V dialect to LLVM dialect
 
-        See https://from ....llvm.org/docs/SPIRVToLLVMDialectConversion/
+        See https://mlir.llvm.org/docs/SPIRVToLLVMDialectConversion/
         for more details.
 
         Args:
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
+            client-api: Derive StorageClass to address space mapping from the client API
         """
-        self.add_pass("convert-spirv-to-llvm", use_opaque_pointers=use_opaque_pointers)
+        self.add_pass("convert-spirv-to-llvm", client_api=client_api)
         return self
 
     def convert_tensor_to_linalg(self):
@@ -1546,6 +1652,19 @@ class Pipeline:
             "convert-tensor-to-spirv",
             emulate_lt_32_bit_scalar_types=emulate_lt_32_bit_scalar_types,
         )
+        return self
+
+    def convert_to_llvm(self, filter_dialects: List[str] = None):
+        """Convert to LLVM via dialect interfaces found in the input IR
+
+        This is a generic pass to convert to LLVM, it uses the
+        `ConvertToLLVMPatternInterface` dialect interface to delegate to dialects
+        the injection of conversion patterns.
+
+        Args:
+            filter-dialects: Test conversion patterns of only the specified dialects
+        """
+        self.add_pass("convert-to-llvm", filter_dialects=filter_dialects)
         return self
 
     def convert_ub_to_llvm(self, index_bitwidth: int = None):
@@ -1593,9 +1712,7 @@ class Pipeline:
         enable_amx: bool = None,
         enable_arm_neon: bool = None,
         enable_arm_sve: bool = None,
-        enable_arm_sme: bool = None,
         enable_x86vector: bool = None,
-        use_opaque_pointers: bool = None,
     ):
         """Lower the operations from the vector dialect into the LLVM dialect
 
@@ -1614,9 +1731,7 @@ class Pipeline:
             enable-amx: Enables the use of AMX dialect while lowering the vector dialect.
             enable-arm-neon: Enables the use of ArmNeon dialect while lowering the vector dialect.
             enable-arm-sve: Enables the use of ArmSVE dialect while lowering the vector dialect.
-            enable-arm-sme: Enables the use of ArmSME dialect while lowering the vector dialect.
             enable-x86vector: Enables the use of X86Vector dialect while lowering the vector dialect.
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
         self.add_pass(
             "convert-vector-to-llvm",
@@ -1625,9 +1740,7 @@ class Pipeline:
             enable_amx=enable_amx,
             enable_arm_neon=enable_arm_neon,
             enable_arm_sve=enable_arm_sve,
-            enable_arm_sme=enable_arm_sme,
             enable_x86vector=enable_x86vector,
-            use_opaque_pointers=use_opaque_pointers,
         )
         return self
 
@@ -1709,11 +1822,22 @@ class Pipeline:
     def eliminate_empty_tensors(self):
         """Try to eliminate all tensor.empty ops.
 
-        This pass tries to eliminate all insert_slice op-anchored tensor.empty ops.
-        I.e., when a value that is equivalent to an tensor.empty op is inserted into
-        another tensor, this pass tries to rewrite the IR in such a way that the
-        destination tensor of the insert_slice op is used directly instead of the
-        tensor.empty result.
+        Try to eliminate "tensor.empty" ops inside `op`. This transformation looks
+        for subset ops that insert a tensor that originates from a "tensor.empty"
+        (as per the reverse use-def chain). Such "tensor.empty" ops are replaced
+        with the destination subset.
+
+        E.g.:
+        ```
+        %0 = tensor.empty() : tensor<10xf32>
+        %1 = linalg.fill ... outs(%0 : tensor<10xf32>)
+        %2 = tensor.insert_slice %0 into %t ...
+        ```
+
+        In the above example, the subset op is "tensor.insert_slice". When tracing
+        back the reverse use-def chain of a the source, we end up at a
+        "tensor.empty" op. The "tensor.empty" op is replaced with a
+        "tensor.extract_slice" op.
 
         """
         self.add_pass("eliminate-empty-tensors")
@@ -1731,7 +1855,10 @@ class Pipeline:
         return self
 
     def enable_arm_streaming(
-        self, mode: "arm_sme::ArmStreaming" = None, enable_za: bool = None
+        self,
+        streaming_mode: "mlir::arm_sme::ArmStreamingMode" = None,
+        za_mode: "mlir::arm_sme::ArmZaMode" = None,
+        only_if_required_by_ops: bool = None,
     ):
         """Enable Armv9 Streaming SVE mode
 
@@ -1741,10 +1868,16 @@ class Pipeline:
         [1] https://developer.arm.com/documentation/ddi0616/aa
 
         Args:
-            mode: Select how streaming-mode is managed at the function-level.
-            enable-za: Enable ZA storage array.
+            streaming-mode: Select how streaming-mode is managed at the function-level.
+            za-mode: Select how ZA-storage is managed at the function-level.
+            only-if-required-by-ops: Only apply the selected streaming/ZA modes if the function  contains ops that require them.
         """
-        self.add_pass("enable-arm-streaming", mode=mode, enable_za=enable_za)
+        self.add_pass(
+            "enable-arm-streaming",
+            streaming_mode=streaming_mode,
+            za_mode=za_mode,
+            only_if_required_by_ops=only_if_required_by_ops,
+        )
         return self
 
     def ensure_debug_info_scope_on_llvm_func(self):
@@ -1762,6 +1895,44 @@ class Pipeline:
         self.add_pass("ensure-debug-info-scope-on-llvm-func")
         return self
 
+    def expand_realloc(self, emit_deallocs: bool = None):
+        """Expand memref.realloc operations into its components
+
+        The `memref.realloc` operation performs a conditional allocation and copy to
+        increase the size of a buffer if necessary. This pass converts a `realloc`
+        operation into this sequence of simpler operations such that other passes
+        at a later stage in the compilation pipeline do not have to consider the
+        `realloc` operation anymore (e.g., the buffer deallocation pass and the
+        conversion pass to LLVM).
+
+        Example of an expansion:
+        ```mlir
+        %realloc = memref.realloc %alloc (%size) : memref<?xf32> to memref<?xf32>
+        ```
+        is expanded to
+        ```mlir
+        %c0 = arith.constant 0 : index
+        %dim = memref.dim %alloc, %c0 : memref<?xf32>
+        %is_old_smaller = arith.cmpi ult, %dim, %arg1
+        %realloc = scf.if %is_old_smaller -> (memref<?xf32>) {
+          %new_alloc = memref.alloc(%size) : memref<?xf32>
+          %subview = memref.subview %new_alloc[0] [%dim] [1]
+          memref.copy %alloc, %subview
+          memref.dealloc %alloc
+          scf.yield %alloc_0 : memref<?xf32>
+        } else {
+          %reinterpret_cast = memref.reinterpret_cast %alloc to
+            offset: [0], sizes: [%size], strides: [1]
+          scf.yield %reinterpret_cast : memref<?xf32>
+        }
+        ```
+
+        Args:
+            emit-deallocs: Emit deallocation operations for the original MemRef
+        """
+        self.add_pass("expand-realloc", emit_deallocs=emit_deallocs)
+        return self
+
     def expand_strided_metadata(self):
         """Expand memref operations into easier to analyze constructs
 
@@ -1770,6 +1941,14 @@ class Pipeline:
         In particular, this pass transforms operations into explicit sequence of
         operations that model the effect of this operation on the different metadata.
         This pass uses affine constructs to materialize these effects.
+
+        Supported ops include:
+
+        - `memref.collapse_shape`
+        - `memref.expand_shape`
+        - `memref.extract_aligned_pointer_as_index`
+        - `memref.extract_strided_metadata`
+        - `memref.subview`
 
         """
         self.add_pass("expand-strided-metadata")
@@ -1780,7 +1959,6 @@ class Pipeline:
         use_aligned_alloc: bool = None,
         index_bitwidth: int = None,
         use_generic_functions: bool = None,
-        use_opaque_pointers: bool = None,
     ):
         """Finalize MemRef dialect to LLVM dialect conversion
 
@@ -1794,14 +1972,12 @@ class Pipeline:
             use-aligned-alloc: Use aligned_alloc in place of malloc for heap allocations
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
             use-generic-functions: Use generic allocation and deallocation functions instead of the classic 'malloc', 'aligned_alloc' and 'free' functions
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
         self.add_pass(
             "finalize-memref-to-llvm",
             use_aligned_alloc=use_aligned_alloc,
             index_bitwidth=index_bitwidth,
             use_generic_functions=use_generic_functions,
-            use_opaque_pointers=use_opaque_pointers,
         )
         return self
 
@@ -1844,6 +2020,16 @@ class Pipeline:
 
         """
         self.add_pass("fold-tensor-subset-ops")
+        return self
+
+    def form_expressions(self):
+        """Form C-style expressions from C-operator ops
+
+        The pass wraps emitc ops modelling C operators in emitc.expression ops and
+        then folds single-use expressions into their users where possible.
+
+        """
+        self.add_pass("form-expressions")
         return self
 
     def func_bufferize(self):
@@ -1890,6 +2076,35 @@ class Pipeline:
         self.add_pass("gpu-async-region")
         return self
 
+    def gpu_decompose_memrefs(self):
+        """Decomposes memref index computation into explicit ops.
+
+        This pass decomposes memref index computation into explicit computations on
+        sizes/strides, obtained from `memref.extract_memref_metadata` which it tries
+        to place outside of `gpu.launch` body. Memrefs are then reconstructed using
+        `memref.reinterpret_cast`.
+        This is needed for as some targets (SPIR-V) lower memrefs to bare pointers
+        and sizes/strides for dynamically-sized memrefs are not available inside
+        `gpu.launch`.
+
+        """
+        self.add_pass("gpu-decompose-memrefs")
+        return self
+
+    def gpu_eliminate_barriers(self):
+        """Erase unnecessary barriers
+
+        Barrier elimination pass. If a barrier does not enforce any conflicting
+        pair of memory effects, including a pair that is enforced by another
+        barrier, it is unnecessary and can be removed. Adapted from
+        "High-Performance GPU-to-CPU Transpilation and Optimization via High-Level
+        Parallel Constructs" by Moses, Ivanov, Domke, Endo, Doerfert, and Zinenko in
+        PPoPP 2023 and implementation in Polygeist.
+
+        """
+        self.add_pass("gpu-eliminate-barriers")
+        return self
+
     def gpu_kernel_outlining(self):
         """Outline gpu.launch bodies to kernel functions"""
         self.add_pass("gpu-kernel-outlining")
@@ -1907,12 +2122,48 @@ class Pipeline:
         self.add_pass("gpu-map-parallel-loops")
         return self
 
+    def gpu_module_to_binary(
+        self,
+        handler: "Attribute" = None,
+        toolkit: str = None,
+        l: List[str] = None,
+        opts: str = None,
+        format: str = None,
+    ):
+        """Transforms a GPU module into a GPU binary.
+
+        This pass searches for all nested GPU modules and serializes the module
+        using the target attributes attached to the module, producing a GPU binary
+        with an object for every target.
+
+        The `format` argument can have the following values:
+        1. `offloading`, `llvm`: produces an offloading representation.
+        2. `assembly`, `isa`: produces assembly code.
+        3. `binary`, `bin`: produces binaries.
+        4. `fatbinary`, `fatbin`: produces fatbinaries.
+
+        Args:
+            handler: Offloading handler to be attached to the resulting binary op.
+            toolkit: Toolkit path.
+            l: Extra files to link to.
+            opts: Command line options to pass to the tools.
+            format: The target representation of the compilation process.
+        """
+        self.add_pass(
+            "gpu-module-to-binary",
+            handler=handler,
+            toolkit=toolkit,
+            l=l,
+            opts=opts,
+            format=format,
+        )
+        return self
+
     def gpu_to_llvm(
         self,
         use_bare_pointers_for_host: bool = None,
         use_bare_pointers_for_kernels: bool = None,
         gpu_binary_annotation: str = None,
-        use_opaque_pointers: bool = None,
     ):
         """Convert GPU dialect to LLVM dialect with GPU runtime calls
 
@@ -1927,14 +2178,12 @@ class Pipeline:
             use-bare-pointers-for-host: Use bare pointers to pass memref arguments to host functions. All memrefs must have static shape.
             use-bare-pointers-for-kernels: Use bare pointers to pass memref arguments to kernels. The kernel must use the same setting for this option.
             gpu-binary-annotation: Annotation attribute string for GPU binary
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
         self.add_pass(
             "gpu-to-llvm",
             use_bare_pointers_for_host=use_bare_pointers_for_host,
             use_bare_pointers_for_kernels=use_bare_pointers_for_kernels,
             gpu_binary_annotation=gpu_binary_annotation,
-            use_opaque_pointers=use_opaque_pointers,
         )
         return self
 
@@ -1950,8 +2199,6 @@ class Pipeline:
             op-pipelines: Callable operation specific optimizer pipelines (in the form of `dialect.op(pipeline)`)
             max-iterations: Maximum number of iterations when inlining within an SCC
         """
-        if op_pipelines is not None and isinstance(op_pipelines, (list, tuple)):
-            op_pipelines = ",".join(map(str, op_pipelines))
         self.add_pass(
             "inline",
             default_pipeline=default_pipeline,
@@ -1971,15 +2218,35 @@ class Pipeline:
         self.add_pass("int-range-optimizations")
         return self
 
-    def launch_func_to_vulkan(self, use_opaque_pointers: bool = None):
+    def launch_func_to_vulkan(self):
         """Convert vulkanLaunch external call to Vulkan runtime external calls
 
         This pass is only intended for the mlir-vulkan-runner.
 
-        Args:
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
-        self.add_pass("launch-func-to-vulkan", use_opaque_pointers=use_opaque_pointers)
+        self.add_pass("launch-func-to-vulkan")
+        return self
+
+    def lift_cf_to_scf(self):
+        """Lift ControlFlow dialect to SCF dialect
+
+        Lifts ControlFlow operations to SCF dialect operations.
+
+        This pass is prefixed with "lift" instead of "convert" as it is not always
+        guaranteed to replace all ControlFlow ops.
+        If a region contains only a single kind of return-like operation, all
+        ControlFlow operations will be replaced successfully.
+        Otherwise a single ControlFlow switch branching to one block per return-like
+        operation kind remains.
+
+        This pass may need to create unreachable terminators in case of infinite
+        loops, which is only supported for 'func.func' for now. If you potentially
+        have infinite loops inside CFG regions not belonging to 'func.func',
+        consider using `transformCFGToSCF` function directly with corresponding
+        `CFGToSCFInterface::createUnreachableTerminator` implementation.
+
+        """
+        self.add_pass("lift-cf-to-scf")
         return self
 
     def linalg_bufferize(self):
@@ -2016,6 +2283,21 @@ class Pipeline:
     def linalg_named_op_conversion(self):
         """Convert from one named linalg op to another."""
         self.add_pass("linalg-named-op-conversion")
+        return self
+
+    def llvm_add_comdats(self):
+        """Add comdats to linkonce and linkonce_odr functions
+
+        Add an any COMDAT to every linkonce and linkonce_odr function.
+        This is necessary on Windows to link these functions as the system
+        linker won't link weak symbols without a COMDAT. It also provides better
+        behavior than standard weak symbols on ELF-based platforms.
+        This pass will still add COMDATs on platforms that do not support them,
+        for example macOS, so should only be run when the target platform supports
+        COMDATs.
+
+        """
+        self.add_pass("llvm-add-comdats")
         return self
 
     def llvm_legalize_for_export(self):
@@ -2059,6 +2341,11 @@ class Pipeline:
     def loop_invariant_code_motion(self):
         """Hoist loop invariant instructions outside of the loop"""
         self.add_pass("loop-invariant-code-motion")
+        return self
+
+    def loop_invariant_subset_hoisting(self):
+        """Hoist loop invariant subset ops outside of the loop"""
+        self.add_pass("loop-invariant-subset-hoisting")
         return self
 
     def lower_affine(self):
@@ -2114,7 +2401,7 @@ class Pipeline:
         self.add_pass("lower-affine")
         return self
 
-    def lower_host_to_llvm(self, use_opaque_pointers: bool = None):
+    def lower_host_to_llvm(self):
         """Lowers the host module code and `gpu.launch_func` to LLVM
 
         Creates a pass to emulate `gpu.launch_func` call in LLVM dialect and lower
@@ -2126,10 +2413,35 @@ class Pipeline:
         also converts the remaining Arithmetic, Func, and MemRef dialects into LLVM
         dialect, emitting C wrappers.
 
-        Args:
-            use-opaque-pointers: Generate LLVM IR using opaque pointers instead of typed pointers
         """
-        self.add_pass("lower-host-to-llvm", use_opaque_pointers=use_opaque_pointers)
+        self.add_pass("lower-host-to-llvm")
+        return self
+
+    def lower_sparse_foreach_to_scf(self):
+        """Decompose a complex sparse operation into multiple stages
+
+        A pass that lowers sparse_tensor.foreach operation to scf dialect.
+
+        """
+        self.add_pass("lower-sparse-foreach-to-scf")
+        return self
+
+    def lower_sparse_ops_to_foreach(
+        self, enable_runtime_library: bool = None, enable_convert: bool = None
+    ):
+        """Applies sparse tensor rewriting rules after sparsification
+
+        A pass that lowers high-level sparse operations to sparse_tensor.foreach.
+
+        Args:
+            enable-runtime-library: Enable runtime library for manipulating sparse tensors
+            enable-convert: Enable rewriting rules for the convert operator
+        """
+        self.add_pass(
+            "lower-sparse-ops-to-foreach",
+            enable_runtime_library=enable_runtime_library,
+            enable_convert=enable_convert,
+        )
         return self
 
     def lower_vector_mask(self):
@@ -2143,6 +2455,24 @@ class Pipeline:
             client-api: The client API to use for populating mappings
         """
         self.add_pass("map-memref-spirv-storage-class", client_api=client_api)
+        return self
+
+    def math_legalize_to_f32(self):
+        """Legalize floating-point math ops on low-precision floats
+
+        On many targets, the math functions are not implemented for floating-point
+        types less precise than IEEE single-precision (aka f32), such as half-floats,
+        bfloat16, or 8-bit floats.
+
+        This pass explicitly legalizes these math functions by inserting
+        `arith.extf` and `arith.truncf` pairs around said op, which preserves
+        the original semantics while enabling lowering.
+
+        As an exception, this pass does not legalize `math.fma`, because
+        that is an operation frequently implemented at low precisions.
+
+        """
+        self.add_pass("math-legalize-to-f32")
         return self
 
     def math_uplift_to_fma(self):
@@ -2199,20 +2529,34 @@ class Pipeline:
         self.add_pass("memref-expand")
         return self
 
+    def mlprogram_pipeline_globals(self):
+        """Optimize `ml_program` global operations for read and store
+
+        `ml_program`'s load and store operations can be optimized for
+        write-write or write-read sets of operations. This allows known
+        tensors to not be re-read when the value is already known in IR.
+
+        The pass is designed to handle both nested regions and function calls
+        safely.
+
+        """
+        self.add_pass("mlprogram-pipeline-globals")
+        return self
+
     def normalize_memrefs(self):
         """Normalize memrefs
 
           This pass transforms memref types with a non-trivial
-          [layout map](https://from ....llvm.org/docs/Dialects/Builtin/#affine-map-layout)
+          [layout map](https://mlir.llvm.org/docs/Dialects/Builtin/#affine-map-layout)
           into memref types with an identity layout map, e.g. (i, j) -> (i, j). This
           pass is inter-procedural, in the sense that it can modify function
           interfaces and call sites that pass memref types. In order to modify
           memref types while preserving the original behavior, users of those
           memref types are also modified to incorporate the resulting layout map.
-          For instance, an [AffineLoadOp](https://from ....llvm.org/docs/Dialects/Affine/#affineload-mliraffineloadop)
+          For instance, an [AffineLoadOp](https://mlir.llvm.org/docs/Dialects/Affine/#affineload-mliraffineloadop)
           will be updated to compose the layout map with with the affine expression
           contained in the op. Operations marked with the
-          [MemRefsNormalizable](https://from ....llvm.org/docs/Traits/#memrefsnormalizable)
+          [MemRefsNormalizable](https://mlir.llvm.org/docs/Traits/#memrefsnormalizable)
           trait are expected to be normalizable. Supported operations include affine
           operations, memref.alloc, memref.dealloc, and func.return.
 
@@ -2319,15 +2663,65 @@ class Pipeline:
         self.add_pass("nvgpu-optimize-shared-memory")
         return self
 
+    def nvvm_attach_target(
+        self,
+        module: str = None,
+        triple: str = None,
+        chip: str = None,
+        features: str = None,
+        O: int = None,
+        fast: bool = None,
+        ftz: bool = None,
+        l: List[str] = None,
+    ):
+        """Attaches an NVVM target attribute to a GPU Module.
+
+        This pass searches for all GPU Modules in the immediate regions and attaches
+        an NVVM target if the module matches the name specified by the `module` argument.
+
+        Example:
+        ```
+        // File: in.mlir:
+        gpu.module @nvvm_module_1 {...}
+        gpu.module @nvvm_module_2 {...}
+        gpu.module @rocdl_module_1 {...}
+        // mlir-opt --nvvm-attach-target="module=nvvm.* chip=sm_90" in.mlir
+        gpu.module @nvvm_module_1 [#nvvm.target<chip = "sm_90">] {...}
+        gpu.module @nvvm_module_2 [#nvvm.target<chip = "sm_90">] {...}
+        gpu.module @rocdl_module_1 {...}
+        ```
+
+        Args:
+            module: Regex used to identify the modules to attach the target to.
+            triple: Target triple.
+            chip: Target chip.
+            features: Target features.
+            O: Optimization level.
+            fast: Enable fast math mode.
+            ftz: Enable flush to zero for denormals.
+            l: Extra bitcode libraries paths to link to.
+        """
+        self.add_pass(
+            "nvvm-attach-target",
+            module=module,
+            triple=triple,
+            chip=chip,
+            features=features,
+            O=O,
+            fast=fast,
+            ftz=ftz,
+            l=l,
+        )
+        return self
+
     def one_shot_bufferize(
         self,
-        allow_return_allocs: bool = None,
+        allow_return_allocs_from_loops: bool = None,
         allow_unknown_ops: bool = None,
         analysis_fuzzer_seed: int = None,
         analysis_heuristic: str = None,
         bufferize_function_boundaries: bool = None,
         copy_before_write: bool = None,
-        create_deallocs: bool = None,
         dialect_filter: List[str] = None,
         dump_alias_sets: bool = None,
         no_analysis_func_filter: List[str] = None,
@@ -2357,15 +2751,9 @@ class Pipeline:
         example, `tensor.generate` is not in destination-passing style and always
         results in a new buffer allocation.
 
-        One-Shot Bufferize deallocates all buffers that it allocates. Yielding newly
-        allocated buffers from a block can lead to bad performance because
-        additional buffer copies are often needed to make sure that every buffer
-        allocation is also deallocated again. By default, such IR is rejected by
-        One-Shot Bufferize. Such IR can be allowed with `allow-return-allocs`. In
-        that case, the `-buffer-deallocation` pass should be run after One-Shot
-        Bufferize. Note that new buffer allocations that are returned from a
-        function can currently not be deallocated by `-buffer-deallocation` and
-        leak.
+        One-Shot Bufferize does not deallocate any buffers that it allocates. The
+        `-buffer-deallocation` pass should be run after One-Shot Bufferize to insert
+        the deallocation operations necessary to eliminate memory leaks.
 
         One-Shot Bufferize will by default reject IR that contains non-bufferizable
         op, i.e., ops that do not implemement BufferizableOpInterface. Such IR can
@@ -2432,13 +2820,12 @@ class Pipeline:
         `test-analysis-only`.
 
         Args:
-            allow-return-allocs: Allows returning/yielding new allocations from a block.
+            allow-return-allocs-from-loops: Allows returning/yielding new allocations from a loop.
             allow-unknown-ops: Allows unknown (not bufferizable) ops in the input IR.
             analysis-fuzzer-seed: Test only: Analyze ops in random order with a given seed (fuzzer)
             analysis-heuristic: Heuristic that control the IR traversal during analysis
             bufferize-function-boundaries: Bufferize function boundaries (experimental).
             copy-before-write: Skip the analysis. Make a buffer copy on every write.
-            create-deallocs: Specify if buffers should be deallocated. For compatibility with core bufferization passes.
             dialect-filter: Restrict bufferization to ops from these dialects.
             dump-alias-sets: Test only: Annotate tensor IR with alias sets
             no-analysis-func-filter: Skip analysis of functions with these symbol names.Set copyBeforeWrite to true when bufferizing them.
@@ -2448,21 +2835,14 @@ class Pipeline:
             print-conflicts: Test only: Annotate IR with RaW conflicts. Requires test-analysis-only.
             unknown-type-conversion: Controls layout maps for non-inferrable memref types.
         """
-        if dialect_filter is not None and isinstance(dialect_filter, (list, tuple)):
-            dialect_filter = ",".join(map(str, dialect_filter))
-        if no_analysis_func_filter is not None and isinstance(
-            no_analysis_func_filter, (list, tuple)
-        ):
-            no_analysis_func_filter = ",".join(map(str, no_analysis_func_filter))
         self.add_pass(
             "one-shot-bufferize",
-            allow_return_allocs=allow_return_allocs,
+            allow_return_allocs_from_loops=allow_return_allocs_from_loops,
             allow_unknown_ops=allow_unknown_ops,
             analysis_fuzzer_seed=analysis_fuzzer_seed,
             analysis_heuristic=analysis_heuristic,
             bufferize_function_boundaries=bufferize_function_boundaries,
             copy_before_write=copy_before_write,
-            create_deallocs=create_deallocs,
             dialect_filter=dialect_filter,
             dump_alias_sets=dump_alias_sets,
             no_analysis_func_filter=no_analysis_func_filter,
@@ -2483,8 +2863,6 @@ class Pipeline:
             test: The location of the tester which tests the file interestingness
             test-arg: arguments of the tester
         """
-        if test_arg is not None and isinstance(test_arg, (list, tuple)):
-            test_arg = ",".join(map(str, test_arg))
         self.add_pass(
             "opt-reduction-pass", opt_pass=opt_pass, test=test, test_arg=test_arg
         )
@@ -2572,27 +2950,141 @@ class Pipeline:
         self.add_pass("outline-shape-computation")
         return self
 
-    def post_sparsification_rewrite(
-        self,
-        enable_runtime_library: bool = None,
-        enable_foreach: bool = None,
-        enable_convert: bool = None,
+    def ownership_based_buffer_deallocation(
+        self, private_function_dynamic_ownership: bool = None
     ):
-        """Applies sparse tensor rewriting rules after sparsification
+        """Adds all required dealloc operations for all allocations in the input program
 
-        A pass that applies rewriting rules to sparse tensor operations after
-        running the actual sparsification pass.
+        This pass implements an algorithm to automatically introduce all required
+        deallocation operations for all buffers in the input program. This ensures
+        that the resulting program does not have any memory leaks.
+
+        The Buffer Deallocation pass operates on the level of operations
+        implementing the FunctionOpInterface. Such operations can take MemRefs as
+        arguments, but also return them. To ensure compatibility among all functions
+        (including external ones), some rules have to be enforced. They are just
+        assumed to hold for all external functions. Functions for which the
+        definition is available ideally also already adhere to the ABI.
+        Otherwise, all MemRef write operations in the input IR must dominate all
+        MemRef read operations in the input IR. Then, the pass may modify the input
+        IR by inserting `bufferization.clone` operations such that the output IR
+        adheres to the function boundary ABI:
+        * When a MemRef is passed as a function argument, ownership is never
+          acquired. It is always the caller's responsibility to deallocate such
+          MemRefs.
+        * Returning a MemRef from a function always passes ownership to the caller,
+          i.e., it is also the caller's responsibility to deallocate MemRefs
+          returned from a called function.
+        * A function must not return a MemRef with the same allocated base buffer as
+          one of its arguments (in this case a copy has to be created). Note that in
+          this context two subviews of the same buffer that don't overlap are also
+          considered an alias.
+
+        It is recommended to bufferize all operations first such that no tensor
+        values remain in the IR once this pass is applied. That way all allocated
+        MemRefs will be properly deallocated without any additional manual work.
+        Otherwise, the pass that bufferizes the remaining tensors is responsible to
+        add the corresponding deallocation operations. Note that this pass does not
+        consider any values of tensor type and assumes that MemRef values defined by
+        `bufferization.to_memref` do not return ownership and do not have to be
+        deallocated. `bufferization.to_tensor` operations are handled similarly to
+        `bufferization.clone` operations with the exception that the result value is
+        not handled because it's a tensor (not a MemRef).
+
+        Input
+
+        ```mlir
+        #map0 = affine_map<(d0) -> (d0)>
+        module {
+          func.func @condBranch(%arg0: i1,
+                                %arg1: memref<2xf32>,
+                                %arg2: memref<2xf32>) {
+            cf.cond_br %arg0, ^bb1, ^bb2
+          ^bb1:
+            cf.br ^bb3(%arg1 : memref<2xf32>)
+          ^bb2:
+            %0 = memref.alloc() : memref<2xf32>
+            linalg.generic {
+              args_in = 1 : i64,
+              args_out = 1 : i64,
+              indexing_maps = [#map0, #map0],
+              iterator_types = ["parallel"]}
+            outs(%arg1, %0 : memref<2xf32>, memref<2xf32>) {
+            ^bb0(%gen1_arg0: f32, %gen1_arg1: f32):
+              %tmp1 = exp %gen1_arg0 : f32
+              linalg.yield %tmp1 : f32
+            }
+            cf.br ^bb3(%0 : memref<2xf32>)
+          ^bb3(%1: memref<2xf32>):
+            "memref.copy"(%1, %arg2) : (memref<2xf32>, memref<2xf32>) -> ()
+            return
+          }
+        }
+        ```
+
+        Output
+
+        ```mlir
+        #map = affine_map<(d0) -> (d0)>
+        module {
+          func.func @condBranch(%arg0: i1,
+                                %arg1: memref<2xf32>,
+                                %arg2: memref<2xf32>) {
+            %false = arith.constant false
+            %true = arith.constant true
+            cf.cond_br %arg0, ^bb1, ^bb2
+          ^bb1:  // pred: ^bb0
+            cf.br ^bb3(%arg1, %false : memref<2xf32>, i1)
+          ^bb2:  // pred: ^bb0
+            %alloc = memref.alloc() : memref<2xf32>
+            linalg.generic {
+              indexing_maps = [#map, #map],
+              iterator_types = ["parallel"]}
+            outs(%arg1, %alloc : memref<2xf32>, memref<2xf32>)
+            attrs =  {args_in = 1 : i64, args_out = 1 : i64} {
+            ^bb0(%out: f32, %out_0: f32):
+              %2 = math.exp %out : f32
+              linalg.yield %2, %out_0 : f32, f32
+            }
+            cf.br ^bb3(%alloc, %true : memref<2xf32>, i1)
+          ^bb3(%0: memref<2xf32>, %1: i1):  // 2 preds: ^bb1, ^bb2
+            memref.copy %0, %arg2 : memref<2xf32> to memref<2xf32>
+            %base_buffer, %offset, %sizes, %strides =
+              memref.extract_strided_metadata %0 :
+              memref<2xf32> -> memref<f32>, index, index, index
+            bufferization.dealloc (%base_buffer : memref<f32>) if (%1)
+            return
+          }
+        }
+        ```
+
+        The `private-function-dynamic-ownership` pass option allows the pass to add
+        additional arguments to private functions to dynamically give ownership of
+        MemRefs to callees. This can enable earlier deallocations and allows the
+        pass to by-pass the function boundary ABI and thus potentially leading to
+        fewer MemRef clones being inserted. For example, the private function
+        ```mlir
+        func.func private @passthrough(%memref: memref<2xi32>) -> memref<2xi32> {
+          return %memref : memref<2xi32>
+        }
+        ```
+        would be converted to
+        ```mlir
+        func.func private @passthrough(%memref: memref<2xi32>,
+                                       %ownership: i1) -> (memref<2xi32>, i1) {
+          return %memref, %ownership : memref<2xi32>, i1
+        }
+        ```
+        and thus allows the returned MemRef to alias with the MemRef passed as
+        argument (which would otherwise be forbidden according to the function
+        boundary ABI).
 
         Args:
-            enable-runtime-library: Enable runtime library for manipulating sparse tensors
-            enable-foreach: Enable rewriting rules for the foreach operator
-            enable-convert: Enable rewriting rules for the convert operator
+            private-function-dynamic-ownership: Allows to add additional arguments to private functions to dynamically pass ownership of memrefs to callees. This can enable earlier deallocations.
         """
         self.add_pass(
-            "post-sparsification-rewrite",
-            enable_runtime_library=enable_runtime_library,
-            enable_foreach=enable_foreach,
-            enable_convert=enable_convert,
+            "ownership-based-buffer-deallocation",
+            private_function_dynamic_ownership=private_function_dynamic_ownership,
         )
         return self
 
@@ -2682,14 +3174,170 @@ class Pipeline:
             test: The location of the tester which tests the file interestingness
             test-arg: arguments of the tester
         """
-        if test_arg is not None and isinstance(test_arg, (list, tuple)):
-            test_arg = ",".join(map(str, test_arg))
         self.add_pass(
             "reduction-tree",
             traversal_mode=traversal_mode,
             test=test,
             test_arg=test_arg,
         )
+        return self
+
+    def remove_dead_values(self):
+        """Remove dead values
+
+        The goal of this pass is optimization (reducing runtime) by removing
+        unnecessary instructions. Unlike other passes that rely on local information
+        gathered from patterns to accomplish optimization, this pass uses a full
+        analysis of the IR, specifically, liveness analysis, and is thus more
+        powerful.
+
+        Currently, this pass performs the following optimizations:
+        (A) Removes function arguments that are not live,
+        (B) Removes function return values that are not live across all callers of
+        the function,
+        (C) Removes unneccesary operands, results, region arguments, and region
+        terminator operands of region branch ops, and,
+        (D) Removes simple and region branch ops that have all non-live results and
+        don't affect memory in any way,
+
+        iff
+
+        the IR doesn't have any non-function symbol ops, non-call symbol user ops
+        and branch ops.
+
+        Here, a "simple op" refers to an op that isn't a symbol op, symbol-user op,
+        region branch op, branch op, region branch terminator op, or return-like.
+
+        It is noteworthy that we do not refer to non-live values as "dead" in this
+        file to avoid confusing it with dead code analysis's "dead", which refers to
+        unreachable code (code that never executes on hardware) while "non-live"
+        refers to code that executes on hardware but is unnecessary. Thus, while the
+        removal of dead code helps little in reducing runtime, removing non-live
+        values should theoretically have significant impact (depending on the amount
+        removed).
+
+        It is also important to note that unlike other passes (like `canonicalize`)
+        that apply op-specific optimizations through patterns, this pass uses
+        different interfaces to handle various types of ops and tries to cover all
+        existing ops through these interfaces.
+
+        It is because of its reliance on (a) liveness analysis and (b) interfaces
+        that makes it so powerful that it can optimize ops that don't have a
+        canonicalizer and even when an op does have a canonicalizer, it can perform
+        more aggressive optimizations, as observed in the test files associated with
+        this pass.
+
+        Example of optimization (A):-
+
+        ```
+        int add_2_to_y(int x, int y) {
+          return 2 + y
+        }
+
+        print(add_2_to_y(3, 4))
+        print(add_2_to_y(5, 6))
+        ```
+
+        becomes
+
+        ```
+        int add_2_to_y(int y) {
+          return 2 + y
+        }
+
+        print(add_2_to_y(4))
+        print(add_2_to_y(6))
+        ```
+
+        Example of optimization (B):-
+
+        ```
+        int, int get_incremented_values(int y) {
+          store y somewhere in memory
+          return y + 1, y + 2
+        }
+
+        y1, y2 = get_incremented_values(4)
+        y3, y4 = get_incremented_values(6)
+        print(y2)
+        ```
+
+        becomes
+
+        ```
+        int get_incremented_values(int y) {
+          store y somewhere in memory
+          return y + 2
+        }
+
+        y2 = get_incremented_values(4)
+        y4 = get_incremented_values(6)
+        print(y2)
+        ```
+
+        Example of optimization (C):-
+
+        Assume only `%result1` is live here. Then,
+
+        ```
+        %result1, %result2, %result3 = scf.while (%arg1 = %operand1, %arg2 = %operand2) {
+          %terminator_operand2 = add %arg2, %arg2
+          %terminator_operand3 = mul %arg2, %arg2
+          %terminator_operand4 = add %arg1, %arg1
+          scf.condition(%terminator_operand1) %terminator_operand2, %terminator_operand3, %terminator_operand4
+        } do {
+        ^bb0(%arg3, %arg4, %arg5):
+          %terminator_operand6 = add %arg4, %arg4
+          %terminator_operand5 = add %arg5, %arg5
+          scf.yield %terminator_operand5, %terminator_operand6
+        }
+        ```
+
+        becomes
+
+        ```
+        %result1, %result2 = scf.while (%arg2 = %operand2) {
+          %terminator_operand2 = add %arg2, %arg2
+          %terminator_operand3 = mul %arg2, %arg2
+          scf.condition(%terminator_operand1) %terminator_operand2, %terminator_operand3
+        } do {
+        ^bb0(%arg3, %arg4):
+          %terminator_operand6 = add %arg4, %arg4
+          scf.yield %terminator_operand6
+        }
+        ```
+
+        It is interesting to see that `%result2` won't be removed even though it is
+        not live because `%terminator_operand3` forwards to it and cannot be
+        removed. And, that is because it also forwards to `%arg4`, which is live.
+
+        Example of optimization (D):-
+
+        ```
+        int square_and_double_of_y(int y) {
+          square = y ^ 2
+          double = y * 2
+          return square, double
+        }
+
+        sq, do = square_and_double_of_y(5)
+        print(do)
+        ```
+
+        becomes
+
+        ```
+        int square_and_double_of_y(int y) {
+          double = y * 2
+          return double
+        }
+
+        do = square_and_double_of_y(5)
+        print(do)
+        ```
+
+        """
+        self.add_pass("remove-dead-values")
         return self
 
     def remove_shape_constraints(self):
@@ -2720,6 +3368,72 @@ class Pipeline:
         self.add_pass("resolve-shaped-type-result-dims")
         return self
 
+    def rocdl_attach_target(
+        self,
+        module: str = None,
+        triple: str = None,
+        chip: str = None,
+        features: str = None,
+        abi: str = None,
+        O: int = None,
+        wave64: bool = None,
+        fast: bool = None,
+        daz: bool = None,
+        finite_only: bool = None,
+        unsafe_math: bool = None,
+        correct_sqrt: bool = None,
+        l: List[str] = None,
+    ):
+        """Attaches a ROCDL target attribute to a GPU Module.
+
+        This pass searches for all GPU Modules in the immediate regions and attaches
+        a ROCDL target if the module matches the name specified by the `module` argument.
+
+        Example:
+        ```
+        // File: in.mlir:
+        gpu.module @nvvm_module_1 {...}
+        gpu.module @nvvm_module_2 {...}
+        gpu.module @rocdl_module_1 {...}
+        // mlir-opt --nvvm-attach-target="module=rocdl.* chip=gfx90a" in.mlir
+        gpu.module @nvvm_module_1 {...}
+        gpu.module @nvvm_module_2 {...}
+        gpu.module @rocdl_module_1 [#rocdl.target<chip = "gfx90a">] {...}
+        ```
+
+        Args:
+            module: Regex used to identify the modules to attach the target to.
+            triple: Target triple.
+            chip: Target chip.
+            features: Target features.
+            abi: ABI version.
+            O: Optimization level.
+            wave64: Use Wave64 mode.
+            fast: Enable fast relaxed math opt.
+            daz: Enable denormals are zero opt.
+            finite-only: Enable finite only opt.
+            unsafe-math: Enable unsafe math opt.
+            correct-sqrt: Enable correct rounded sqrt.
+            l: Extra bitcode libraries paths to link to.
+        """
+        self.add_pass(
+            "rocdl-attach-target",
+            module=module,
+            triple=triple,
+            chip=chip,
+            features=features,
+            abi=abi,
+            O=O,
+            wave64=wave64,
+            fast=fast,
+            daz=daz,
+            finite_only=finite_only,
+            unsafe_math=unsafe_math,
+            correct_sqrt=correct_sqrt,
+            l=l,
+        )
+        return self
+
     def sccp(self):
         """Sparse Conditional Constant Propagation
 
@@ -2745,12 +3459,15 @@ class Pipeline:
         self.add_pass("scf-for-loop-canonicalization")
         return self
 
-    def scf_for_loop_peeling(self, skip_partial: bool = None):
+    def scf_for_loop_peeling(self, peel_front: bool = None, skip_partial: bool = None):
         """Peel `for` loops at their upper bounds.
         Args:
+            peel-front: Peel the first iteration out of the loop.
             skip-partial: Do not peel loops inside of the last, partial iteration of another already peeled loop.
         """
-        self.add_pass("scf-for-loop-peeling", skip_partial=skip_partial)
+        self.add_pass(
+            "scf-for-loop-peeling", peel_front=peel_front, skip_partial=skip_partial
+        )
         return self
 
     def scf_for_loop_range_folding(self):
@@ -2816,15 +3533,24 @@ class Pipeline:
             parallel-loop-tile-sizes: Factors to tile parallel loops by
             no-min-max-bounds: Perform tiling with fixed upper bound with inbound check inside the internal loops
         """
-        if parallel_loop_tile_sizes is not None and isinstance(
-            parallel_loop_tile_sizes, (list, tuple)
-        ):
-            parallel_loop_tile_sizes = ",".join(map(str, parallel_loop_tile_sizes))
         self.add_pass(
             "scf-parallel-loop-tiling",
             parallel_loop_tile_sizes=parallel_loop_tile_sizes,
             no_min_max_bounds=no_min_max_bounds,
         )
+        return self
+
+    def set_llvm_module_datalayout(self, data_layout: str = None):
+        """Attach a datalayout string as a module attribute
+
+        Verify that the dataLayout string is a valid LLVM datalayout string and
+        attach it as an attribute `LLVMDialect::getDataLayoutAttrName()` to the
+        module, overriding the existing one.
+
+        Args:
+            data-layout: String description (LLVM format) of the data layout that is expected on the produced module
+        """
+        self.add_pass("set-llvm-module-datalayout", data_layout=data_layout)
         return self
 
     def shape_bufferize(self):
@@ -2835,6 +3561,18 @@ class Pipeline:
     def shape_to_shape_lowering(self):
         """Legalize Shape dialect to be convertible to Arith"""
         self.add_pass("shape-to-shape-lowering")
+        return self
+
+    def sharding_propagation(self):
+        """sharding propagation
+
+        Propagates sharding information throughout the graph. After this pass, each
+        of the operations' operands and results is annotated with a `mesh.shard`
+        operation, and the operations themselves are added with sharding option
+        attributes.
+
+        """
+        self.add_pass("sharding-propagation")
         return self
 
     def snapshot_op_locations(self, filename: str = None, tag: str = None):
@@ -2895,15 +3633,41 @@ class Pipeline:
         )
         return self
 
-    def sparse_gpu_codegen(self, num_threads: int = None):
+    def sparse_gpu_codegen(
+        self, num_threads: int = None, enable_runtime_library: bool = None
+    ):
         """Generates GPU code during sparsification
 
-        Enables sparse compiler to use GPU acceleration.
+        Enables the sparsifier to use GPU acceleration. When the number of GPU
+        threads is set to zero, the pass tries to enable GPU acceleration by
+        means of direct library calls (like cuSPARSE).
 
         Args:
-            num_threads: Sets the number of GPU threads
+            num-threads: Sets the number of GPU threads
+            enable-runtime-library: Enable runtime library for manipulating sparse tensors
         """
-        self.add_pass("sparse-gpu-codegen", num_threads=num_threads)
+        self.add_pass(
+            "sparse-gpu-codegen",
+            num_threads=num_threads,
+            enable_runtime_library=enable_runtime_library,
+        )
+        return self
+
+    def sparse_reinterpret_map(self, scope: "mlir::ReinterpretMapScope" = None):
+        """Reinterprets sparse tensor type mappings
+
+        A pass that reinterprets the mappings in all sparse tensor types in a
+        way that enables subsequent sparsification. This involves expressing all
+        `linalg.generic` operations in terms of level coordinates (rather than
+        the dimension coordinates of the input tensors) to align the iteration
+        space with the potentially remapped level space as well as resolving cycles
+        in the resulting iteration graphs with explicit sparse tensor conversions
+        where needed.
+
+        Args:
+            scope: Set the reiterpretation scope
+        """
+        self.add_pass("sparse-reinterpret-map", scope=scope)
         return self
 
     def sparse_storage_specifier_to_llvm(self):
@@ -2973,7 +3737,7 @@ class Pipeline:
         )
         return self
 
-    def sparse_tensor_conversion(self, s2s_strategy: int = None):
+    def sparse_tensor_conversion(self):
         """Convert sparse tensors and primitives to library calls
 
         A pass that converts sparse tensor primitives into calls into a runtime
@@ -2996,18 +3760,16 @@ class Pipeline:
             }
 
           After:
-            func.func @foo(%arg0: !llvm.ptr<i8>) -> memref<?xindex> {
+            func.func @foo(%arg0: !llvm.ptr) -> memref<?xindex> {
               %c1 = arith.constant 1 : index
               %0 = call @sparsePointers0(%arg0, %c1)
-                 : (!llvm.ptr<i8>, index) -> memref<?xindex>
+                 : (!llvm.ptr, index) -> memref<?xindex>
               return %0 : memref<?xindex>
             }
         ```
 
-        Args:
-            s2s-strategy: Set the strategy for sparse-to-sparse conversion
         """
-        self.add_pass("sparse-tensor-conversion", s2s_strategy=s2s_strategy)
+        self.add_pass("sparse-tensor-conversion")
         return self
 
     def sparse_vectorization(
@@ -3072,14 +3834,12 @@ class Pipeline:
 
     def sparsification(
         self,
-        enable_index_reduction: bool = None,
         parallelization_strategy: "SparseParallelizationStrategy" = None,
-        enable_gpu_libgen: bool = None,
         enable_runtime_library: bool = None,
     ):
         """Automatically generate sparse tensor code from sparse tensor types
 
-        A pass that implements the core functionality of a **sparse compiler**.
+        A pass that implements the core functionality of a **sparsifier**.
         Each Linalg operation (MLIR's tensor index notation) that operates on
         sparse tensor types is converted into code in which the sparsity is
         explicit both in terms of co-iterating looping logic as well as
@@ -3117,17 +3877,73 @@ class Pipeline:
         ```
 
         Args:
-            enable-index-reduction: Enable dependent index reduction based algorithm to handle non-trivial index expressions on sparse inputs (experimental features)
             parallelization-strategy: Set the parallelization strategy
-            enable-gpu-libgen: Enable GPU acceleration by means of direct library calls (like cuSPARSE)
             enable-runtime-library: Enable runtime library for manipulating sparse tensors
         """
         self.add_pass(
             "sparsification",
-            enable_index_reduction=enable_index_reduction,
             parallelization_strategy=parallelization_strategy,
-            enable_gpu_libgen=enable_gpu_libgen,
             enable_runtime_library=enable_runtime_library,
+        )
+        return self
+
+    def sparsification_and_bufferization(self):
+        """Mini-pipeline that combines bufferization and sparsifiation
+
+        This pass forms a mini-pipeline that combines bufferization and sparsifiation.
+
+        """
+        self.add_pass("sparsification-and-bufferization")
+        return self
+
+    def spirv_attach_target(
+        self,
+        module: str = None,
+        ver: str = None,
+        caps: List[str] = None,
+        exts: List[str] = None,
+        client_api: str = None,
+        vendor: str = None,
+        device_type: str = None,
+        device_id: "uint32_t" = None,
+    ):
+        """Attaches an SPIR-V target attribute to a GPU Module.
+
+        This pass searches for all GPU Modules in the immediate regions and attaches
+        an SPIR-V target if the module matches the name specified by the `module` argument.
+
+        Example:
+        ```
+        // Given the following file: in1.mlir:
+        gpu.module @nvvm_module_1 {...}
+        gpu.module @spirv_module_1 {...}
+        // With
+        // mlir-opt --spirv-attach-target="module=spirv.* ver=v1.0 caps=Kernel" in1.mlir
+        // it will generate,
+        gpu.module @nvvm_module_1 {...}
+        gpu.module @spirv_module_1 [#spirv.target<#spirv.vce<v1.0, [Kernel], []>, #spirv.resource_limits<>>] {...}
+        ```
+
+        Args:
+            module: Regex used to identify the modules to attach the target to.
+            ver: SPIR-V Version.
+            caps: List of supported SPIR-V Capabilities
+            exts: List of supported SPIR-V Extensions
+            client_api: Client API
+            vendor: Device Vendor
+            device_type: Device Type
+            device_id: Device ID
+        """
+        self.add_pass(
+            "spirv-attach-target",
+            module=module,
+            ver=ver,
+            caps=caps,
+            exts=exts,
+            client_api=client_api,
+            vendor=vendor,
+            device_type=device_type,
+            device_id=device_id,
         )
         return self
 
@@ -3207,6 +4023,16 @@ class Pipeline:
         self.add_pass("sroa")
         return self
 
+    def stage_sparse_ops(self):
+        """Decompose a complex sparse operation into multiple stages
+
+        A pass that decomposes a complex sparse operation into multiple stages.
+        E.g., CSR -> CSC is staged into CSR -> COO (unordered) -> sort -> CSC.
+
+        """
+        self.add_pass("stage-sparse-ops")
+        return self
+
     def strip_debuginfo(self):
         """Strip debug info from all operations
 
@@ -3270,8 +4096,6 @@ class Pipeline:
         Args:
             exclude: Comma separated list of symbols that should not be marked private
         """
-        if exclude is not None and isinstance(exclude, (list, tuple)):
-            exclude = ",".join(map(str, exclude))
         self.add_pass("symbol-privatize", exclude=exclude)
         return self
 
@@ -3320,18 +4144,6 @@ class Pipeline:
             collapsed-indices-1: Which loop indices to combine into the position 1 loop index
             collapsed-indices-2: Which loop indices to combine into the position 2 loop index
         """
-        if collapsed_indices_0 is not None and isinstance(
-            collapsed_indices_0, (list, tuple)
-        ):
-            collapsed_indices_0 = ",".join(map(str, collapsed_indices_0))
-        if collapsed_indices_1 is not None and isinstance(
-            collapsed_indices_1, (list, tuple)
-        ):
-            collapsed_indices_1 = ",".join(map(str, collapsed_indices_1))
-        if collapsed_indices_2 is not None and isinstance(
-            collapsed_indices_2, (list, tuple)
-        ):
-            collapsed_indices_2 = ",".join(map(str, collapsed_indices_2))
         self.add_pass(
             "test-scf-parallel-loop-collapsing",
             collapsed_indices_0=collapsed_indices_0,
@@ -3367,13 +4179,18 @@ class Pipeline:
         self.add_pass("tosa-infer-shapes")
         return self
 
-    def tosa_layerwise_constant_fold(self):
+    def tosa_layerwise_constant_fold(self, aggressive_reduce_constant: bool = None):
         """Fold layerwise operations on constant tensors
 
         Pass that enables folding of full-layer operations on constant tensors.
 
+        Args:
+            aggressive-reduce-constant: Always perform the reduce constant optimizationMay add more tosa.const but would reduce runtime calculations
         """
-        self.add_pass("tosa-layerwise-constant-fold")
+        self.add_pass(
+            "tosa-layerwise-constant-fold",
+            aggressive_reduce_constant=aggressive_reduce_constant,
+        )
         return self
 
     def tosa_make_broadcastable(self):
@@ -3419,6 +4236,16 @@ class Pipeline:
         )
         return self
 
+    def tosa_to_mlprogram(self):
+        """Lower TOSA to the MLProgram dialect
+
+        Pass that converts TOSA's variable operator operations to the equivalent
+        MLProgram operations.
+
+        """
+        self.add_pass("tosa-to-mlprogram")
+        return self
+
     def tosa_to_scf(self):
         """Lower TOSA to the SCF dialect
 
@@ -3441,9 +4268,9 @@ class Pipeline:
 
     def tosa_validate(
         self,
-        profile: str = None,
+        profile: "mlir::tosa::TosaProfileEnum" = None,
         strict_op_spec_alignment: bool = None,
-        level: str = None,
+        level: "mlir::tosa::TosaLevelEnum" = None,
     ):
         """Validates TOSA dialect
 
@@ -3496,6 +4323,49 @@ class Pipeline:
 
         """
         self.add_pass("transform-infer-effects")
+        return self
+
+    def transform_interpreter(
+        self,
+        debug_payload_root_tag: str = None,
+        disable_expensive_checks: bool = None,
+        entry_point: str = None,
+    ):
+        """transform dialect interpreter
+
+        This pass runs the transform dialect interpreter and applies the named
+        sequence transformation specified by the provided name (defaults to
+        `TransformDialect::kTransformEntryPointSymbolName` (i.e. `__transform_main`)).
+
+        Args:
+            debug-payload-root-tag: Select the operation with 'transform.target_tag' attribute having the given value as payload IR root. If empty select the pass anchor operation as the payload IR root.
+            disable-expensive-checks: Disable expensive checks in the interpreter for a faster run.
+            entry-point: Entry point of the pass pipeline.
+        """
+        self.add_pass(
+            "transform-interpreter",
+            debug_payload_root_tag=debug_payload_root_tag,
+            disable_expensive_checks=disable_expensive_checks,
+            entry_point=entry_point,
+        )
+        return self
+
+    def transform_preload_library(self, transform_library_paths: List[str] = None):
+        """preload transform dialect library
+
+        This pass preloads a transform library and makes it available to subsequent
+        transform interpreter passes. The preloading occurs into the Transform
+        dialect and thus provides very limited functionality that does not scale.
+
+        Warning: Only a single such pass should exist for a given MLIR context.
+        This is a temporary solution until a resource-based solution is available.
+
+        Args:
+            transform-library-paths: Optional paths to files with modules that should be merged into the transform module to provide the definitions of external named sequences.
+        """
+        self.add_pass(
+            "transform-preload-library", transform_library_paths=transform_library_paths
+        )
         return self
 
     def vector_bufferize(self):
