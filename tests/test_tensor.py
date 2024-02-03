@@ -27,7 +27,7 @@ def test_np_constructor(ctx: MLIRContext):
 
 
 def test_simple_literal_indexing(ctx: MLIRContext):
-    ten = empty((10, 22, 333, 4444), T.i32())
+    ten = empty(10, 22, 333, 4444, T.i32())
 
     w = ten[0]
     w = ten[2, 4]
@@ -60,7 +60,7 @@ def test_simple_literal_indexing(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice(ctx: MLIRContext):
-    ten = empty((10, 22, 333, 4444), T.i32())
+    ten = empty(10, 22, 333, 4444, T.i32())
 
     w = ten[...]
     assert w == ten
@@ -83,7 +83,7 @@ def test_ellipsis_and_full_slice(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
-    ten = empty((10, 22, 333, 4444), T.i32())
+    ten = empty(10, 22, 333, 4444, T.i32())
     w = ten[1, ...]
     w = ten[1, :, ...]
     w = ten[1, :, :, ...]
@@ -114,7 +114,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
-    ten = empty((10, 22, 333, 4444), T.i32())
+    ten = empty(10, 22, 333, 4444, T.i32())
     w = ten[1, :]
     w = ten[1, :, :]
     w = ten[1, :, :, :]
@@ -141,7 +141,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
-    ten = empty((10, 22, 333, 4444), T.i32())
+    ten = empty(10, 22, 333, 4444, T.i32())
 
     w = ten[:, :, :, 1]
     w = ten[:, 1, :, 1]
@@ -202,7 +202,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
 
 
 def test_none_indices(ctx: MLIRContext):
-    ten = empty((10, 22, 333, 4444), T.i32())
+    ten = empty(10, 22, 333, 4444, T.i32())
     w = ten[None]
     w = ten[:, None]
     w = ten[None, None]
@@ -241,7 +241,7 @@ def test_none_indices(ctx: MLIRContext):
 
 
 def test_nontrivial_slices(ctx: MLIRContext):
-    ten = empty((7, 22, 333, 4444), T.i32())
+    ten = empty(7, 22, 333, 4444, T.i32())
     w = ten[:, 0:22:2]
     w = ten[:, 0:22:2, 0:330:30]
     w = ten[:, 0:22:2, 0:330:30, 0:4400:400]
@@ -261,7 +261,7 @@ def test_nontrivial_slices(ctx: MLIRContext):
 
 
 def test_nontrivial_slices_insertion(ctx: MLIRContext):
-    ten = empty((7, 22, 333, 4444), T.i32())
+    ten = empty(7, 22, 333, 4444, T.i32())
     w = ten[:, 0:22:2]
     ten[:, 0:22:2] = w
     w = ten[:, 0:22:2, 0:330:30]
@@ -290,7 +290,7 @@ def test_nontrivial_slices_insertion(ctx: MLIRContext):
 
 
 def test_move_slice(ctx: MLIRContext):
-    ten = empty((8, 8), T.i32())
+    ten = empty(8, 8, T.i32())
     w = ten[0:4, 0:4]
     ten[4:8, 4:8] = w
 
@@ -331,7 +331,7 @@ def test_fold_1(ctx: MLIRContext):
 
 
 def test_for_loops(ctx: MLIRContext):
-    ten = empty((7, 22, 333, 4444), T.i32())
+    ten = empty(7, 22, 333, 4444, T.i32())
     for i, r1 in range_(0, 10, iter_args=[ten]):
         y = r1 + r1
         res = yield_(y)
@@ -359,7 +359,7 @@ def test_for_loops(ctx: MLIRContext):
 def test_for_loops_canonicalizer(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def tenfoo():
-        ten = empty((7, 22, 333, 4444), T.i32())
+        ten = empty(7, 22, 333, 4444, T.i32())
         for i, r1 in range_(0, 10, iter_args=[ten]):
             y = r1 + r1
             res = yield y

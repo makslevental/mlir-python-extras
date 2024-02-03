@@ -8,7 +8,7 @@ import numpy as np
 from .arith import ArithValue, Scalar, constant
 from ... import types as T
 from ...meta import region_op
-from ...util import get_user_code_loc, _update_caller_vars
+from ...util import get_user_code_loc, _update_caller_vars, _unpack_sizes_element_type
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import tensor
 from ....dialects._ods_common import get_op_result_or_op_results, _dispatch_mixed_values
@@ -26,9 +26,13 @@ from ....ir import (
 S = ShapedType.get_dynamic_size()
 
 
-def empty(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
+def empty(
+    *sizes: Sequence[Union[int, Value]], element_type: Type = None, loc=None, ip=None
+):
     if loc is None:
         loc = get_user_code_loc()
+    if element_type is None:
+        sizes, element_type = _unpack_sizes_element_type(sizes)
     return get_op_result_or_op_results(
         tensor.EmptyOp(sizes, element_type, loc=loc, ip=ip)
     )

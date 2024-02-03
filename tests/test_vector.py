@@ -153,6 +153,7 @@ def test_np_constructor(ctx: MLIRContext):
         kernel_name=smol_matmul.__name__,
         pipeline=lower_to_llvm,
     )
+    print(compiled_module)
 
     A = np.random.randint(0, 10, (M, K)).astype(np.float32)
     B = np.random.randint(0, 10, (K, N)).astype(np.float32)

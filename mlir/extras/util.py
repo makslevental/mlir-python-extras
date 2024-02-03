@@ -26,6 +26,7 @@ from ..ir import (
     RankedTensorType,
     Value,
     _GlobalDebug,
+    Type,
 )
 
 try:
@@ -360,3 +361,12 @@ def _get_sym_name(previous_frame, check_func_call=None):
         return ident
     except:
         return None
+
+
+def _unpack_sizes_element_type(sizes_element_type):
+    if sizes_element_type[-1] is None:
+        sizes_element_type = sizes_element_type[:-1]
+    assert isinstance(sizes_element_type[-1], Type)
+    element_type = sizes_element_type[-1]
+    sizes = sizes_element_type[:-1]
+    return sizes, element_type

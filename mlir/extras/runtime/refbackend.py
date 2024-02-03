@@ -163,6 +163,8 @@ class LLVMJITBackendInvoker:
         return invoke
 
 
+# A return consumer is a trampoline to a python function that will store/capture the return from the return;
+# this is done because you can't return structs etc from C APIs.
 def make_return_consumer(kernel_func):
     c_api_compatible_types = [
         T.memref(element_type=t.element_type) if MemRefType.isinstance(t) else t
@@ -178,6 +180,9 @@ def make_return_consumer(kernel_func):
     return cb
 
 
+# A kernel wrapper is the c api interface that can be called from python (or anywhere else that C FFI is possible).
+# This function will be called KERNEL_NAME_capi_wrapper and will have a {llvm.emit_c_interface} attribute.
+# Note there might be other such functions in the final module (gpu-lower-to-nvvm-pipeline somehow also inserts some like this).
 def make_kernel_wrapper(kernel_func, return_consumer=None):
     c_api_compatible_types = [
         T.memref(element_type=t.element_type) if MemRefType.isinstance(t) else t
@@ -206,14 +211,14 @@ class LLVMJITBackend:
         self,
         shared_lib_paths=None,
     ):
-        if shared_lib_paths is None and platform.system() != "Windows":
-            shared_lib_paths = [
+        if shared_lib_paths is None:
+            shared_lib_paths = []
+        if platform.system() != "Windows":
+            shared_lib_paths += [
                 ASYNC_RUNTIME_LIB_PATH,
                 C_RUNNER_UTILS_LIB_PATH,
                 RUNNER_UTILS_LIB_PATH,
             ]
-        if shared_lib_paths is None:
-            shared_lib_paths = []
         self.shared_lib_paths = shared_lib_paths
         self.return_func_types = None
         self.return_func_name = None
@@ -224,7 +229,13 @@ class LLVMJITBackend:
         kernel_name="main",
         generate_kernel_wrapper=True,
         generate_return_consumer=True,
+        return_consumer=None,
     ):
+        assert (
+            bool(return_consumer) != bool(generate_return_consumer)
+            or bool(return_consumer) == bool(generate_return_consumer) == False
+        ), f"{return_consumer=} XOR {generate_return_consumer=} (or neither)"
+
         def cb(op):
             try:
                 return kernel_name == op.sym_name.value
@@ -232,18 +243,9 @@ class LLVMJITBackend:
                 return False
 
         kernel_func = find_ops(module.operation, cb, single=True)
-
-        if generate_return_consumer:
+        if len(kernel_func.function_type.value.results) and generate_return_consumer:
             with InsertionPoint(module.body):
                 return_consumer = make_return_consumer(kernel_func)
-        else:
-
-            def find_return_consumer(module):
-                for func in module.body:
-                    if CONSUME_RETURN_CALLBACK_ATTR in func.attributes:
-                        return func.operation
-
-            return_consumer = find_return_consumer(module)
 
         kernel_func.attributes["llvm.emit_c_interface"] = UnitAttr.get()
         if generate_kernel_wrapper:
@@ -265,12 +267,22 @@ class LLVMJITBackend:
         enable_ir_printing=False,
         generate_kernel_wrapper=True,
         generate_return_consumer=True,
+        return_consumer=None,
         verify=True,
     ):
+        assert (
+            bool(return_consumer) != bool(generate_return_consumer)
+            or bool(return_consumer) == bool(generate_return_consumer) == False
+        ), f"{return_consumer=} XOR {generate_return_consumer=} (or neither)"
+
         pipeline = str(pipeline)
         if "to-llvm" in pipeline or generate_kernel_wrapper:
             self.generate_c_api(
-                module, kernel_name, generate_kernel_wrapper, generate_return_consumer
+                module,
+                kernel_name,
+                generate_kernel_wrapper,
+                generate_return_consumer,
+                return_consumer,
             )
 
         return run_pipeline(

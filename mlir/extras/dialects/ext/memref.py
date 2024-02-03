@@ -5,7 +5,7 @@ from .arith import Scalar, constant
 from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
 from ... import types as T
 from ...meta import region_op
-from ...util import get_user_code_loc
+from ...util import get_user_code_loc, _unpack_sizes_element_type
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import memref, arith
 from ....dialects._ods_common import get_op_result_or_op_results
@@ -17,33 +17,37 @@ S = ShapedType.get_dynamic_size()
 
 def _alloc(
     op_ctor,
-    sizes: Sequence[Union[int]],
-    element_type: Type,
-    *,
+    *sizes_element_type: Sequence[Union[int, Value]],
     loc=None,
     ip=None,
 ):
     if loc is None:
         loc = get_user_code_loc()
+    sizes, element_type = _unpack_sizes_element_type(sizes_element_type)
     dynamic_sizes = []
-    result_type = T.memref(*sizes, element_type)
+    memref_shape = []
+    for s in sizes:
+        if isinstance(s, int):
+            memref_shape.append(s)
+        else:
+            memref_shape.append(ShapedType.get_dynamic_size())
+            dynamic_sizes.append(s)
+    result_type = T.memref(*memref_shape, element_type)
+
+    symbol_operands = []
     return get_op_result_or_op_results(
-        op_ctor(result_type, dynamic_sizes, [], loc=loc, ip=ip)
+        op_ctor(result_type, dynamic_sizes, symbol_operands, loc=loc, ip=ip)
     )
 
 
-def alloc(sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None):
-    if loc is None:
-        loc = get_user_code_loc()
-    return _alloc(AllocOp, sizes, element_type, loc=loc, ip=ip)
+def alloc(*sizes: Union[int, Value], element_type: Type = None):
+    loc = get_user_code_loc()
+    return _alloc(AllocOp, *sizes, element_type, loc=loc, ip=None)
 
 
-def alloca(
-    sizes: Sequence[Union[int, Value]], element_type: Type, *, loc=None, ip=None
-):
-    if loc is None:
-        loc = get_user_code_loc()
-    return _alloc(AllocaOp, sizes, element_type, loc=loc, ip=ip)
+def alloca(*sizes: Union[int, Value], element_type: Type = None):
+    loc = get_user_code_loc()
+    return _alloc(AllocaOp, *sizes, element_type, loc=loc, ip=None)
 
 
 def load(mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None):
@@ -274,3 +278,11 @@ def _copy_to_subview(
 
 
 alloca_scope = region_op(AllocaScopeOp)
+
+_dim = dim
+
+
+def dim(source, index, *, loc=None, ip=None):
+    if isinstance(index, int):
+        index = constant(index, index=True)
+    return _dim(source=source, index=index, loc=loc, ip=ip)
