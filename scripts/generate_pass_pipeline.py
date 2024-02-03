@@ -10,7 +10,7 @@ from pathlib import Path
 from subprocess import PIPE
 from textwrap import dedent, indent
 
-from ..._mlir_libs import include
+from mlir._mlir_libs import include
 
 include_path = Path(include.__path__[0])
 
@@ -83,9 +83,9 @@ def generate_pass_method(pass_: Pass):
         argument = o.argument.replace("-", "_")
         if keyword.iskeyword(argument):
             argument += "_"
-        type = TYPE_MAP[o.type]
+        type = TYPE_MAP.get(o.type, f"'{o.type}'")
         if o.list_option:
-            type = f"list[{type}]"
+            type = f"List[{type}]"
         py_args.append((argument, type))
 
     def print_options_doc_string(pass_):
@@ -223,6 +223,6 @@ if __name__ == "__main__":
     for p in sorted(passes, key=lambda p: p.argument):
         generate_pass_method(p)
 
-    for p in sorted(passes, key=lambda p: p.argument):
-        argument = p.argument.replace("-", "_")
-        print(f"{argument} = Pipeline().{argument}")
+    # for p in sorted(passes, key=lambda p: p.argument):
+    #     argument = p.argument.replace("-", "_")
+    #     print(f"{argument} = Pipeline().{argument}")
