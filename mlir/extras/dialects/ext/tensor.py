@@ -26,9 +26,7 @@ from ....ir import (
 S = ShapedType.get_dynamic_size()
 
 
-def empty(
-    *sizes: Sequence[Union[int, Value]], element_type: Type = None, loc=None, ip=None
-):
+def empty(*sizes: Union[int, Value], element_type: Type = None, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
     if element_type is None:
@@ -608,12 +606,7 @@ def _insert_slice(
 ):
     if loc is None:
         loc = get_user_code_loc()
-
-    if isinstance(source, Scalar):
-        source = expand_dims(source, (0,), loc=loc, ip=ip)
-
     indexer = _indices_to_indexer(idx, dest.shape)
-
     if indexer.is_constant():
         assert (
             indexer.static_sizes() == source.shape

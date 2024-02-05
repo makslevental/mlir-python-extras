@@ -8,23 +8,18 @@ from ...meta import region_op
 from ...util import get_user_code_loc
 from ....dialects import pdl
 from ....dialects import transform
-from ....dialects._ods_common import (
-    _dispatch_mixed_values,
-)
-from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects._ods_common import _dispatch_mixed_values, get_op_result_or_op_results
 from ....dialects._structured_transform_ops_gen import (
     TileUsingForallOp,
     MatchOp,
 )
 from ....dialects.transform import *
+from ....dialects.transform import AnyOpType, AnyValueType, OperationType
 from ....dialects.transform.structured import TileUsingForOp
+from ....dialects.transform.loop import LoopUnrollOp
 from ....ir import Type, Operation, StringAttr, Attribute, Value
 
 transform_fully_qualified_name = transform.__spec__.name
-
-
-def create_simple_namespace(name):
-    return SimpleNamespace(__name__=name)
 
 
 # transform.apply_patterns is both a namespace and an op...
@@ -57,7 +52,8 @@ for mod in pkgutil.iter_modules(transform.__path__):
 
             for i, n in enumerate(namespaces[1:-1]):
                 if not hasattr(simple_namespace, n):
-                    # dumb: without the prefix, this somehow always names the modules "mlir.dialect.module.transform.<n>" instead of suffixing
+                    # dumb: without the prefix, this somehow always names the modules
+                    # "mlir.dialect.module.transform.<n>" instead of suffixing
                     setattr(
                         simple_namespace,
                         n,
