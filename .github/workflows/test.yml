@@ -117,8 +117,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-        with:
-          sparse-checkout: examples/mlir_python_extras.ipynb
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -129,11 +127,16 @@ jobs:
       - name: Run notebook
         shell: bash
         run: |
+          
           pip install jupyter
+          pip install -q mlir-python-bindings -f https://makslevental.github.io/wheels
+          pip install -q .
+          
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 100/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
-          BRANCH=${{ github.ref_name }} jupyter run examples/mlir_python_extras.ipynb
-          BRANCH=${{ github.ref_name }} jupyter run examples/vectorization_e2e.ipynb
+          
+          jupyter execute examples/mlir_python_extras.ipynb
+          jupyter execute examples/vectorization_e2e.ipynb
 
   mlir-bindings-aarch64:
 
