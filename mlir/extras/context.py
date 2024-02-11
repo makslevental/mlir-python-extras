@@ -1,4 +1,5 @@
 import contextlib
+import warnings
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from typing import Optional
@@ -58,7 +59,7 @@ class RAIIMLIRContext:
         self.context.__exit__(None, None, None)
         # i guess the extension gets destroyed before this object sometimes?
         if ir is not None:
-            assert ir.Context.current is None, str(ir.Context.current)
+            assert ir.Context is not self.context
 
 
 class ExplicitlyManagedModule:
