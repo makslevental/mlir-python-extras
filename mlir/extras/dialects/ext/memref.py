@@ -1,16 +1,24 @@
+import inspect
 from functools import cached_property, reduce
 from typing import Tuple, Sequence, Union
+
+import numpy as np
 
 from .arith import Scalar, constant
 from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
 from ... import types as T
 from ...meta import region_op
-from ...util import get_user_code_loc, _unpack_sizes_element_type
+from ...util import (
+    get_user_code_loc,
+    _unpack_sizes_element_type,
+    _get_sym_name,
+    infer_mlir_type,
+)
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import memref, arith
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
-from ....ir import Type, Value, MemRefType, ShapedType
+from ....ir import Type, Value, MemRefType, ShapedType, DenseElementsAttr
 
 S = ShapedType.get_dynamic_size()
 
@@ -286,3 +294,44 @@ def dim(source, index, *, loc=None, ip=None):
     if isinstance(index, int):
         index = constant(index, index=True)
     return _dim(source=source, index=index, loc=loc, ip=ip)
+
+
+def global_(
+    initial_value=None,
+    sym_name=None,
+    type_=None,
+    sym_visibility="private",
+    constant=None,
+    alignment=None,
+    loc=None,
+    ip=None,
+):
+    if sym_name is None:
+        previous_frame = inspect.currentframe().f_back
+        sym_name = _get_sym_name(
+            previous_frame, check_func_call="memref\.global_|global_"
+        )
+    if loc is None:
+        loc = get_user_code_loc()
+    if initial_value is None:
+        assert type_ is not None
+    else:
+        assert isinstance(initial_value, np.ndarray)
+        type_ = infer_mlir_type(initial_value, memref=True)
+        initial_value = DenseElementsAttr.get(
+            initial_value,
+            type=type_.element_type,
+            context=None,
+        )
+        constant = True
+
+    return memref.global_(
+        sym_name,
+        type_,
+        sym_visibility=sym_visibility,
+        initial_value=initial_value,
+        constant=constant,
+        alignment=alignment,
+        loc=loc,
+        ip=ip,
+    ).opview

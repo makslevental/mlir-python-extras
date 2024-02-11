@@ -2,6 +2,7 @@ import contextlib
 import ctypes
 import inspect
 import platform
+import re
 import sys
 import warnings
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from ..ir import (
     Location,
     OpView,
     Operation,
+    MemRefType,
     RankedTensorType,
     Value,
     _GlobalDebug,
@@ -165,7 +167,7 @@ def mlir_type_to_ctype(mlir_type):
 
 
 def infer_mlir_type(
-    py_val: Union[int, float, bool, np.ndarray]
+    py_val: Union[int, float, bool, np.ndarray], memref=False
 ) -> Union[IntegerType, F32Type, F64Type, RankedTensorType]:
     """Infer MLIR type (`ir.Type`) from supported python values.
 
@@ -202,7 +204,10 @@ def infer_mlir_type(
             return T.f64()
     elif isinstance(py_val, np.ndarray):
         dtype = np_dtype_to_mlir_type(py_val.dtype.type)
-        return RankedTensorType.get(py_val.shape, dtype)
+        if memref:
+            return MemRefType.get(py_val.shape, dtype)
+        else:
+            return RankedTensorType.get(py_val.shape, dtype)
     else:
         raise NotImplementedError(
             f"Unsupported Python value {py_val=} with type {type(py_val)}"
@@ -356,8 +361,8 @@ def _get_sym_name(previous_frame, check_func_call=None):
             src_lines = src_file.readlines()
             src_line = src_lines[previous_frame.f_lineno - 1].strip()
             ident, func_call = map(lambda x: x.strip(), src_line.split("=", maxsplit=1))
-            if check_func_call is None:
-                assert check_func_call in func_call
+            if check_func_call is not None:
+                assert re.match(check_func_call, func_call)
         return ident
     except:
         return None

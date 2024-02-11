@@ -1,29 +1,31 @@
-import numpy as np
+import platform
 import re
 from textwrap import dedent
 
+import numpy as np
 import pytest
-from mlir.ir import MLIRError, Type
 
 import mlir.extras.types as T
+from mlir.dialects.memref import subview
 from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.dialects.ext import memref
 from mlir.extras.dialects.ext.arith import Scalar, constant
 from mlir.extras.dialects.ext.memref import (
     alloc,
     alloca,
-    S,
     alloca_scope,
     alloca_scope_return,
+    global_,
 )
 from mlir.extras.dialects.ext.scf import (
     range_,
     yield_,
     canonicalizer,
 )
-from mlir.dialects.memref import subview
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.ir import MLIRError, Type
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -576,6 +578,66 @@ def test_subview_mixed_offsets(ctx: MLIRContext):
       %c0 = arith.constant 0 : index
       %c0_0 = arith.constant 0 : index
       %subview = memref.subview %alloc[0, 0] [5, 5] [1, 1] : memref<10x10xi32> to memref<5x5xi32, strided<[10, 1]>>
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+@pytest.mark.skipif(
+    platform.system() == "Windows",
+    reason="On windows int64 is inferred to be i64 ",
+)
+def test_memref_global_windows(ctx: MLIRContext):
+    k = 32
+    weight1 = global_(np.ones((k,), dtype=np.int32))
+    weight2 = global_(np.ones((k,), dtype=np.int64))
+    weight3 = global_(np.ones((k,), dtype=np.float32))
+    weight4 = global_(np.ones((k,), dtype=np.float64))
+    weight5 = memref.global_(np.ones((k,), dtype=np.int16))
+    weight6 = memref.global_(np.ones((k,), dtype=np.float16))
+    print(ctx.module)
+
+    correct = dedent(
+        """\
+    module {
+      memref.global "private" constant @weight1 : memref<32xi32> = dense<1>
+      memref.global "private" constant @weight2 : memref<32xi64> = dense<1>
+      memref.global "private" constant @weight3 : memref<32xf32> = dense<1.000000e+00>
+      memref.global "private" constant @weight4 : memref<32xf64> = dense<1.000000e+00>
+      memref.global "private" constant @weight5 : memref<32xi16> = dense<1>
+      memref.global "private" constant @weight6 : memref<32xf16> = dense<1.000000e+00>
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
+
+
+@pytest.mark.skipif(
+    platform.system() != "Windows",
+    reason="On linux/mac int64 is inferred to be index (through np.longlong)",
+)
+def test_memref_global_non_windows(ctx: MLIRContext):
+    k = 32
+    weight1 = global_(np.ones((k,), dtype=np.int32))
+    weight2 = global_(np.ones((k,), dtype=np.int64))
+    weight3 = global_(np.ones((k,), dtype=np.float32))
+    weight4 = global_(np.ones((k,), dtype=np.float64))
+    weight5 = memref.global_(np.ones((k,), dtype=np.int16))
+    weight6 = memref.global_(np.ones((k,), dtype=np.float16))
+    print(ctx.module)
+
+    correct = dedent(
+        """\
+    module {
+      memref.global "private" constant @weight1 : memref<32xi32> = dense<1>
+      memref.global "private" constant @weight2 : memref<32xindex> = dense<1>
+      memref.global "private" constant @weight3 : memref<32xf32> = dense<1.000000e+00>
+      memref.global "private" constant @weight4 : memref<32xf64> = dense<1.000000e+00>
+      memref.global "private" constant @weight5 : memref<32xi16> = dense<1>
+      memref.global "private" constant @weight6 : memref<32xf16> = dense<1.000000e+00>
     }
     """
     )
