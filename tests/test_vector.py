@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pytest
 
@@ -8,39 +10,38 @@ from mlir.dialects import builtin
 from mlir.dialects.transform import (
     any_op_t,
 )
-from mlir.dialects.transform.extras import named_sequence, apply_patterns
-from mlir.dialects.transform.vector import VectorContractLowering
+from mlir.dialects.transform.extras import apply_patterns, named_sequence
 from mlir.dialects.transform.vector import (
+    VectorContractLowering,
     VectorMultiReductionLowering,
     VectorTransferSplit,
     VectorTransposeLowering,
 )
 from mlir.extras import types as T
-from mlir.extras.context import RAIIMLIRContext, ExplicitlyManagedModule
-from mlir.extras.dialects.ext import linalg
-from mlir.extras.dialects.ext import transform
-from mlir.extras.dialects.ext.bufferization import LayoutMapOption
+from mlir.extras.context import ExplicitlyManagedModule, RAIIMLIRContext
+from mlir.extras.dialects.ext import linalg, transform, arith, vector
+from mlir.dialects.bufferization import LayoutMapOption
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.transform import (
+    get_parent_op,
     match,
     tile_to_scf_for,
-    get_parent_op,
     transform_any_op_t,
 )
-from mlir.extras.runtime.passes import run_pipeline, Pipeline
+from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import MLIRContext, filecheck, mlir_ctx as ctx
 from mlir.extras.util import find_ops
-from mlir.ir import UnitAttr, StringAttr
+from mlir.ir import StringAttr, UnitAttr
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
 
 
 # based on /home/mlevental/dev_projects/llvm-project/mlir/test/Dialect/LLVM/transform-e2e.mlir
-def test_np_constructor(ctx: MLIRContext):
+def test_e2e(ctx: MLIRContext):
     ctx = RAIIMLIRContext()
     backend = LLVMJITBackend()
     module = ExplicitlyManagedModule()
@@ -161,3 +162,13 @@ def test_np_constructor(ctx: MLIRContext):
 
     backend.load(compiled_module).smol_matmul_capi_wrapper(A, B, C)
     assert np.allclose(A @ B, C)
+
+
+def test_np_constructor(ctx: MLIRContext):
+    M, K, N = 2, 4, 6
+    A = np.random.randint(0, 10, (M, K)).astype(np.int32)
+    vec = arith.constant(A, vector=True)
+    assert (
+        repr(vec)
+        == f"Vector(%cst = arith.constant dense<{vec.literal_value.tolist()}> : vector<2x4xi32>)"
+    )

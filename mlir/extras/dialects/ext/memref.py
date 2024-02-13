@@ -1,24 +1,24 @@
 import inspect
-from functools import cached_property, reduce
-from typing import Tuple, Sequence, Union
+from typing import Sequence, Union
 
 import numpy as np
 
+from ._shaped_value import ShapedValue
 from .arith import Scalar, constant
 from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
 from ... import types as T
 from ...meta import region_op
 from ...util import (
-    get_user_code_loc,
-    _unpack_sizes_element_type,
     _get_sym_name,
+    _unpack_sizes_element_type,
+    get_user_code_loc,
     infer_mlir_type,
 )
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import memref, arith
+from ....dialects import arith, memref
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
-from ....ir import Type, Value, MemRefType, ShapedType, DenseElementsAttr
+from ....ir import DenseElementsAttr, MemRefType, ShapedType, Type, Value
 
 S = ShapedType.get_dynamic_size()
 
@@ -81,39 +81,12 @@ def store(
 
 
 @register_value_caster(MemRefType.static_typeid)
-class MemRef(Value):
+class MemRef(Value, ShapedValue):
     def __str__(self):
         return f"{self.__class__.__name__}({self.get_name()}, {self.type})"
 
     def __repr__(self):
         return str(self)
-
-    @staticmethod
-    def isinstance(other: Value):
-        return isinstance(other, Value) and MemRefType.isinstance(other.type)
-
-    @cached_property
-    def _shaped_type(self) -> ShapedType:
-        return ShapedType(self.type)
-
-    def has_static_shape(self) -> bool:
-        return self._shaped_type.has_static_shape
-
-    def has_rank(self) -> bool:
-        return self._shaped_type.has_rank
-
-    @cached_property
-    def shape(self) -> Tuple[int, ...]:
-        return tuple(self._shaped_type.shape)
-
-    @cached_property
-    def n_elements(self) -> int:
-        assert self.has_static_shape()
-        return reduce(lambda acc, v: acc * v, self._shaped_type.shape, 1)
-
-    @cached_property
-    def dtype(self) -> Type:
-        return self._shaped_type.element_type
 
     def __getitem__(self, idx: tuple) -> "MemRef":
         loc = get_user_code_loc()

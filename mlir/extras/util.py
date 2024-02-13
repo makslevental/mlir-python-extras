@@ -8,7 +8,7 @@ import warnings
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Optional, Union, Sequence, List, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -22,13 +22,14 @@ from ..ir import (
     InsertionPoint,
     IntegerType,
     Location,
+    MemRefType,
     OpView,
     Operation,
-    MemRefType,
     RankedTensorType,
-    Value,
-    _GlobalDebug,
     Type,
+    Value,
+    VectorType,
+    _GlobalDebug,
 )
 
 try:
@@ -167,7 +168,7 @@ def mlir_type_to_ctype(mlir_type):
 
 
 def infer_mlir_type(
-    py_val: Union[int, float, bool, np.ndarray], memref=False
+    py_val: Union[int, float, bool, np.ndarray], memref=False, vector=False
 ) -> Union[IntegerType, F32Type, F64Type, RankedTensorType]:
     """Infer MLIR type (`ir.Type`) from supported python values.
 
@@ -206,6 +207,8 @@ def infer_mlir_type(
         dtype = np_dtype_to_mlir_type(py_val.dtype.type)
         if memref:
             return MemRefType.get(py_val.shape, dtype)
+        elif vector:
+            return VectorType.get(py_val.shape, dtype)
         else:
             return RankedTensorType.get(py_val.shape, dtype)
     else:

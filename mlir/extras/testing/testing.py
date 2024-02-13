@@ -4,13 +4,13 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from subprocess import Popen, PIPE
+from subprocess import PIPE, Popen
 from textwrap import dedent
 
 import pytest
 
-from ..context import MLIRContext, mlir_mod_ctx
 from .generate_test_checks import main
+from ..context import MLIRContext, mlir_mod_ctx
 from ..runtime.refbackend import LLVMJITBackend
 from ...ir import Module
 

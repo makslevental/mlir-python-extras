@@ -259,7 +259,6 @@ def generate_linalg(mod_path):
 
     from .. import dialects, util
     from ...dialects.linalg import DefinedOpCallable, OperandKind
-    from ...dialects._ods_common import get_op_result_or_op_results
     from ..util import get_user_code_loc
 
     linalg_modu = __import__(mod_path, fromlist=["*"])
