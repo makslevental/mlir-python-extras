@@ -11,7 +11,7 @@ from mlir.ir import StringAttr, UnitAttr
 # noinspection PyUnresolvedReferences
 import mlir.extras.dialects.ext.memref
 from mlir.extras.context import RAIIMLIRContext, ExplicitlyManagedModule
-from mlir.extras.dialects.ext.bufferization import LayoutMapOption
+from mlir.dialects.bufferization import LayoutMapOption
 from mlir.dialects.transform.vector import (
     VectorContractLowering,
     VectorMultiReductionLowering,

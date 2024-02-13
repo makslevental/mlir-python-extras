@@ -30,7 +30,10 @@ def test_arithmetic(ctx: MLIRContext):
     try:
         one // two
     except ValueError as e:
-        assert str(e) == "floordiv not supported for lhs=Scalar(%cst, f32)"
+        assert (
+            str(e)
+            == "floordiv not supported for lhs=Scalar(%cst = arith.constant 1.000000e+00 : f32)"
+        )
     one % two
 
     ctx.module.operation.verify()

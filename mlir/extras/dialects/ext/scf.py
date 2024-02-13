@@ -2,39 +2,36 @@ import ast
 import logging
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Optional, Sequence, Union, List
+from typing import List
 
 from bytecode import ConcreteBytecode
 
-# gotta come first
-from ....dialects.scf import *
-from .arith import constant, index_cast
+from .arith import constant as _ext_arith_constant, index_cast
 from .gpu import get_device_mapping_array_attr
-from ...ast.canonicalize import (
-    StrictTransformer,
-    Canonicalizer,
-    BytecodePatcher,
-)
+from ...ast.canonicalize import BytecodePatcher, Canonicalizer, StrictTransformer
 from ...ast.util import ast_call, set_lineno
 from ...meta import region_op
 from ...util import get_user_code_loc, region_adder
 from ....dialects._ods_common import (
-    get_op_result_or_op_results,
-    get_default_loc_context,
     _cext,
+    get_default_loc_context,
+    get_op_result_or_op_results,
 )
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
-from ....dialects.scf import _Dialect, yield_ as yield__, reduce_return, condition
+
+# gotta come first
+from ....dialects.scf import *
+from ....dialects.scf import _Dialect, yield_ as yield__
 from ....ir import (
-    InsertionPoint,
-    Value,
-    OpResultList,
-    Operation,
-    OpView,
-    IndexType,
-    _denseI64ArrayAttr,
     Attribute,
+    IndexType,
+    InsertionPoint,
+    OpResultList,
+    OpView,
     OpaqueType,
+    Operation,
+    Value,
+    _denseI64ArrayAttr,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +62,7 @@ def _for(
     params = [start, stop, step]
     for i, p in enumerate(params):
         if isinstance(p, int):
-            p = constant(p, index=True)
+            p = _ext_arith_constant(p, index=True)
         if not _is_index_type(p.type):
             p = index_cast(p)
         params[i] = p
@@ -157,7 +154,7 @@ def _parfor(op_ctor):
         for i, p in enumerate(params):
             for j, pp in enumerate(p):
                 if isinstance(pp, int):
-                    pp = constant(pp, index=True)
+                    pp = _ext_arith_constant(pp, index=True)
                 if not _is_index_type(pp.type):
                     pp = index_cast(pp)
                 p[j] = pp

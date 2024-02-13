@@ -1,6 +1,6 @@
 import inspect
 from functools import partial
-from typing import Optional, Any, List, Tuple
+from typing import Any, List, Optional, Tuple
 
 from .arith import constant
 from .func import FuncBase
@@ -8,21 +8,24 @@ from ... import types as T
 from ...meta import (
     region_op,
 )
-from ...util import get_user_code_loc, make_maybe_no_args_decorator, ModuleMeta
+from ...util import ModuleMeta, get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects._gpu_ops_gen import _Dialect
-from ....dialects._ods_common import get_default_loc_context, _cext
-from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects._ods_common import (
+    _cext,
+    get_default_loc_context,
+    get_op_result_or_op_results,
+)
 from ....dialects.gpu import *
 from ....ir import (
-    Type,
-    Attribute,
-    AttrBuilder,
-    UnitAttr,
-    register_attribute_builder,
-    Context,
     ArrayAttr,
+    AttrBuilder,
+    Attribute,
+    Context,
     InsertionPoint,
+    Type,
+    UnitAttr,
     Value,
+    register_attribute_builder,
 )
 
 

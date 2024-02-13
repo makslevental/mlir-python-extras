@@ -1,50 +1,44 @@
 import operator
 from abc import abstractmethod
 from copy import deepcopy
-from functools import partialmethod, cached_property
-from typing import Union, Optional, Tuple
-
-import numpy as np
+from functools import cached_property, partialmethod
+from typing import Optional, Tuple
 
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import arith as arith_dialect
-from ....dialects import complex as complex_dialect
+from ....dialects import arith as arith_dialect, complex as complex_dialect
 from ....dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
-    CmpFPredicate,
-    CmpIPredicate,
     _arith_cmpipredicateattr,
 )
-from ....dialects._ods_common import get_op_result_or_value, get_op_result_or_op_results
+from ....dialects._ods_common import get_op_result_or_op_results, get_op_result_or_value
 from ....dialects.arith import *
 from ....dialects.arith import _is_integer_like_type
 from ....dialects.linalg.opdsl.lang.emitter import (
-    _is_floating_point_type,
-    _is_integer_type,
     _is_complex_type,
+    _is_floating_point_type,
     _is_index_type,
 )
 from ....ir import (
     Attribute,
+    BF16Type,
+    ComplexType,
     Context,
     DenseElementsAttr,
+    F16Type,
+    F32Type,
+    F64Type,
+    FloatAttr,
     IndexType,
     InsertionPoint,
     IntegerType,
     Location,
     OpView,
     Operation,
-    RankedTensorType,
+    ShapedType,
     Type,
     Value,
     register_attribute_builder,
-    ComplexType,
-    BF16Type,
-    F16Type,
-    F32Type,
-    F64Type,
-    FloatAttr,
 )
 
 
@@ -53,6 +47,7 @@ def constant(
     type: Optional[Type] = None,
     index: Optional[bool] = None,
     *,
+    vector: Optional[bool] = False,
     loc: Location = None,
     ip: InsertionPoint = None,
 ) -> Value:
@@ -75,7 +70,7 @@ def constant(
     if index is not None and index:
         type = IndexType.get()
     if type is None:
-        type = infer_mlir_type(value)
+        type = infer_mlir_type(value, vector=vector)
 
     assert type is not None
 
@@ -98,8 +93,8 @@ def constant(
     if _is_floating_point_type(type) and not isinstance(value, np.ndarray):
         value = float(value)
 
-    if RankedTensorType.isinstance(type) and isinstance(value, (int, float, bool)):
-        ranked_tensor_type = RankedTensorType(type)
+    if ShapedType.isinstance(type) and isinstance(value, (int, float, bool)):
+        ranked_tensor_type = ShapedType(type)
         value = np.full(
             ranked_tensor_type.shape,
             value,
@@ -403,7 +398,7 @@ class ArithValue(Value, metaclass=ArithValueMeta):
         return f"{self.__class__.__name__}({self.get_name()}, {self.type})"
 
     def __repr__(self):
-        return str(self)
+        return str(Value(self)).replace("Value", self.__class__.__name__)
 
     # partialmethod differs from partial in that it also binds the object instance
     # to the first arg (i.e., self)
@@ -467,16 +462,6 @@ class Scalar(ArithValue):
     @cached_property
     def dtype(self) -> Type:
         return self.type
-
-    @staticmethod
-    def isinstance(other: Value):
-        return (
-            isinstance(other, Value)
-            and _is_integer_type(other.type)
-            or _is_floating_point_type(other.type)
-            or _is_index_type(other.type)
-            or _is_complex_type(other.type)
-        )
 
     @cached_property
     def literal_value(self) -> Union[int, float, bool]:

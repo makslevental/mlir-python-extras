@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Union
 
 import numpy as np
+
 from ... import _mlir_libs
-from ...dialects.func import FuncOp, CallOp
-from ...ir import UnitAttr, Module, MemRefType, InsertionPoint
+from ...dialects.func import CallOp, FuncOp
+from ...ir import InsertionPoint, MemRefType, Module, UnitAttr
 
 try:
     from ...execution_engine import ExecutionEngine

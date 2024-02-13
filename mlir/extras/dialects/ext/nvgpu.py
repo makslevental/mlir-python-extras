@@ -1,11 +1,6 @@
 from textwrap import dedent
 
-from ....dialects._nvgpu_enum_gen import (
-    TensorMapSwizzleKind,
-    TensorMapL2PromoKind,
-    TensorMapOOBKind,
-    TensorMapInterleaveKind,
-)
+from ....dialects.nvgpu import *
 from ....ir import Type
 
 

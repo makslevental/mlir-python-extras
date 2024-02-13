@@ -336,7 +336,7 @@ def test_for_loops(ctx: MLIRContext):
         y = r1 + r1
         res = yield_(y)
 
-    assert repr(res) == "Tensor(%1, tensor<7x22x333x4444xi32>)"
+    assert str(res) == "Tensor(%1, tensor<7x22x333x4444xi32>)"
     assert res.owner.name == "scf.for"
     correct = dedent(
         """\
@@ -364,7 +364,7 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
             y = r1 + r1
             res = yield y
 
-        assert repr(res) == "Tensor(%1, tensor<7x22x333x4444xi32>)"
+        assert str(res) == "Tensor(%1, tensor<7x22x333x4444xi32>)"
         assert res.owner.name == "scf.for"
 
     tenfoo()

@@ -1,4 +1,7 @@
 from ...util import get_user_code_loc
+
+# noinspection PyUnresolvedReferences
+from ....dialects.linalg import *
 from ....dialects import linalg
 
 

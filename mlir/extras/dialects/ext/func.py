@@ -3,17 +3,17 @@ from functools import update_wrapper
 
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
-from ....dialects.func import *
 from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects.func import *
 from ....ir import (
     FlatSymbolRefAttr,
     FunctionType,
     InsertionPoint,
+    OpView,
+    Operation,
     Type,
     TypeAttr,
     Value,
-    Operation,
-    OpView,
 )
 
 

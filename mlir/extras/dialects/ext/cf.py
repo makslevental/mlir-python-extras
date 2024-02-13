@@ -1,12 +1,12 @@
-from typing import Union, List
+from typing import List, Union
 
-from ...util import get_user_code_loc, Successor
+from ...util import Successor, get_user_code_loc
 from ....dialects._cf_ops_gen import _Dialect
 from ....dialects._ods_common import (
     _cext,
 )
 from ....dialects.cf import *
-from ....ir import Value, InsertionPoint, Block
+from ....ir import Block, InsertionPoint, Value
 
 
 @_cext.register_operation(_Dialect, replace=True)

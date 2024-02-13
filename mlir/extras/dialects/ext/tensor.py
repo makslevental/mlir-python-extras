@@ -1,27 +1,21 @@
 import inspect
 from dataclasses import dataclass
-from functools import cached_property, reduce
-from typing import Union, Tuple, Sequence, Optional, Any, List
+from typing import Any, List, Optional, Tuple
 
+# noinspection PyUnresolvedReferences
 import numpy as np
 
+from ._shaped_value import ShapedValue
 from .arith import ArithValue, Scalar, constant
 from ... import types as T
-from ...meta import region_op
-from ...util import get_user_code_loc, _update_caller_vars, _unpack_sizes_element_type
+from ...util import _unpack_sizes_element_type, _update_caller_vars, get_user_code_loc
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import tensor
-from ....dialects._ods_common import get_op_result_or_op_results, _dispatch_mixed_values
+from ....dialects._ods_common import _dispatch_mixed_values, get_op_result_or_op_results
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
 from ....dialects.tensor import *
 from ....dialects.transform.structured import _get_int_array_array_attr
-from ....ir import (
-    Type,
-    Value,
-    RankedTensorType,
-    DenseElementsAttr,
-    ShapedType,
-)
+from ....ir import RankedTensorType, ShapedType, Type, Value
 
 S = ShapedType.get_dynamic_size()
 
@@ -109,40 +103,7 @@ def insert_slice(
 
 
 @register_value_caster(RankedTensorType.static_typeid)
-class Tensor(ArithValue):
-    @staticmethod
-    def isinstance(other: Value):
-        return isinstance(other, Value) and RankedTensorType.isinstance(other.type)
-
-    @cached_property
-    def literal_value(self) -> np.ndarray:
-        if not self.is_constant:
-            raise ValueError("Can't build literal from non-constant Tensor")
-        return np.array(DenseElementsAttr(self.owner.opview.value), copy=False)
-
-    @cached_property
-    def _shaped_type(self) -> ShapedType:
-        return ShapedType(self.type)
-
-    def has_static_shape(self) -> bool:
-        return self._shaped_type.has_static_shape
-
-    def has_rank(self) -> bool:
-        return self._shaped_type.has_rank
-
-    @cached_property
-    def shape(self) -> Tuple[int, ...]:
-        return tuple(self._shaped_type.shape)
-
-    @cached_property
-    def n_elements(self) -> int:
-        assert self.has_static_shape()
-        return reduce(lambda acc, v: acc * v, self._shaped_type.shape, 1)
-
-    @cached_property
-    def dtype(self) -> Type:
-        return self._shaped_type.element_type
-
+class Tensor(ShapedValue, ArithValue):
     def __getitem__(self, idx: tuple) -> "Tensor":
         loc = get_user_code_loc()
 
@@ -417,7 +378,7 @@ def _is_constant_index(e: Any) -> bool:
 
 def _is_index_tensor(x):
     """Returns True if x is a Tensor with index dtype, False otherwise."""
-    return isinstance(x, Value) and Tensor.isinstance(x) and _is_index_type(x.dtype)
+    return isinstance(x, Value) and isinstance(x, Tensor) and _is_index_type(x.dtype)
 
 
 def _is_int_arraylike(x):

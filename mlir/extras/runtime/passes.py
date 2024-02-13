@@ -4,12 +4,11 @@ import sys
 import tempfile
 from contextlib import ExitStack
 from io import StringIO
-from typing import Optional, List, Union
-
-from ...ir import StringAttr, Module
-from ...passmanager import PassManager
+from typing import List, Optional, Union
 
 from ..context import disable_multithreading
+from ...ir import Module, StringAttr
+from ...passmanager import PassManager
 
 logger = logging.getLogger(__name__)
 
