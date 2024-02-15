@@ -1,8 +1,9 @@
+from . import arith
 from ...util import get_user_code_loc
-
+from ....dialects import linalg
 # noinspection PyUnresolvedReferences
 from ....dialects.linalg import *
-from ....dialects import linalg
+from ....extras import types as T
 
 
 def abs(I, O, *, loc=None, ip=None):
@@ -263,16 +264,25 @@ def exp(I, O, *, loc=None, ip=None):
     return linalg.exp(I, loc=loc, ip=ip, outs=[O])
 
 
-def fill(O, *, loc=None, ip=None):
+def fill(v, O, *, loc=None, ip=None):
+    if isinstance(v, (float, int, bool)):
+        v = arith.constant(v)
     if loc is None:
         loc = get_user_code_loc()
-    return linalg.fill(loc=loc, ip=ip, outs=[O])
+    return linalg.fill(v, loc=loc, ip=ip, outs=[O])
 
 
-def fill_rng_2d(O, *, loc=None, ip=None):
+def fill_rng_2d(min, max, seed, O, *, loc=None, ip=None):
+    params = [min, max]
+    for i, m in enumerate(params):
+        if isinstance(m, (float, int)):
+            params[i] = arith.constant(m, type=T.f64())
+    min, max = params
+    if isinstance(seed, int):
+        seed = arith.constant(seed, T.i32())
     if loc is None:
         loc = get_user_code_loc()
-    return linalg.fill_rng_2d(loc=loc, ip=ip, outs=[O])
+    return linalg.fill_rng_2d(min, max, seed, loc=loc, ip=ip, outs=[O])
 
 
 def floor(I, O, *, loc=None, ip=None):
