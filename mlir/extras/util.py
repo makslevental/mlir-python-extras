@@ -26,6 +26,7 @@ from ..ir import (
     OpView,
     Operation,
     RankedTensorType,
+    SymbolTable,
     Type,
     Value,
     VectorType,
@@ -366,7 +367,25 @@ def _get_sym_name(previous_frame, check_func_call=None):
             ident, func_call = map(lambda x: x.strip(), src_line.split("=", maxsplit=1))
             if check_func_call is not None:
                 assert re.match(check_func_call, func_call)
-        return ident
+        maybe_unique_sym_name = ident
+        parent = InsertionPoint.current.block.owner
+        for _ in range(10):
+            try:
+                symbol_table = SymbolTable(parent.operation)
+                break
+            except RuntimeError:
+                parent = parent.parent
+        else:
+            raise RuntimeError("Couldn't find symbol table")
+
+        while maybe_unique_sym_name in symbol_table:
+            if re.match(r".*_(\d+)$", maybe_unique_sym_name):
+                maybe_unique_sym_name = re.sub(
+                    r"(\d+)$", lambda m: str(int(m.group(0)) + 1), maybe_unique_sym_name
+                )
+            else:
+                maybe_unique_sym_name = f"{maybe_unique_sym_name}_0"
+        return maybe_unique_sym_name
     except:
         return None
 
