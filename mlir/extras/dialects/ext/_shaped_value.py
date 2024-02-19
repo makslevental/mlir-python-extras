@@ -27,6 +27,10 @@ class ShapedValue:
         return self._shaped_type.has_rank
 
     @cached_property
+    def rank(self) -> int:
+        return self._shaped_type.rank
+
+    @cached_property
     def shape(self) -> Tuple[int, ...]:
         return tuple(self._shaped_type.shape)
 

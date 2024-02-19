@@ -1,12 +1,10 @@
-import sys
+from textwrap import dedent
 
 import numpy as np
 import pytest
 
-# you need this to register the memref value caster
-# noinspection PyUnresolvedReferences
-import mlir.extras.dialects.ext.memref
 from mlir.dialects import builtin
+from mlir.dialects.bufferization import LayoutMapOption
 from mlir.dialects.transform import (
     any_op_t,
 )
@@ -19,8 +17,10 @@ from mlir.dialects.transform.vector import (
 )
 from mlir.extras import types as T
 from mlir.extras.context import ExplicitlyManagedModule, RAIIMLIRContext
-from mlir.extras.dialects.ext import linalg, transform, arith, vector
-from mlir.dialects.bufferization import LayoutMapOption
+
+# you need this to register the memref value caster
+# noinspection PyUnresolvedReferences
+from mlir.extras.dialects.ext import arith, linalg, memref, transform, vector
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.transform import (
     get_parent_op,
@@ -154,7 +154,6 @@ def test_e2e(ctx: MLIRContext):
         kernel_name=smol_matmul.__name__,
         pipeline=lower_to_llvm,
     )
-    print(compiled_module)
 
     A = np.random.randint(0, 10, (M, K)).astype(np.float32)
     B = np.random.randint(0, 10, (K, N)).astype(np.float32)
@@ -172,3 +171,51 @@ def test_np_constructor(ctx: MLIRContext):
         repr(vec)
         == f"Vector(%cst = arith.constant dense<{vec.literal_value.tolist()}> : vector<2x4xi32>)"
     )
+
+
+def test_vector_wrappers(ctx: MLIRContext):
+    M, K, N = 2, 4, 6
+    mem = memref.alloc(M, K, N, T.i32())
+    vec = vector.transfer_read(T.vector(M, K, T.i32()), mem, [0, 0, 0], padding=5)
+    e_vec = vector.extract(vec, [0])
+    vector.transfer_write(e_vec, mem, [0, 0, 0], in_bounds=[True])
+
+    b = vector.broadcast(T.vector(10, T.i32()), 5)
+    r = vector.reduction(vector.CombiningKind.ADD, b)
+
+    b = vector.broadcast(T.vector(4, 8, 16, 32, T.i32()), 5)
+    acc = vector.broadcast(T.vector(4, 16, T.i32()), 0)
+    r = vector.multi_reduction(vector.CombiningKind.ADD, b, acc, [1, 3])
+
+    b = vector.broadcast(T.vector(4, 8, 16, T.i32()), 5)
+    e = vector.extract_strided_slice(b, [0, 2], [2, 4], [1, 1])
+
+    correct = dedent(
+        """\
+    module {
+      %alloc = memref.alloc() : memref<2x4x6xi32>
+      %c0 = arith.constant 0 : index
+      %c0_0 = arith.constant 0 : index
+      %c0_1 = arith.constant 0 : index
+      %c5_i32 = arith.constant 5 : i32
+      %0 = vector.transfer_read %alloc[%c0, %c0_0, %c0_1], %c5_i32 : memref<2x4x6xi32>, vector<2x4xi32>
+      %1 = vector.extract %0[0] : vector<4xi32> from vector<2x4xi32>
+      %c0_2 = arith.constant 0 : index
+      %c0_3 = arith.constant 0 : index
+      %c0_4 = arith.constant 0 : index
+      vector.transfer_write %1, %alloc[%c0_2, %c0_3, %c0_4] {in_bounds = [true]} : vector<4xi32>, memref<2x4x6xi32>
+      %c5_i32_5 = arith.constant 5 : i32
+      %2 = vector.broadcast %c5_i32_5 : i32 to vector<10xi32>
+      %3 = vector.reduction <add>, %2 : vector<10xi32> into i32
+      %c5_i32_6 = arith.constant 5 : i32
+      %4 = vector.broadcast %c5_i32_6 : i32 to vector<4x8x16x32xi32>
+      %c0_i32 = arith.constant 0 : i32
+      %5 = vector.broadcast %c0_i32 : i32 to vector<4x16xi32>
+      %6 = vector.multi_reduction <add>, %4, %5 [1, 3] : vector<4x8x16x32xi32> to vector<4x16xi32>
+      %c5_i32_7 = arith.constant 5 : i32
+      %7 = vector.broadcast %c5_i32_7 : i32 to vector<4x8x16xi32>
+      %8 = vector.extract_strided_slice %7 {offsets = [0, 2], sizes = [2, 4], strides = [1, 1]} : vector<4x8x16xi32> to vector<2x4x16xi32>
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
