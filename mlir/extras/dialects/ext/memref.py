@@ -18,7 +18,14 @@ from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import arith, memref
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
-from ....ir import DenseElementsAttr, MemRefType, ShapedType, Type, Value
+from ....ir import (
+    DenseElementsAttr,
+    MemRefType,
+    ShapedType,
+    Type,
+    Value,
+    InsertionPoint,
+)
 
 S = ShapedType.get_dynamic_size()
 
