@@ -360,6 +360,30 @@ class ModuleMeta(type):
         return new
 
 
+def find_parent_of_type(test_cb, operation=None):
+    if isinstance(operation, OpView):
+        operation = operation.operation
+    if operation is None:
+        parent = InsertionPoint.current.block.owner
+    else:
+        parent = operation.parent
+    for _ in range(10):
+        if test_cb(parent):
+            return parent
+        else:
+            parent = parent.parent
+
+    raise RuntimeError("Couldn't matching parent of type")
+
+
+def is_symbol_table(operation):
+    try:
+        SymbolTable(operation)
+        return True
+    except RuntimeError:
+        return False
+
+
 def _get_sym_name(previous_frame, check_func_call=None):
     try:
         with open(inspect.getfile(previous_frame)) as src_file:
@@ -369,16 +393,7 @@ def _get_sym_name(previous_frame, check_func_call=None):
             if check_func_call is not None:
                 assert re.match(check_func_call, func_call)
         maybe_unique_sym_name = ident
-        parent = InsertionPoint.current.block.owner
-        for _ in range(10):
-            try:
-                symbol_table = SymbolTable(parent.operation)
-                break
-            except RuntimeError:
-                parent = parent.parent
-        else:
-            raise RuntimeError("Couldn't find symbol table")
-
+        symbol_table = SymbolTable(find_parent_of_type(is_symbol_table).operation)
         while maybe_unique_sym_name in symbol_table:
             if re.match(r".*_(\d+)$", maybe_unique_sym_name):
                 maybe_unique_sym_name = re.sub(
