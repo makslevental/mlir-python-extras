@@ -8,7 +8,12 @@ from ... import types as T
 from ...meta import (
     region_op,
 )
-from ...util import ModuleMeta, get_user_code_loc, make_maybe_no_args_decorator
+from ...util import (
+    ModuleMeta,
+    _get_previous_frame_idents,
+    get_user_code_loc,
+    make_maybe_no_args_decorator,
+)
 from ....dialects._gpu_ops_gen import _Dialect
 from ....dialects._ods_common import (
     _cext,
@@ -327,14 +332,7 @@ class Grid:
 
     def __getitem__(self, item):
         previous_frame = inspect.currentframe().f_back
-        var_names = [
-            [
-                var_name
-                for var_name, var_val in previous_frame.f_locals.items()
-                if var_val is arg
-            ]
-            for arg in item
-        ]
+        var_names = [_get_previous_frame_idents(arg, previous_frame) for arg in item]
         kwargs = {}
         for i, it in enumerate(item):
             assert len(var_names[i]) == 1, "expected unique kwarg"

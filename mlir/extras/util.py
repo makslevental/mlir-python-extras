@@ -231,6 +231,14 @@ def memref_type_to_np_dtype(memref_type):
     return _memref_type_to_np_dtype.get(memref_type)
 
 
+def _get_previous_frame_idents(val, previous_frame):
+    return [
+        var_name
+        for var_name, var_val in previous_frame.f_locals.items()
+        if var_val is val
+    ]
+
+
 def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
     """Update caller vars passed as args.
 
@@ -249,14 +257,7 @@ def _update_caller_vars(previous_frame, args: Sequence, replacements: Sequence):
     if len(args) != len(replacements):
         raise ValueError(f"updates must be 1-1: {args=} {replacements=}")
     # find the name of the iter args in the previous frame
-    var_names = [
-        [
-            var_name
-            for var_name, var_val in previous_frame.f_locals.items()
-            if var_val is arg
-        ]
-        for arg in args
-    ]
+    var_names = [_get_previous_frame_idents(arg, previous_frame) for arg in args]
     for i, var_names in enumerate(var_names):
         for var_name in var_names:
             previous_frame.f_locals[var_name] = replacements[i]
