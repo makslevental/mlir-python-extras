@@ -118,7 +118,7 @@ def find_ops(op, pred: Callable[[OpView], bool], single=False):
                     find(o)
 
     find(op)
-    if len(matching) == 1:
+    if single:
         matching = matching[0]
     return matching
 
