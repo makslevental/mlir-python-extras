@@ -413,3 +413,27 @@ def _unpack_sizes_element_type(sizes_element_type):
     element_type = sizes_element_type[-1]
     sizes = sizes_element_type[:-1]
     return sizes, element_type
+
+
+class getitemproperty:
+    def __init__(self, f):
+        self.f = f
+        self.instance = None
+
+    def __get__(self, instance, _class):
+        self.instance = instance
+        return self
+
+    def __getitem__(self, item):
+        kwargs = {}
+        if len(item) > 2:
+            # not sure how but you don't need two backs here
+            previous_frame = inspect.currentframe().f_back
+            for kwarg in item[2:]:
+                k = _get_previous_frame_idents(kwarg, previous_frame)
+                assert len(k) == 1, f"{len(k)=}"
+                kwargs[k[0]] = kwarg
+            item = item[:2]
+
+        # f is not a bound method since it was decorated...
+        return self.f(self.instance, item, **kwargs)
