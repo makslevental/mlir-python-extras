@@ -23,6 +23,7 @@ from ..ir import (
     IntegerType,
     Location,
     MemRefType,
+    Module,
     OpView,
     Operation,
     RankedTensorType,
@@ -104,7 +105,10 @@ def shlib_prefix():
     return shlib_pref
 
 
-def find_ops(op, pred: Callable[[OpView], bool], single=False):
+def find_ops(op, pred: Callable[[OpView, Operation, Module], bool], single=False):
+    if isinstance(op, (OpView, Module)):
+        op = op.operation
+
     matching = []
 
     def find(op):
@@ -118,7 +122,7 @@ def find_ops(op, pred: Callable[[OpView], bool], single=False):
                     find(o)
 
     find(op)
-    if single:
+    if single and matching:
         matching = matching[0]
     return matching
 
