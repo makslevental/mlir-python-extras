@@ -289,7 +289,7 @@ def global_(
     if sym_name is None:
         previous_frame = inspect.currentframe().f_back
         sym_name = _get_sym_name(
-            previous_frame, check_func_call="memref\.global_|global_"
+            previous_frame, check_func_call="memref\\.global_|global_"
         )
     if loc is None:
         loc = get_user_code_loc()
