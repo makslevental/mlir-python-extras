@@ -108,7 +108,7 @@ class MemRef(Value, ShapedValue):
         if idx is None:
             return expand_shape(self, (0,), loc=loc)
 
-        idx = list((idx,) if isinstance(idx, int) else idx)
+        idx = list((idx,) if isinstance(idx, (int, slice)) else idx)
         for i, d in enumerate(idx):
             if isinstance(d, int):
                 idx[i] = constant(d, index=True, loc=loc)
@@ -291,6 +291,9 @@ def global_(
         sym_name = _get_sym_name(
             previous_frame, check_func_call="memref\\.global_|global_"
         )
+        assert (
+            sym_name is not None
+        ), "couldn't automatically find sym_name in previous frame"
     if loc is None:
         loc = get_user_code_loc()
     if initial_value is None:

@@ -56,6 +56,24 @@ def test_simple_literal_indexing(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+def test_simple_slicing(ctx: MLIRContext):
+    mem = alloc(10, T.i32())
+
+    w = mem[5:]
+    w = mem[:5]
+
+    correct = dedent(
+        """\
+    module {
+      %alloc = memref.alloc() : memref<10xi32>
+      %subview = memref.subview %alloc[5] [5] [1] : memref<10xi32> to memref<5xi32, strided<[1], offset: 5>>
+      %subview_0 = memref.subview %alloc[0] [5] [1] : memref<10xi32> to memref<5xi32>
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
 def test_simple_literal_indexing_alloca(ctx: MLIRContext):
     @alloca_scope([])
     def demo_scope2():
