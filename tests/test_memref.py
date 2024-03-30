@@ -661,3 +661,25 @@ def test_memref_global_non_windows(ctx: MLIRContext):
     )
 
     filecheck(correct, ctx.module)
+
+
+def test_memref_view(ctx: MLIRContext):
+    m, k, n = 16, 16, 16
+    dtype = T.f32()
+    byte_width_dtype = dtype.width // 8
+    ab_buffer = alloc((m * k + k * n) * byte_width_dtype, T.i8())
+    a_buffer = memref.view(ab_buffer, (m, k), dtype=dtype)
+    b_buffer = memref.view(ab_buffer, (k, n), dtype=dtype, shift=m * k)
+
+    correct = dedent(
+        """\
+    module {
+      %alloc = memref.alloc() : memref<2048xi8>
+      %c0 = arith.constant 0 : index
+      %view = memref.view %alloc[%c0][] : memref<2048xi8> to memref<16x16xf32>
+      %c1024 = arith.constant 1024 : index
+      %view_0 = memref.view %alloc[%c1024][] : memref<2048xi8> to memref<16x16xf32>
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
