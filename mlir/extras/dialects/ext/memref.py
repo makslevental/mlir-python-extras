@@ -318,3 +318,12 @@ def global_(
         loc=loc,
         ip=ip,
     ).opview
+
+
+def view(source, shape, dtype=None, shift=0):
+    if dtype is None:
+        dtype = source.type.element_type
+    byte_width_dtype = dtype.width // 8
+    byte_shift = shift * byte_width_dtype
+    byte_shift = constant(byte_shift, index=True)
+    return memref.view(T.memref(*shape, dtype), source, byte_shift, [])
