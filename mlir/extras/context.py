@@ -99,3 +99,10 @@ def disable_multithreading(context=None):
     context.enable_multithreading(False)
     yield
     context.enable_multithreading(True)
+
+
+@contextlib.contextmanager
+def enable_debug():
+    ir._GlobalDebug.flag = True
+    yield
+    ir._GlobalDebug.flag = False

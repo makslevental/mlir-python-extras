@@ -1,5 +1,6 @@
 import sys
 from functools import update_wrapper
+from typing import TypeVar
 
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
@@ -194,7 +195,20 @@ class FuncBase:
                 input_types = self.input_types[:]
                 for i, v in enumerate(input_types):
                     if isinstance(v, str):
-                        input_types[i] = Type(eval(v, self.body_builder.__globals__))
+                        env = dict(self.body_builder.__globals__)
+                        if self.body_builder.__closure__:
+                            closure = dict(
+                                zip(
+                                    self.body_builder.__code__.co_freevars,
+                                    [
+                                        c.cell_contents
+                                        for c in self.body_builder.__closure__
+                                    ],
+                                )
+                            )
+                            env.update(closure)
+
+                        input_types[i] = Type(eval(v, env))
                     elif isalambda(v):
                         input_types[i] = v()
             else:
@@ -244,6 +258,24 @@ class FuncBase:
 
     def __call__(self, *call_args):
         return call(self.emit(*call_args), call_args)
+
+    def __getitem__(self, item):
+        closure = {
+            k: v
+            for k, v in zip(
+                self.body_builder.__code__.co_freevars, self.body_builder.__closure__
+            )
+            if v.cell_contents in self.body_builder.__type_params__
+        }
+
+        for i, t in enumerate(self.body_builder.__type_params__):
+            if t.__bound__ is not None:
+                v = t.__bound__
+            else:
+                v = item[i]
+            closure[t.__name__].cell_contents = v
+
+        return self
 
 
 @make_maybe_no_args_decorator
