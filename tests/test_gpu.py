@@ -1,36 +1,33 @@
 import sys
 from textwrap import dedent
 
+import mlir.extras.types as T
 import pytest
 from mlir.dialects._gpu_enum_gen import AllReduceOperation
+from mlir.dialects.gpu import host_register
+from mlir.dialects.llvm import mlir_zero
+from mlir.dialects.math import fma
+from mlir.dialects.memref import cast
 
-import mlir.extras.types as T
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
-from mlir.extras.dialects.ext.llvm import llvm_ptr_t
-
+from mlir.extras.dialects.ext.gpu import all_reduce, wait
 from mlir.extras.dialects.ext.gpu import (
     thread_attr as thread,
-    block_id_x,
-    block_id_y,
+    block_id,
     GPUModuleMeta,
     func as gpu_func,
     set_container_module,
     launch,
     all_reduce_,
 )
+from mlir.extras.dialects.ext.llvm import llvm_ptr_t
 from mlir.extras.dialects.ext.memref import alloc
 from mlir.extras.dialects.ext.memref import load, store
 from mlir.extras.dialects.ext.scf import canonicalizer
 from mlir.extras.dialects.ext.scf import forall, in_parallel_
-from mlir.dialects.gpu import host_register
-from mlir.extras.dialects.ext.gpu import all_reduce, wait
-from mlir.dialects.llvm import mlir_zero
-from mlir.dialects.math import fma
-from mlir.dialects.memref import cast
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
-
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 
@@ -111,8 +108,8 @@ def test_class(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id_x()
-            y = block_id_y()
+            x = block_id.x
+            y = block_id.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
@@ -154,8 +151,8 @@ def test_class_call(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id_x()
-            y = block_id_y()
+            x = block_id.x
+            y = block_id.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
@@ -216,8 +213,8 @@ def test_class_call_from_func(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id_x()
-            y = block_id_y()
+            x = block_id.x
+            y = block_id.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
@@ -289,8 +286,8 @@ def test_async_object(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id_x()
-            y = block_id_y()
+            x = block_id.x
+            y = block_id.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b

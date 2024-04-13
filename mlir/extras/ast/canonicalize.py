@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from dis import findlinestarts
 from opcode import opmap
 from types import CodeType
-from typing import List, Union
+from typing import List, Union, Sequence
 
 import astunparse
 from bytecode import ConcreteBytecode
@@ -132,10 +132,18 @@ class Canonicalizer(ABC):
         pass
 
 
-def canonicalize(*, using: Canonicalizer):
+def canonicalize(*, using: Union[Canonicalizer, Sequence[Canonicalizer]]):
+    if not isinstance(using, Sequence):
+        using = [using]
+    cst_transformers = []
+    bytecode_patchers = []
+    for u in using:
+        cst_transformers.extend(u.cst_transformers)
+        bytecode_patchers.extend(u.bytecode_patchers)
+
     def wrapper(f):
-        f = transform_ast(f, using.cst_transformers)
-        f = patch_bytecode(f, using.bytecode_patchers)
+        f = transform_ast(f, cst_transformers)
+        f = patch_bytecode(f, bytecode_patchers)
         return f
 
     return wrapper

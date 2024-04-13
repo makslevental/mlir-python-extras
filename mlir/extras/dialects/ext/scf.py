@@ -9,7 +9,7 @@ from bytecode import ConcreteBytecode
 from .arith import constant as _ext_arith_constant, index_cast
 from .gpu import get_device_mapping_array_attr
 from ...ast.canonicalize import BytecodePatcher, Canonicalizer, StrictTransformer
-from ...ast.util import ast_call, set_lineno
+from ...ast.util import ast_call, set_lineno, append_hidden_node
 from ...meta import region_op
 from ...util import get_user_code_loc, region_adder
 from ....dialects._ods_common import (
@@ -18,7 +18,6 @@ from ....dialects._ods_common import (
     get_op_result_or_op_results,
 )
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
-
 # gotta come first
 from ....dialects.scf import *
 from ....dialects.scf import _Dialect, yield_ as yield__
@@ -419,15 +418,6 @@ def is_yield(last_statement):
     )
 
 
-def append_hidden_node(node_body, new_node):
-    last_statement = node_body[-1]
-    new_node = ast.fix_missing_locations(
-        set_lineno(new_node, last_statement.end_lineno)
-    )
-    node_body.append(new_node)
-    return node_body
-
-
 class InsertEmptyYield(StrictTransformer):
     def visit_If(self, updated_node: ast.If) -> ast.If:
         updated_node = self.generic_visit(updated_node)
@@ -557,10 +547,12 @@ class ReplaceIfWithWith(StrictTransformer):
         num_results = max(
             len(last_statement.value.args),
             # if lhs of assign is a tuple unpacking
-            len(last_statement.targets[0].elts)
-            if isinstance(last_statement, ast.Assign)
-            and isinstance(last_statement.targets[0], ast.Tuple)
-            else 0,
+            (
+                len(last_statement.targets[0].elts)
+                if isinstance(last_statement, ast.Assign)
+                and isinstance(last_statement.targets[0], ast.Tuple)
+                else 0
+            ),
         )
         results = [ast_call(placeholder_opaque_t.__name__) for _ in range(num_results)]
         results = ast.fix_missing_locations(

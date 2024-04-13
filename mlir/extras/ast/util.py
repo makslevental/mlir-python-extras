@@ -66,3 +66,12 @@ def copy_func(f, new_code):
     if inspect.ismethod(f):
         g = bind(g, f.__self__)
     return g
+
+
+def append_hidden_node(node_body, new_node):
+    last_statement = node_body[-1]
+    new_node = ast.fix_missing_locations(
+        set_lineno(new_node, last_statement.end_lineno)
+    )
+    node_body.append(new_node)
+    return node_body

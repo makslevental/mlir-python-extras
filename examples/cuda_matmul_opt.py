@@ -3,7 +3,7 @@ from pathlib import Path
 
 import mlir.extras.types as T
 import numpy as np
-from mlir.dialects import builtin, math as math_dialect
+from mlir.dialects import builtin
 from mlir.ir import UnitAttr
 
 from mlir import _mlir_libs
@@ -15,7 +15,7 @@ from mlir.extras.context import (
 from mlir.extras.dialects.ext import arith, memref, scf, gpu
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import block_id, thread_id, block_dim, GPUModuleMeta
-from mlir.extras.dialects.ext.scf import range_, yield_
+from mlir.extras.dialects.ext.scf import range_
 from mlir.extras.runtime.passes import Pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
 
@@ -87,25 +87,19 @@ def naive_with_gpu_func(M, K, N, dtype, BLOCK_SIZE=32):
         class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
 
             @gpu.func(emit=True)
+            @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
             def mat_product_kernel(
                 A: T.memref(M, K, dtype),
                 B: T.memref(K, N, dtype),
                 C: T.memref(M, N, dtype),
             ):
-                bx = block_id("x")
-                by = block_id("y")
-                tx = thread_id("x")
-                ty = thread_id("y")
-                num_bx = block_dim("x")
-                num_by = block_dim("x")
-
-                x = bx * num_bx + tx
-                y = by * num_by + ty
+                x = block_dim.x * block_id.x + thread_id.x
+                y = block_dim.y * block_id.y + thread_id.y
 
                 tmp = arith.constant(0, type=dtype)
                 for k, tmp in range_(K, iter_args=[tmp]):
-                    tmp = math_dialect.fma(A[x, k], B[k, y], tmp)
-                    tmp = yield_(tmp)
+                    tmp += A[x, k] * B[k, y]
+                    tmp = yield tmp
                 C[x, y] = tmp
 
         @func(emit=True)
@@ -115,28 +109,29 @@ def naive_with_gpu_func(M, K, N, dtype, BLOCK_SIZE=32):
             B: T.memref(K, N, dtype),
             C: T.memref(M, N, dtype),
         ):
-            t0 = gpu.wait()
-            dA, t1 = gpu.alloc(A.shape, A.dtype, [t0])
-            dB, t2 = gpu.alloc(B.shape, B.dtype, [t1])
-            dC, t3 = gpu.alloc(C.shape, C.dtype, [t2])
+            # this is a cuda stream
+            w = gpu.wait()
+            dA, _ = gpu.alloc(A.shape, A.dtype, [w])
+            dB, _ = gpu.alloc(B.shape, B.dtype, [w])
+            dC, _ = gpu.alloc(C.shape, C.dtype, [w])
 
-            t4 = gpu.memcpy(dA, A, [t3])
-            t5 = gpu.memcpy(dB, B, [t4])
-            t6 = gpu.memcpy(dC, C, [t5])
+            gpu.memcpy(dA, A, [w])
+            gpu.memcpy(dB, B, [w])
+            gpu.memcpy(dC, C, [w])
 
-            t7 = MyClass1.mat_product_kernel[
+            MyClass1.mat_product_kernel[
                 grid_size := [math.ceil(M / BLOCK_SIZE), math.ceil(N / BLOCK_SIZE), 1],
                 block_size := [BLOCK_SIZE, BLOCK_SIZE, 1],
-                async_dependencies := [t6],
+                async_dependencies := [w],
             ](dA, dB, dC)
-            t8 = gpu.wait([t7])
+            gpu.wait([w])
 
-            gpu.dealloc(dA, [t8])
-            gpu.dealloc(dB, [t8])
+            gpu.dealloc(dA, [w])
+            gpu.dealloc(dB, [w])
 
-            t9 = gpu.memcpy(C, dC, [t8])
-            t10 = gpu.wait([t9])
-            gpu.dealloc(dC, [t10])
+            gpu.memcpy(C, dC, [w])
+            gpu.wait([w])
+            gpu.dealloc(dC, [w])
 
             return C
 

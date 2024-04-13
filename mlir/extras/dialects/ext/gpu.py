@@ -34,13 +34,56 @@ from ....ir import (
     register_attribute_builder,
 )
 
+_block_id = block_id
+_thread_id = thread_id
+_block_dim = block_dim
 
-def block_id_x():
-    return block_id("x")
+
+class classproperty(property):
+    def __get__(self, owner_self, owner_cls):
+        return self.fget(owner_cls)
 
 
-def block_id_y():
-    return block_id("y")
+class block_id:
+    @classproperty
+    def x(cls):
+        return _block_id("x")
+
+    @classproperty
+    def y(cls):
+        return _block_id("y")
+
+    @classproperty
+    def z(cls):
+        return _block_id("z")
+
+
+class block_dim:
+    @classproperty
+    def x(cls):
+        return _block_dim("x")
+
+    @classproperty
+    def y(cls):
+        return _block_dim("y")
+
+    @classproperty
+    def z(cls):
+        return _block_dim("z")
+
+
+class thread_id:
+    @classproperty
+    def x(cls):
+        return _thread_id("x")
+
+    @classproperty
+    def y(cls):
+        return _thread_id("y")
+
+    @classproperty
+    def z(cls):
+        return _thread_id("z")
 
 
 def gpu_async_token():
