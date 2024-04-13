@@ -1,6 +1,6 @@
+import inspect
 import sys
 from functools import update_wrapper
-from typing import TypeVar
 
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
@@ -193,21 +193,17 @@ class FuncBase:
         if self._func_op is None or decl or force:
             if len(call_args) == 0:
                 input_types = self.input_types[:]
+                env = dict(self.body_builder.__globals__)
+                if self.body_builder.__closure__:
+                    closure = dict(
+                        zip(
+                            self.body_builder.__code__.co_freevars,
+                            [c.cell_contents for c in self.body_builder.__closure__],
+                        )
+                    )
+                    env.update(closure)
                 for i, v in enumerate(input_types):
                     if isinstance(v, str):
-                        env = dict(self.body_builder.__globals__)
-                        if self.body_builder.__closure__:
-                            closure = dict(
-                                zip(
-                                    self.body_builder.__code__.co_freevars,
-                                    [
-                                        c.cell_contents
-                                        for c in self.body_builder.__closure__
-                                    ],
-                                )
-                            )
-                            env.update(closure)
-
                         input_types[i] = Type(eval(v, env))
                     elif isalambda(v):
                         input_types[i] = v()
@@ -292,7 +288,7 @@ def func(
 ) -> FuncBase:
     if loc is None:
         loc = get_user_code_loc()
-    func = FuncBase(
+    func_ = FuncBase(
         body_builder=f,
         func_op_ctor=FuncOp.__base__,
         return_op_ctor=ReturnOp,
@@ -304,7 +300,7 @@ def func(
         loc=loc,
         ip=ip,
     )
-    func = update_wrapper(func, f)
+    func_ = update_wrapper(func_, f)
     if emit:
-        func.emit()
-    return func
+        func_.emit()
+    return func_

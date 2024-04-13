@@ -15,7 +15,7 @@ from mlir.extras.dialects.ext.gpu import (
     block_id_x,
     block_id_y,
     GPUModuleMeta,
-    gpu_func,
+    func as gpu_func,
     set_container_module,
     launch,
     all_reduce_,
@@ -104,7 +104,7 @@ def test_class(ctx: MLIRContext):
     M, N, K = 4 * scale, 16 * scale, 8 * scale
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func
+        @gpu_func(emit=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
@@ -147,7 +147,7 @@ def test_class_call(ctx: MLIRContext):
     set_container_module(ctx.module)
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func
+        @gpu_func(emit=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
@@ -209,7 +209,7 @@ def test_class_call_from_func(ctx: MLIRContext):
     set_container_module(ctx.module)
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func
+        @gpu_func(emit=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
@@ -282,7 +282,7 @@ def test_async_object(ctx: MLIRContext):
     set_container_module(ctx.module)
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func
+        @gpu_func(emit=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
@@ -354,7 +354,7 @@ def test_launch_op(ctx: MLIRContext):
         data = alloc(2, 6, T.i32())
         sum = alloc(2, T.i32())
 
-        power_csts = [constant(0)] + [constant(2 ** i) for i in range(5)]
+        power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
         odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
         cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
@@ -444,7 +444,7 @@ def test_launch_op_reduce_op(ctx: MLIRContext):
         data = alloc(2, 6, T.i32())
         sum = alloc(2, T.i32())
 
-        power_csts = [constant(0)] + [constant(2 ** i) for i in range(5)]
+        power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
         odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
         cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
