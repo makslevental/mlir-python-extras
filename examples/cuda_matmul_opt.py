@@ -1,8 +1,11 @@
+import ast
 import math
+import re
 from pathlib import Path
 
 import mlir.extras.types as T
 import numpy as np
+from cupy.cuda.function import Module
 from mlir.dialects import builtin
 from mlir.ir import UnitAttr
 
@@ -26,10 +29,26 @@ CUDA_RUNTIME_LIB_PATH = Path(_mlir_libs.__file__).parent / f"libmlir_cuda_runtim
 assert CUDA_RUNTIME_LIB_PATH.exists()
 
 
+def get_ptx(compiled_module):
+    binary = find_ops(compiled_module, lambda o: o.name == "gpu.binary", single=True)
+    r = re.findall(r'"(.*?)"', str(binary.objects[1]))
+    return r[-1]
+
+
 def print_ptx(compiled_module):
-    ptx = find_ops(compiled_module, lambda o: o.name == "gpu.binary", single=True)
-    ptx = str(ptx.objects).replace("\\0A", "\n").replace("\\09", "\t")
+    ptx = get_ptx(compiled_module)
+    ptx = str(ptx).replace("\\0A", "\n").replace("\\09", "\t")
     print(ptx)
+
+
+def build_cuda_func(compiled_module, kernel_name="mat_product_kernel"):
+    ptx = get_ptx(compiled_module)
+    ptx = re.sub(r"\\(\w\w)", lambda m: r"\x" + m.groups(0)[0].lower(), ptx)
+    ptx = ast.literal_eval(rf"b'{ptx}'")
+    mod = Module()
+    mod.load(ptx)
+    cuda_func = mod.get_function(kernel_name)
+    return cuda_func
 
 
 @func
@@ -160,10 +179,12 @@ def main(ctx: MLIRContext):
                 "cubin-chip": "sm_80",
                 "cubin-features": "+ptx83",
                 "cubin-format": "isa",
+                # "cubin-format": "fatbin",
+                # "cubin-format": "bin",
             },
         ),
         kernel_name="naive",
-        enable_ir_printing=True,
+        # enable_ir_printing=True,
     )
     print(compiled_module)
     print_ptx(compiled_module)
