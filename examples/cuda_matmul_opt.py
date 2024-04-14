@@ -5,6 +5,7 @@ from pathlib import Path
 
 import mlir.extras.types as T
 import numpy as np
+import cupy as cp
 from cupy.cuda.function import Module
 from mlir.dialects import builtin
 from mlir.ir import UnitAttr
@@ -159,6 +160,7 @@ def naive_with_gpu_func(M, K, N, dtype, BLOCK_SIZE=32):
 
 def main(ctx: MLIRContext):
     M, K, N = 32, 32, 32
+    BLOCK_SIZE = 32
     dtype = T.f32()
     npy_dtype = np.float32
 
@@ -167,8 +169,8 @@ def main(ctx: MLIRContext):
     # naive[M, K, N, dtype].emit()
     # module = ctx.module
 
-    print(module)
-    print(module.operation.verify())
+    # print(module)
+    # print(module.operation.verify())
 
     backend = LLVMJITBackend([CUDA_RUNTIME_LIB_PATH])
     compiled_module = backend.compile(
@@ -178,26 +180,68 @@ def main(ctx: MLIRContext):
             **{
                 "cubin-chip": "sm_80",
                 "cubin-features": "+ptx83",
-                "cubin-format": "isa",
+                # "cubin-format": "isa",
                 # "cubin-format": "fatbin",
-                # "cubin-format": "bin",
+                "cubin-format": "bin",
             },
         ),
         kernel_name="naive",
         # enable_ir_printing=True,
     )
-    print(compiled_module)
-    print_ptx(compiled_module)
+    # print(compiled_module)
+    # print_ptx(compiled_module)
 
     A = np.random.randint(0, 10, (M, K)).astype(npy_dtype)
     B = np.random.randint(0, 10, (K, N)).astype(npy_dtype)
     C = np.zeros((M, N)).astype(npy_dtype)
-    res: np.ndarray = backend.load(compiled_module, opt_level=3).naive_capi_wrapper(
-        A, B, C
+
+    dA = cp.asarray(A)
+    dB = cp.asarray(B)
+    dC = cp.asarray(C)
+
+    args = (
+        mat_product_kernel_param_0,
+        mat_product_kernel_param_1,
+        mat_product_kernel_param_2,
+        mat_product_kernel_param_3,
+        mat_product_kernel_param_4,
+        mat_product_kernel_param_5,
+        mat_product_kernel_param_6,
+        mat_product_kernel_param_7,
+        mat_product_kernel_param_8,
+        mat_product_kernel_param_9,
+        mat_product_kernel_param_10,
+        mat_product_kernel_param_11,
+        mat_product_kernel_param_12,
+        mat_product_kernel_param_13,
+        mat_product_kernel_param_14,
+        mat_product_kernel_param_15,
+        mat_product_kernel_param_16,
+        mat_product_kernel_param_17,
+        mat_product_kernel_param_18,
+        mat_product_kernel_param_19,
+        mat_product_kernel_param_20,
+    ) = (1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23)
+
+    # mat_product_kernel_param_15 = dA.data.ptr
+    # mat_product_kernel_param_1 = dB.data.ptr
+    # mat_product_kernel_param_8 = dC.data.ptr
+
+    cuda_func = build_cuda_func(compiled_module)
+    cuda_func(
+        (math.ceil(M / BLOCK_SIZE), math.ceil(N / BLOCK_SIZE), 1),
+        (BLOCK_SIZE, BLOCK_SIZE, 1),
+        args,
     )
 
-    if not np.array_equal(res, A @ B):
-        print(res)
+    print(dC)
+
+    # res: np.ndarray = backend.load(compiled_module, opt_level=3).naive_capi_wrapper(
+    #     A, B, C
+    # )
+    #
+    # if not np.array_equal(res, A @ B):
+    #     print(res)
 
 
 with (
