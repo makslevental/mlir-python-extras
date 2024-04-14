@@ -416,6 +416,7 @@ def func(
     emit=False,
     loc=None,
     ip=None,
+    emit_grid=False,
 ) -> Grid:
     if loc is None:
         loc = get_user_code_loc()
@@ -434,7 +435,9 @@ def func(
     func_.__name__ = f.__name__
     if emit:
         func_.emit()
-    return Grid(func_)
+    if emit_grid:
+        func_ = Grid(func_)
+    return func_
 
 
 def all_reduce__(value: Value, *, op=None, uniform=None, loc=None, ip=None):

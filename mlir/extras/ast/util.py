@@ -57,7 +57,7 @@ def copy_func(f, new_code):
         name=f.__name__,
         argdefs=f.__defaults__,
         # TODO(max): ValueError: foo requires closure of length 0, not 1
-        # closure=f.__closure__,
+        # closure=f.__closure__ if f.__closure__ is not None else None,
     )
     g.__kwdefaults__ = f.__kwdefaults__
     g.__dict__.update(f.__dict__)

@@ -144,7 +144,7 @@ def test_class_call(ctx: MLIRContext):
     set_container_module(ctx.module)
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func(emit=True)
+        @gpu_func(emit=True, emit_grid=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
@@ -206,7 +206,7 @@ def test_class_call_from_func(ctx: MLIRContext):
     set_container_module(ctx.module)
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func(emit=True)
+        @gpu_func(emit=True, emit_grid=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
@@ -279,7 +279,7 @@ def test_async_object(ctx: MLIRContext):
     set_container_module(ctx.module)
 
     class MyClass1(metaclass=GPUModuleMeta, targets=["#nvvm.target"]):
-        @gpu_func(emit=True)
+        @gpu_func(emit=True, emit_grid=True)
         @canonicalize(using=canonicalizer)
         def mat_product_kernel(
             A: T.memref(M, N, T.f32()),
