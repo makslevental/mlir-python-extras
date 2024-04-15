@@ -256,20 +256,22 @@ class FuncBase:
         return call(self.emit(*call_args), call_args)
 
     def __getitem__(self, item):
-        closure = {
-            k: v
-            for k, v in zip(
-                self.body_builder.__code__.co_freevars, self.body_builder.__closure__
-            )
-            if v.cell_contents in self.body_builder.__type_params__
-        }
+        if self.body_builder.__code__.co_freevars and self.body_builder.__closure__:
+            closure = {
+                k: v
+                for k, v in zip(
+                    self.body_builder.__code__.co_freevars,
+                    self.body_builder.__closure__,
+                )
+                if v.cell_contents in self.body_builder.__type_params__
+            }
 
-        for i, t in enumerate(self.body_builder.__type_params__):
-            if t.__bound__ is not None:
-                v = t.__bound__
-            else:
-                v = item[i]
-            closure[t.__name__].cell_contents = v
+            for i, t in enumerate(self.body_builder.__type_params__):
+                if t.__bound__ is not None:
+                    v = t.__bound__
+                else:
+                    v = item[i]
+                closure[t.__name__].cell_contents = v
 
         return self
 

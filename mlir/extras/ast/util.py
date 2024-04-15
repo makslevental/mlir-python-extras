@@ -1,7 +1,6 @@
 import ast
-import functools
 import inspect
-import types
+from itertools import dropwhile
 from textwrap import dedent
 
 
@@ -26,8 +25,8 @@ def ast_call(name, args=None, keywords=None):
 
 
 def get_module_cst(f):
-    f_src = dedent(inspect.getsource(f))
-    # tree = cst.parse_module(f_src)
+    lines, _lnum = inspect.getsourcelines(f)
+    f_src = dedent("".join(list(dropwhile(lambda l: l.startswith("@"), lines))))
     tree = ast.parse(f_src)
     assert isinstance(
         tree.body[0], ast.FunctionDef
@@ -41,31 +40,6 @@ def bind(func, instance, as_name=None):
     bound_method = func.__get__(instance, instance.__class__)
     setattr(instance, as_name, bound_method)
     return bound_method
-
-
-def copy_func(f, new_code):
-    """Based on http://stackoverflow.com/a/6528148/190597 (Glenn Maynard)"""
-    g = types.FunctionType(
-        code=new_code,
-        globals={
-            **f.__globals__,
-            **{
-                fr: f.__closure__[i].cell_contents
-                for i, fr in enumerate(f.__code__.co_freevars)
-            },
-        },
-        name=f.__name__,
-        argdefs=f.__defaults__,
-        # TODO(max): ValueError: foo requires closure of length 0, not 1
-        # closure=f.__closure__ if f.__closure__ is not None else None,
-    )
-    g.__kwdefaults__ = f.__kwdefaults__
-    g.__dict__.update(f.__dict__)
-    g = functools.update_wrapper(g, f)
-
-    if inspect.ismethod(f):
-        g = bind(g, f.__self__)
-    return g
 
 
 def append_hidden_node(node_body, new_node):
