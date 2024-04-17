@@ -13,6 +13,7 @@ from ...util import (
     _get_previous_frame_idents,
     get_user_code_loc,
     make_maybe_no_args_decorator,
+    find_ops,
 )
 from ....dialects._gpu_ops_gen import _Dialect
 from ....dialects._ods_common import (
@@ -414,12 +415,16 @@ def func(
     res_attrs=None,
     func_attrs=None,
     emit=False,
+    generics=None,
     loc=None,
     ip=None,
     emit_grid=False,
 ) -> Grid:
     if loc is None:
         loc = get_user_code_loc()
+    if hasattr(f, "__type_params__") and f.__type_params__:
+        assert generics is None, "generics XOR type params"
+        generics = f.__type_params__
     func_ = GPUFunc(
         body_builder=f,
         func_op_ctor=GPUFuncOp,
@@ -429,6 +434,7 @@ def func(
         arg_attrs=arg_attrs,
         res_attrs=res_attrs,
         func_attrs=func_attrs,
+        generics=generics,
         loc=loc,
         ip=ip,
     )
@@ -544,3 +550,9 @@ def memcpy(dst, src, async_dependencies=None, *, loc=None, ip=None):
         loc=loc,
         ip=ip,
     )
+
+
+def get_compile_object_bytes(compiled_module):
+    binary = find_ops(compiled_module, lambda o: isinstance(o, BinaryOp), single=True)
+    objects = list(map(ObjectAttr, binary.objects))
+    return objects[-1].object

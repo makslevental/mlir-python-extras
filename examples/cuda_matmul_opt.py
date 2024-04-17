@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import ast
 import contextlib
 import math
-import re
 
 import cupy as cp
 import mlir.extras.types as T
@@ -20,8 +18,8 @@ from mlir.extras.dialects.ext.gpu import (
     block_id,
     thread_id,
     block_dim,
+    get_compile_object_bytes,
 )
-from mlir.extras.dialects.ext.nvgpu import get_ptx
 from mlir.extras.dialects.ext.scf import range_
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
 
@@ -33,9 +31,7 @@ _ = memref
 
 
 def build_cuda_func(compiled_module, kernel_name="mat_product_kernel"):
-    ptx = get_ptx(compiled_module)
-    ptx = re.sub(r"\\(\w\w)", lambda m: r"\x" + m.groups(0)[0].lower(), ptx)
-    ptx = ast.literal_eval(rf"b'{ptx}'")
+    ptx = get_compile_object_bytes(compiled_module)
     mod = Module()
     mod.load(ptx)
     return mod.get_function(kernel_name)
