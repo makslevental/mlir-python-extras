@@ -1,7 +1,7 @@
 import os
 
 from pip._internal.req import parse_requirements
-from setuptools import setup
+from setuptools import setup, find_namespace_packages
 
 # TODO: find from extras maybe
 HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
@@ -13,6 +13,12 @@ PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_',
 def load_requirements(fname):
     reqs = parse_requirements(fname, session="hack")
     return [str(ir.requirement) for ir in reqs]
+
+
+packages = [
+    f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras.{p}"
+    for p in find_namespace_packages(where="mlir/extras")
+] + [f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras"]
 
 
 setup(
@@ -28,6 +34,7 @@ setup(
         "mlir": ["mlir-python-bindings"],
     },
     python_requires=">=3.8",
+    packages=packages,
     # lhs is package namespace, rhs is path (relative to this setup.py)
     package_dir={
         f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras": "mlir/extras",
