@@ -32,4 +32,5 @@ setup(
     package_dir={
         f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras": "mlir/extras",
     },
+    packages={f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras"},
 )
