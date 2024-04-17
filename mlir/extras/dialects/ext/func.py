@@ -1,7 +1,10 @@
 import inspect
 import sys
+from dataclasses import dataclass
 from functools import update_wrapper
+from typing import Optional
 
+from ...ast.util import copy_func
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects._ods_common import get_op_result_or_op_results
@@ -122,6 +125,12 @@ def prep_func_types(sig, return_types):
     return input_types, return_types, user_locs
 
 
+@dataclass
+class ReifiedTypeParams:
+    name: str
+    val: object
+
+
 class FuncBase:
     def __init__(
         self,
@@ -193,18 +202,20 @@ class FuncBase:
         if self._func_op is None or decl or force:
             if len(call_args) == 0:
                 input_types = self.input_types[:]
-                env = dict(self.body_builder.__globals__)
-                if self.body_builder.__closure__:
-                    closure = dict(
-                        zip(
-                            self.body_builder.__code__.co_freevars,
-                            [c.cell_contents for c in self.body_builder.__closure__],
-                        )
-                    )
-                    env.update(closure)
+                locals = {}
+                if (
+                    hasattr(self.body_builder, "__type_params__")
+                    and self.body_builder.__type_params__
+                ):
+                    for t in self.body_builder.__type_params__:
+                        if not isinstance(t, ReifiedTypeParams):
+                            raise RuntimeError(f"{t=} must reified")
+                        locals[t.name] = t.val
                 for i, v in enumerate(input_types):
                     if isinstance(v, str):
-                        input_types[i] = Type(eval(v, env))
+                        input_types[i] = Type(
+                            eval(v, self.body_builder.__globals__, locals)
+                        )
                     elif isalambda(v):
                         input_types[i] = v()
             else:
@@ -256,24 +267,42 @@ class FuncBase:
         return call(self.emit(*call_args), call_args)
 
     def __getitem__(self, item):
-        if self.body_builder.__code__.co_freevars and self.body_builder.__closure__:
-            closure = {
-                k: v
-                for k, v in zip(
-                    self.body_builder.__code__.co_freevars,
-                    self.body_builder.__closure__,
-                )
-                if v.cell_contents in self.body_builder.__type_params__
-            }
+        if (
+            not hasattr(self.body_builder, "__type_params__")
+            or not self.body_builder.__type_params__
+        ):
+            raise RuntimeError(
+                "using a generic call requires the func be generic (i.e., have type_params)"
+            )
+        # this also copies the function so that the original body_builder remains "generic"
+        body_builder = copy_func(self.body_builder)
+        reified_type_params = []
+        for i, t in enumerate(body_builder.__type_params__):
+            if t.__bound__ is not None:
+                r = ReifiedTypeParams(t.__name__, t.__bound__)
+            else:
+                r = ReifiedTypeParams(t.__name__, item[i])
+            reified_type_params.append(r)
+            if r.name in body_builder.__code__.co_freevars:
+                free_i = body_builder.__code__.co_freevars.index(r.name)
+                body_builder.__closure__[free_i].cell_contents = r.val
 
-            for i, t in enumerate(self.body_builder.__type_params__):
-                if t.__bound__ is not None:
-                    v = t.__bound__
-                else:
-                    v = item[i]
-                closure[t.__name__].cell_contents = v
+        body_builder.__type_params__ = tuple(reified_type_params)
 
-        return self
+        return FuncBase(
+            body_builder,
+            self.func_op_ctor,
+            self.return_op_ctor,
+            self.call_op_ctor,
+            self.return_types,
+            self.sym_visibility,
+            self.arg_attrs,
+            self.res_attrs,
+            self.func_attrs,
+            self.loc,
+            self.ip,
+            self.qualname,
+        )
 
 
 @make_maybe_no_args_decorator

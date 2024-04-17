@@ -60,6 +60,7 @@ def transform_func(f, *transformer_ctors: type(Transformer)):
     return module
 
 
+# TODO(max): unify with `replace_closure` in ast/utils.py
 def insert_closed_vars(f, module):
     enclosing_mod = ast.FunctionDef(
         name="enclosing_mod",
