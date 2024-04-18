@@ -11,7 +11,13 @@ from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext import arith, memref, scf, gpu, linalg, transform
 from mlir.dialects.transform import any_op_t
 from mlir.extras.dialects.ext.func import func
-from mlir.extras.dialects.ext.nvgpu import tensormap_descriptor
+from mlir.dialects.nvgpu import (
+    TensorMapDescriptorType,
+    TensorMapSwizzleKind,
+    TensorMapL2PromoKind,
+    TensorMapOOBKind,
+    TensorMapInterleaveKind,
+)
 from mlir.dialects.transform.structured import MatchInterfaceEnum
 from mlir.dialects.memref import cast
 from mlir.dialects.nvgpu import tma_create_descriptor
@@ -37,7 +43,13 @@ def test_basic(ctx: MLIRContext):
         crd0 = arith.constant(64, index=True)
         crd1 = arith.constant(128, index=True)
         device_ptr_2d_unranked = cast(T.memref(element_type=T.f32()), device_ptr_2d)
-        tensor_map_2d = tensormap_descriptor(T.memref(32, 32, T.f32(), memory_space=3))
+        tensor_map_2d = TensorMapDescriptorType.get(
+            T.memref(32, 32, T.f32(), memory_space=3),
+            TensorMapSwizzleKind.SWIZZLE_NONE,
+            TensorMapL2PromoKind.L2PROMO_NONE,
+            TensorMapOOBKind.OOB_NAN,
+            TensorMapInterleaveKind.INTERLEAVE_NONE,
+        )
         tensor_map_2d = tma_create_descriptor(
             tensor_map_2d, device_ptr_2d_unranked, [crd0, crd1]
         )
@@ -187,8 +199,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())):
-            ...
+        def printMemrefF32(x: T.memref(T.f32())): ...
 
         printMemrefF32_.append(printMemrefF32)
 
@@ -408,6 +419,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
 
 CUDA_RUNTIME_LIB_PATH = Path(_mlir_libs.__file__).parent / f"libmlir_cuda_runtime.so"
 
+
 # based on https://github.com/llvm/llvm-project/blob/9cc2122bf5a81f7063c2a32b2cb78c8d615578a1/mlir/test/Integration/GPU/CUDA/TensorCore/sm80/transform-mma-sync-matmul-f16-f16-accum.mlir#L6
 @pytest.mark.skipif(not CUDA_RUNTIME_LIB_PATH.exists(), reason="no cuda library")
 def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
@@ -536,8 +548,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())):
-            ...
+        def printMemrefF32(x: T.memref(T.f32())): ...
 
         printMemrefF32_.append(printMemrefF32)
 
