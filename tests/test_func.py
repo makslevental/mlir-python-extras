@@ -1,14 +1,17 @@
 import inspect
 import sys
 from textwrap import dedent
+from typing import TypeVar
 
 import pytest
 
 import mlir.extras.types as T
+
+from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import mlir_mod_ctx
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
-from mlir.extras.dialects.ext import linalg
+from mlir.extras.dialects.ext import linalg, arith, scf, memref
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -40,8 +43,7 @@ def test_emit(ctx: MLIRContext):
 
 
 def test_declare_byte_rep(ctx: MLIRContext):
-    def demo_fun1():
-        ...
+    def demo_fun1(): ...
 
     if sys.version_info.minor == 12:
         assert demo_fun1.__code__.co_code == b"\x97\x00y\x00"
@@ -55,20 +57,16 @@ def test_declare_byte_rep(ctx: MLIRContext):
 
 def test_declare(ctx: MLIRContext):
     @func
-    def demo_fun1() -> T.i32():
-        ...
+    def demo_fun1() -> T.i32(): ...
 
     @func
-    def demo_fun2() -> (T.i32(), T.i32()):
-        ...
+    def demo_fun2() -> (T.i32(), T.i32()): ...
 
     @func
-    def demo_fun3(x: T.i32()) -> (T.i32(), T.i32()):
-        ...
+    def demo_fun3(x: T.i32()) -> (T.i32(), T.i32()): ...
 
     @func
-    def demo_fun4(x: T.i32(), y: T.i32()) -> (T.i32(), T.i32()):
-        ...
+    def demo_fun4(x: T.i32(), y: T.i32()) -> (T.i32(), T.i32()): ...
 
     demo_fun1()
     demo_fun2()
@@ -191,6 +189,102 @@ def test_func_no_context_2(ctx: MLIRContext):
     module {
       func.func @matmul_i32_i32(%arg0: memref<16x16xi32>, %arg1: memref<16x16xi32>, %arg2: memref<16x16xi32>) {
         linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<16x16xi32>, memref<16x16xi32>) outs(%arg2 : memref<16x16xi32>)
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_generics_just_args(ctx: MLIRContext):
+    @func(generics=["M", "K", "N", "dtype"])
+    def mat_product_kernel(
+        A: "T.memref(M, K, dtype)",
+        B: "T.memref(K, N, dtype)",
+        C: "T.memref(M, N, dtype)",
+    ):
+        one = arith.constant(1.0)
+
+    mat_product_kernel[32, 32, 32, T.i32()].emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @mat_product_kernel(%arg0: memref<32x32xi32>, %arg1: memref<32x32xi32>, %arg2: memref<32x32xi32>) {
+        %cst = arith.constant 1.000000e+00 : f32
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_generics_closure(ctx: MLIRContext):
+    dtype = None
+
+    @func(generics=["M", "K", "N", "dtype"])
+    def mat_product_kernel(
+        A: "T.memref(M, K, dtype)",
+        B: "T.memref(K, N, dtype)",
+        C: "T.memref(M, N, dtype)",
+    ):
+        one = arith.constant(1, dtype)
+
+    mat_product_kernel[32, 32, 32, T.i32()].emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @mat_product_kernel(%arg0: memref<32x32xi32>, %arg1: memref<32x32xi32>, %arg2: memref<32x32xi32>) {
+        %c1_i32 = arith.constant 1 : i32
+        return
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
+def test_generics_with_canonicalizations(ctx: MLIRContext):
+    dtype = None
+    K = None
+
+    @func(generics=["M", "K", "N", "dtype"])
+    @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+    def mat_product_kernel(
+        A: "T.memref(M, K, dtype)",
+        B: "T.memref(K, N, dtype)",
+        C: "T.memref(M, N, dtype)",
+    ):
+        x = arith.constant(1, index=True)
+        y = arith.constant(1, index=True)
+        one = arith.constant(1.0, type=dtype)
+        tmp = arith.constant(0, type=dtype)
+        for k, tmp in scf.range_(K, iter_args=[tmp]):
+            tmp += A[x, k] * B[k, y]
+            tmp = yield tmp
+        C[x, y] = tmp + one
+
+    mat_product_kernel[32, 32, 32, T.f32()].emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @mat_product_kernel(%arg0: memref<32x32xf32>, %arg1: memref<32x32xf32>, %arg2: memref<32x32xf32>) {
+        %c1 = arith.constant 1 : index
+        %c1_0 = arith.constant 1 : index
+        %cst = arith.constant 1.000000e+00 : f32
+        %cst_1 = arith.constant 0.000000e+00 : f32
+        %c0 = arith.constant 0 : index
+        %c32 = arith.constant 32 : index
+        %c1_2 = arith.constant 1 : index
+        %0 = scf.for %arg3 = %c0 to %c32 step %c1_2 iter_args(%arg4 = %cst_1) -> (f32) {
+          %2 = memref.load %arg0[%c1, %arg3] : memref<32x32xf32>
+          %3 = memref.load %arg1[%arg3, %c1_0] : memref<32x32xf32>
+          %4 = math.fma %2, %3, %arg4 : f32
+          scf.yield %4 : f32
+        }
+        %1 = arith.addf %0, %cst : f32
+        memref.store %1, %arg2[%c1, %c1_0] : memref<32x32xf32>
         return
       }
     }

@@ -111,7 +111,7 @@ def find_ops(op, pred: Callable[[OpView, Operation, Module], bool], single=False
 
     matching = []
 
-    def find(op):
+    def find(op: Operation):
         if single and len(matching):
             return
         for r in op.regions:

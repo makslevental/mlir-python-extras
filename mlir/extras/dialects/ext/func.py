@@ -1,6 +1,10 @@
+import inspect
 import sys
+from dataclasses import dataclass
 from functools import update_wrapper
+from typing import Optional, List, Union, TypeVar
 
+from ...ast.util import copy_func
 from ...meta import op_region_builder
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects._ods_common import get_op_result_or_op_results
@@ -121,6 +125,12 @@ def prep_func_types(sig, return_types):
     return input_types, return_types, user_locs
 
 
+@dataclass
+class ReifiedTypeParams:
+    name: str
+    val: object
+
+
 class FuncBase:
     def __init__(
         self,
@@ -128,14 +138,16 @@ class FuncBase:
         func_op_ctor,
         return_op_ctor,
         call_op_ctor,
+        *,
         return_types=None,
         sym_visibility=None,
         arg_attrs=None,
         res_attrs=None,
         func_attrs=None,
+        generics: List[Union[TypeVar, ReifiedTypeParams]] = None,
+        qualname=None,
         loc=None,
         ip=None,
-        qualname=None,
     ):
         assert inspect.isfunction(body_builder), body_builder
         assert inspect.isclass(func_op_ctor), func_op_ctor
@@ -149,6 +161,7 @@ class FuncBase:
         self.call_op_ctor = call_op_ctor
         self.arg_attrs = arg_attrs
         self.res_attrs = res_attrs
+        self.generics = generics
         self.loc = loc
         self.ip = ip
         self._func_op = None
@@ -192,9 +205,17 @@ class FuncBase:
         if self._func_op is None or decl or force:
             if len(call_args) == 0:
                 input_types = self.input_types[:]
+                locals = {}
+                if self.generics is not None:
+                    for t in self.generics:
+                        if not isinstance(t, ReifiedTypeParams):
+                            raise RuntimeError(f"{t=} must reified")
+                        locals[t.name] = t.val
                 for i, v in enumerate(input_types):
                     if isinstance(v, str):
-                        input_types[i] = Type(eval(v, self.body_builder.__globals__))
+                        input_types[i] = Type(
+                            eval(v, self.body_builder.__globals__, locals)
+                        )
                     elif isalambda(v):
                         input_types[i] = v()
             else:
@@ -245,6 +266,42 @@ class FuncBase:
     def __call__(self, *call_args):
         return call(self.emit(*call_args), call_args)
 
+    def __getitem__(self, item):
+        if self.generics is None:
+            raise RuntimeError(
+                "using a generic call requires the func be generic (i.e., have type_params)"
+            )
+        # this also copies the function so that the original body_builder remains "generic" (via its closure)
+        body_builder = copy_func(self.body_builder)
+        reified_type_params = []
+        for i, t in enumerate(self.generics):
+            if t.__bound__ is not None:
+                r = ReifiedTypeParams(t.__name__, t.__bound__)
+            else:
+                r = ReifiedTypeParams(t.__name__, item[i])
+            reified_type_params.append(r)
+            if r.name in body_builder.__code__.co_freevars:
+                free_i = body_builder.__code__.co_freevars.index(r.name)
+                body_builder.__closure__[free_i].cell_contents = r.val
+
+        generics = tuple(reified_type_params)
+
+        return FuncBase(
+            body_builder,
+            self.func_op_ctor,
+            self.return_op_ctor,
+            self.call_op_ctor,
+            return_types=self.return_types,
+            sym_visibility=self.sym_visibility,
+            arg_attrs=self.arg_attrs,
+            res_attrs=self.res_attrs,
+            func_attrs=self.func_attrs,
+            generics=generics,
+            qualname=self.qualname,
+            loc=self.loc,
+            ip=self.ip,
+        )
+
 
 @make_maybe_no_args_decorator
 def func(
@@ -255,12 +312,21 @@ def func(
     res_attrs=None,
     func_attrs=None,
     emit=False,
+    generics=None,
     loc=None,
     ip=None,
 ) -> FuncBase:
     if loc is None:
         loc = get_user_code_loc()
-    func = FuncBase(
+    if hasattr(f, "__type_params__") and f.__type_params__:
+        assert generics is None, "generics XOR type params"
+        generics = f.__type_params__
+    if generics is not None:
+        for i, g in enumerate(generics):
+            if isinstance(g, str):
+                generics[i] = TypeVar(g)
+
+    func_ = FuncBase(
         body_builder=f,
         func_op_ctor=FuncOp.__base__,
         return_op_ctor=ReturnOp,
@@ -269,10 +335,11 @@ def func(
         arg_attrs=arg_attrs,
         res_attrs=res_attrs,
         func_attrs=func_attrs,
+        generics=generics,
         loc=loc,
         ip=ip,
     )
-    func = update_wrapper(func, f)
+    func_ = update_wrapper(func_, f)
     if emit:
-        func.emit()
-    return func
+        func_.emit()
+    return func_

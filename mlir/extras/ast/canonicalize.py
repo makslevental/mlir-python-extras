@@ -4,16 +4,17 @@ import enum
 import inspect
 import logging
 import types
+import warnings
 from abc import ABC, abstractmethod
 from dis import findlinestarts
 from opcode import opmap
 from types import CodeType
-from typing import List, Union
+from typing import List, Union, Sequence
 
 import astunparse
 from bytecode import ConcreteBytecode
 
-from ..ast.util import get_module_cst, copy_func
+from ..ast.util import get_module_cst
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,39 @@ def transform_func(f, *transformer_ctors: type(Transformer)):
     return module
 
 
+# TODO(max): unify with `replace_closure` in ast/utils.py
+def insert_closed_vars(f, module):
+    enclosing_mod = ast.FunctionDef(
+        name="enclosing_mod",
+        args=ast.arguments(
+            posonlyargs=[], args=[], kwonlyargs=[], kw_defaults=[], defaults=[]
+        ),
+        body=[],
+        decorator_list=[],
+    )
+    for var in f.__code__.co_freevars:
+        enclosing_mod.body.append(
+            ast.Assign(
+                targets=[ast.Name(var, ctx=ast.Store())],
+                value=ast.Constant(None, kind="None"),
+            )
+        )
+    enclosing_mod.body.extend(module.body)
+    module.body = [enclosing_mod]
+    return module
+
+
+def find_func_in_code_object(co, func_name):
+    for c in co.co_consts:
+        if type(c) is CodeType:
+            if c.co_name == func_name:
+                return c
+            else:
+                f = find_func_in_code_object(c, func_name)
+                if f is not None:
+                    return f
+
+
 def transform_ast(
     f, transformers: List[Union[type(Transformer), type(StrictTransformer)]] = None
 ):
@@ -66,21 +100,23 @@ def transform_ast(
         return f
 
     module = transform_func(f, *transformers)
+    if f.__closure__:
+        module = insert_closed_vars(f, module)
     module = ast.fix_missing_locations(module)
     module = ast.increment_lineno(module, f.__code__.co_firstlineno - 1)
     module_code_o = compile(module, f.__code__.co_filename, "exec")
-    new_f_code_o = next(
-        c
-        for c in module_code_o.co_consts
-        if type(c) is CodeType and c.co_name == f.__name__
-    )
+    new_f_code_o = find_func_in_code_object(module_code_o, f.__name__)
     n_lines = len(inspect.getsource(f).splitlines())
     line_starts = list(findlinestarts(new_f_code_o))
-    assert (
+    if (
         max([l for _, l in line_starts]) - min([l for _, l in line_starts]) + 1
-        <= n_lines
-    ), f"something went wrong with the line numbers for the rewritten/canonicalized function"
-    return copy_func(f, new_f_code_o)
+        > n_lines
+    ) or (f.__code__.co_firstlineno != min([l for _, l in line_starts])):
+        warnings.warn(
+            "something went wrong with the line numbers for the rewritten/canonicalized function"
+        )
+    f.__code__ = new_f_code_o
+    return f
 
 
 # this is like this because i couldn't figure out how to subclass
@@ -117,7 +153,8 @@ def patch_bytecode(f, patchers: List[type(BytecodePatcher)] = None):
     for patcher in patchers:
         code = patcher(context).patch_bytecode(code, f)
 
-    return copy_func(f, code.to_code())
+    f.__code__ = code.to_code()
+    return f
 
 
 class Canonicalizer(ABC):
@@ -132,10 +169,18 @@ class Canonicalizer(ABC):
         pass
 
 
-def canonicalize(*, using: Canonicalizer):
+def canonicalize(*, using: Union[Canonicalizer, Sequence[Canonicalizer]]):
+    if not isinstance(using, Sequence):
+        using = [using]
+    cst_transformers = []
+    bytecode_patchers = []
+    for u in using:
+        cst_transformers.extend(u.cst_transformers)
+        bytecode_patchers.extend(u.bytecode_patchers)
+
     def wrapper(f):
-        f = transform_ast(f, using.cst_transformers)
-        f = patch_bytecode(f, using.bytecode_patchers)
+        f = transform_ast(f, cst_transformers)
+        f = patch_bytecode(f, bytecode_patchers)
         return f
 
     return wrapper

@@ -1,12 +1,21 @@
+import ast
 import operator
 from abc import abstractmethod
 from copy import deepcopy
 from functools import cached_property, partialmethod
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
+from bytecode import ConcreteBytecode
+
+from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
+from ...ast.util import ast_call
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import arith as arith_dialect, complex as complex_dialect
+from ....dialects import (
+    arith as arith_dialect,
+    complex as complex_dialect,
+    math as math_dialect,
+)
 from ....dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
     _arith_cmpipredicateattr,
@@ -489,3 +498,45 @@ class Scalar(ArithValue):
 
 for t in [BF16Type, F16Type, F32Type, F64Type, IndexType, IntegerType, ComplexType]:
     register_value_caster(t.static_typeid)(Scalar)
+
+_FMA_BUILDER_NAME = "math_dialect_fma"
+
+
+class CanonicalizeFMA(StrictTransformer):
+    def visit_AugAssign(
+        self, updated_node: ast.AugAssign
+    ) -> Union[ast.AugAssign, ast.Assign]:
+        updated_node: ast.AugAssign = self.generic_visit(updated_node)
+        if (
+            isinstance(updated_node.op, ast.Add)
+            and isinstance(updated_node.value, ast.BinOp)
+            and isinstance(updated_node.value.op, ast.Mult)
+        ):
+            updated_node = ast.Assign(
+                targets=[updated_node.target],
+                value=ast_call(
+                    _FMA_BUILDER_NAME,
+                    [
+                        updated_node.value.left,
+                        updated_node.value.right,
+                        ast.Name(updated_node.target.id, ast.Load()),
+                    ],
+                ),
+            )
+
+        return updated_node
+
+
+class ArithPatchByteCode(BytecodePatcher):
+    def patch_bytecode(self, code: ConcreteBytecode, f):
+        # TODO(max): this is bad and should be in the closure rather than as a global
+        f.__globals__[_FMA_BUILDER_NAME] = math_dialect.fma
+        return code
+
+
+class ArithCanonicalizer(Canonicalizer):
+    cst_transformers = [CanonicalizeFMA]
+    bytecode_patchers = [ArithPatchByteCode]
+
+
+canonicalizer = ArithCanonicalizer()

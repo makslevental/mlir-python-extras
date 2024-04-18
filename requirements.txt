@@ -5,3 +5,4 @@ bytecode
 inflection
 numpy
 astunparse
+cloudpickle

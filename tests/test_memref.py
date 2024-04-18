@@ -2,11 +2,12 @@ import platform
 import re
 from textwrap import dedent
 
+import mlir.extras.types as T
 import numpy as np
 import pytest
-
-import mlir.extras.types as T
 from mlir.dialects.memref import subview
+from mlir.ir import MLIRError, Type
+
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext import memref
 from mlir.extras.dialects.ext.arith import Scalar, constant
@@ -22,10 +23,8 @@ from mlir.extras.dialects.ext.scf import (
     yield_,
     canonicalizer,
 )
-
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from mlir.ir import MLIRError, Type
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -615,7 +614,6 @@ def test_memref_global_windows(ctx: MLIRContext):
     weight4 = global_(np.ones((k,), dtype=np.float64))
     weight5 = memref.global_(np.ones((k,), dtype=np.int16))
     weight6 = memref.global_(np.ones((k,), dtype=np.float16))
-    print(ctx.module)
 
     correct = dedent(
         """\
@@ -645,7 +643,6 @@ def test_memref_global_non_windows(ctx: MLIRContext):
     weight4 = global_(np.ones((k,), dtype=np.float64))
     weight5 = memref.global_(np.ones((k,), dtype=np.int16))
     weight6 = memref.global_(np.ones((k,), dtype=np.float16))
-    print(ctx.module)
 
     correct = dedent(
         """\

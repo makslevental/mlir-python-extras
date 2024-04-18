@@ -1,6 +1,6 @@
 import inspect
 from functools import partial
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union
 
 from .arith import constant
 from .func import FuncBase
@@ -13,6 +13,7 @@ from ...util import (
     _get_previous_frame_idents,
     get_user_code_loc,
     make_maybe_no_args_decorator,
+    find_ops,
 )
 from ....dialects._gpu_ops_gen import _Dialect
 from ....dialects._ods_common import (
@@ -27,19 +28,63 @@ from ....ir import (
     Attribute,
     Context,
     InsertionPoint,
+    ShapedType,
     Type,
     UnitAttr,
     Value,
     register_attribute_builder,
 )
 
+_block_id = block_id
+_thread_id = thread_id
+_block_dim = block_dim
 
-def block_id_x():
-    return block_id("x")
+
+class classproperty(property):
+    def __get__(self, owner_self, owner_cls):
+        return self.fget(owner_cls)
 
 
-def block_id_y():
-    return block_id("y")
+class block_id:
+    @classproperty
+    def x(cls):
+        return _block_id("x")
+
+    @classproperty
+    def y(cls):
+        return _block_id("y")
+
+    @classproperty
+    def z(cls):
+        return _block_id("z")
+
+
+class block_dim:
+    @classproperty
+    def x(cls):
+        return _block_dim("x")
+
+    @classproperty
+    def y(cls):
+        return _block_dim("y")
+
+    @classproperty
+    def z(cls):
+        return _block_dim("z")
+
+
+class thread_id:
+    @classproperty
+    def x(cls):
+        return _thread_id("x")
+
+    @classproperty
+    def y(cls):
+        return _thread_id("y")
+
+    @classproperty
+    def z(cls):
+        return _thread_id("z")
 
 
 def gpu_async_token():
@@ -87,6 +132,10 @@ def memory_space_attr(address_space: AddressSpace):
     return device_mapping_attr("memory_space", address_space)
 
 
+def smem_space():
+    return memory_space_attr(AddressSpace.Workgroup)
+
+
 @_cext.register_operation(_Dialect, replace=True)
 class GPUModuleOp(GPUModuleOp):
     def __init__(
@@ -96,6 +145,9 @@ class GPUModuleOp(GPUModuleOp):
             loc = get_user_code_loc()
         if targets is None:
             targets = []
+        for i, t in enumerate(targets):
+            if isinstance(t, str):
+                targets[i] = Attribute.parse(t)
         _ods_context = get_default_loc_context(loc)
         super().__init__(targets=ArrayAttr.get(targets), loc=loc, ip=ip)
         self.regions[0].blocks.append()
@@ -113,6 +165,9 @@ class GPUModuleOp(GPUModuleOp):
         return self.regions[0].blocks[0]
 
 
+module = region_op(GPUModuleOp, terminator=lambda *_args: module_end())
+
+
 class GPUModuleMeta(ModuleMeta):
     @classmethod
     def __prepare__(cls, name, bases, **kwargs):
@@ -120,10 +175,6 @@ class GPUModuleMeta(ModuleMeta):
         if loc is None:
             loc = get_user_code_loc()
         targets = kwargs.pop("targets", None)
-        if targets is not None:
-            for i, t in enumerate(targets):
-                if isinstance(t, str):
-                    targets[i] = Attribute.parse(t)
         gpu_module_op = GPUModuleOp(
             sym_name=name,
             targets=targets,
@@ -248,7 +299,7 @@ def launch_(
     return launch_op
 
 
-launch = region_op(launch_, terminator=lambda *args: TerminatorOp())
+launch = region_op(launch_, terminator=lambda *_args: TerminatorOp())
 
 
 class LaunchFuncOp(LaunchFuncOp):
@@ -312,9 +363,11 @@ class GPUFunc(FuncBase):
         loc = get_user_code_loc()
         return get_op_result_or_op_results(
             LaunchFuncOp(
-                [self.qualname, self.func_name]
-                if self.qualname is not None
-                else [self.func_name],
+                (
+                    [self.qualname, self.func_name]
+                    if self.qualname is not None
+                    else [self.func_name]
+                ),
                 grid_size,
                 block_size,
                 kernel_operands,
@@ -327,8 +380,8 @@ class GPUFunc(FuncBase):
 
 
 class Grid:
-    def __init__(self, func):
-        self.func = func
+    def __init__(self, func_):
+        self.func = func_
 
     def __getitem__(self, item):
         previous_frame = inspect.currentframe().f_back
@@ -354,20 +407,25 @@ class Grid:
 
 
 @make_maybe_no_args_decorator
-def gpu_func(
+def func(
     f,
     *,
     sym_visibility=None,
     arg_attrs=None,
     res_attrs=None,
     func_attrs=None,
-    emit=True,
+    emit=False,
+    generics=None,
     loc=None,
     ip=None,
+    emit_grid=False,
 ) -> Grid:
     if loc is None:
         loc = get_user_code_loc()
-    func = GPUFunc(
+    if hasattr(f, "__type_params__") and f.__type_params__:
+        assert generics is None, "generics XOR type params"
+        generics = f.__type_params__
+    func_ = GPUFunc(
         body_builder=f,
         func_op_ctor=GPUFuncOp,
         return_op_ctor=ReturnOp,
@@ -376,13 +434,16 @@ def gpu_func(
         arg_attrs=arg_attrs,
         res_attrs=res_attrs,
         func_attrs=func_attrs,
+        generics=generics,
         loc=loc,
         ip=ip,
     )
-    func.__name__ = f.__name__
+    func_.__name__ = f.__name__
     if emit:
-        func.emit()
-    return Grid(func)
+        func_.emit()
+    if emit_grid:
+        func_ = Grid(func_)
+    return func_
 
 
 def all_reduce__(value: Value, *, op=None, uniform=None, loc=None, ip=None):
@@ -409,3 +470,89 @@ def wait(async_dependencies: Optional[List[Value]] = None, *, loc=None, ip=None)
     return get_op_result_or_op_results(
         WaitOp(async_token, async_dependencies, loc=loc, ip=ip)
     )
+
+
+_alloc = alloc
+
+
+def alloc(
+    sizes: Union[int, Value],
+    element_type: Type = None,
+    async_dependencies=None,
+    dynamic_sizes=None,
+    symbol_operands=None,
+    host_shared=None,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
+    if symbol_operands is None:
+        symbol_operands = []
+    if dynamic_sizes is None:
+        dynamic_sizes = []
+    if async_dependencies is None:
+        async_dependencies = []
+    async_token = None
+    if len(async_dependencies):
+        async_token = gpu_async_token()
+
+    memref_shape = []
+    for s in sizes:
+        if isinstance(s, int):
+            memref_shape.append(s)
+        else:
+            memref_shape.append(ShapedType.get_dynamic_size())
+            dynamic_sizes.append(s)
+    memref = T.memref(*memref_shape, element_type)
+    return _alloc(
+        memref,
+        async_token,
+        async_dependencies,
+        dynamic_sizes,
+        symbol_operands,
+        host_shared=host_shared,
+        loc=loc,
+        ip=ip,
+    )
+
+
+_dealloc = dealloc
+
+
+def dealloc(memref, async_dependencies=None, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    if async_dependencies is None:
+        async_dependencies = []
+    async_token = None
+    if len(async_dependencies):
+        async_token = gpu_async_token()
+    return _dealloc(async_token, async_dependencies, memref, loc=loc, ip=ip)
+
+
+_memcpy = memcpy
+
+
+def memcpy(dst, src, async_dependencies=None, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    if async_dependencies is None:
+        async_dependencies = []
+    async_token = None
+    if len(async_dependencies):
+        async_token = gpu_async_token()
+    return _memcpy(
+        async_token,
+        async_dependencies,
+        dst,
+        src,
+        loc=loc,
+        ip=ip,
+    )
+
+
+def get_compile_object_bytes(compiled_module):
+    binary = find_ops(compiled_module, lambda o: isinstance(o, BinaryOp), single=True)
+    objects = list(map(ObjectAttr, binary.objects))
+    return objects[-1].object
