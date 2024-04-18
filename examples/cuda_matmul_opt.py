@@ -30,7 +30,7 @@ from mlir.extras.util import find_ops, enable_debug as enable_debug
 _ = memref
 
 
-def build_cuda_func(compiled_module, kernel_name="mat_product_kernel"):
+def build_cuda_func(compiled_module, kernel_name="naive"):
     ptx = get_compile_object_bytes(compiled_module)
     mod = Module()
     mod.load(ptx)
@@ -50,18 +50,34 @@ def time_cuda():
 
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
-def mat_product_kernel[
+def naive[
     M, K, N, dtype
 ](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
-    x = block_dim.x * block_id.x + thread_id.x
-    y = block_dim.y * block_id.y + thread_id.y
-
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
+
+    x = block_dim.x * block_id.x + thread_id.x
+    y = block_dim.y * block_id.y + thread_id.y
     for k, tmp in range_(K, iter_args=[tmp]):
         tmp += A[x, k] * B[k, y]
         tmp = yield tmp
     C[x, y] = tmp + one
+
+
+@gpu.func
+@canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+def naive_global_mem_coalesce[
+    M, K, N, dtype, BLOCK_SIZE
+](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    one = arith.constant(1.0, type=dtype)
+    tmp = arith.constant(0, type=dtype)
+
+    c_row = block_id.x * BLOCK_SIZE + (thread_id.x / BLOCK_SIZE)
+    c_col = block_id.y * BLOCK_SIZE + (thread_id.x % BLOCK_SIZE)
+    for k, tmp in range_(K, iter_args=[tmp]):
+        tmp += A[c_row, k] * B[k, c_col]
+        tmp = yield tmp
+    C[c_row, c_col] = tmp + one
 
 
 def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=50):
@@ -70,9 +86,9 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=50):
 
     gpu.set_container_module(ctx.module)
 
-    @gpu.module("naive", ["#nvvm.target"])
-    def _():
-        mat_product_kernel[M, K, N, dtype].emit()
+    @gpu.module("matmul", ["#nvvm.target"])
+    def matmul_mod():
+        naive_global_mem_coalesce[M, K, N, dtype, BLOCK_SIZE].emit()
 
     # print(ctx.module)
     ctx.module.operation.verify()
@@ -92,7 +108,8 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=50):
             },
         ),
     )
-    cuda_func = build_cuda_func(compiled_module)
+    kernel_name = matmul_mod.opview.body.operations[0].attributes["sym_name"].value
+    cuda_func = build_cuda_func(compiled_module, kernel_name)
     # print(compiled_module)
     # print_ptx(compiled_module)
 
@@ -104,21 +121,25 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=50):
     dB = cp.asarray(B)
     dC = cp.asarray(C)
 
+    grid_dims = (math.ceil(M / BLOCK_SIZE), math.ceil(N / BLOCK_SIZE), 1)
+    # naive
+    # block_dims = (BLOCK_SIZE, BLOCK_SIZE, 1)
+    # global coalesce
+    block_dims = (BLOCK_SIZE * BLOCK_SIZE, 1, 1)
+
+    cuda_func(grid_dims, block_dims, (dA.data.ptr, dB.data.ptr, dC.data.ptr))
+    if not cp.array_equal(dC, dA @ dB + 1):
+        print(dA @ dB + 1)
+        print(dC)
+        assert False
+
     with time_cuda() as (start_gpu, end_gpu):
         for _ in range(repeat_times):
-            cuda_func(
-                (math.ceil(M / BLOCK_SIZE), math.ceil(N / BLOCK_SIZE), 1),
-                (BLOCK_SIZE, BLOCK_SIZE, 1),
-                (dA.data.ptr, dB.data.ptr, dC.data.ptr),
-            )
+            cuda_func(grid_dims, block_dims, (dA.data.ptr, dB.data.ptr, dC.data.ptr))
 
     t_gpu = cp.cuda.get_elapsed_time(start_gpu, end_gpu)
 
     print(f"t_gpu={t_gpu / repeat_times:.6f} ms")
-
-    if not cp.array_equal(dC, dA @ dB + 1):
-        print(dA @ dB + 1)
-        print(dC)
 
 
 for s in [128, 256, 512, 1024]:

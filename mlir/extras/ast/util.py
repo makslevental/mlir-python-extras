@@ -32,8 +32,7 @@ def ast_call(name, args=None, keywords=None):
 
 
 def get_module_cst(f):
-    lines, _lnum = inspect.getsourcelines(f)
-    f_src = dedent("".join(list(dropwhile(lambda l: l.startswith("@"), lines))))
+    f_src = dedent(inspect.getsource(f))
     tree = ast.parse(f_src)
     assert isinstance(
         tree.body[0], ast.FunctionDef

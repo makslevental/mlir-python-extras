@@ -337,7 +337,8 @@ def _binary_op(
     elif _is_integer_like_type(lhs.dtype):
         # TODO(max): this needs to all be regularized
         if "div" in op.lower() or "rem" in op.lower():
-            if not lhs.dtype.is_signless:
+            # TODO(max): should be using index ops here
+            if not _is_index_type(lhs.dtype) and not lhs.dtype.is_signless:
                 raise ValueError(f"{op.lower()}i not supported for {lhs=}")
             if op == "Floordiv":
                 op = "FloorDiv"
