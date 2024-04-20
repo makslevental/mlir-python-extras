@@ -5,4 +5,4 @@ bytecode
 inflection
 numpy
 astunparse
-cloudpickle
+cloudpickle>=3.0.0

@@ -293,7 +293,7 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=None):
     if "shared" in kernel_name:
         shared_mem = 2 * BLOCK_SIZE * BLOCK_SIZE * npy_dtype().nbytes
     else:
-        shared_mem = None
+        shared_mem = 0
 
     cuda_func(
         grid_dims,
