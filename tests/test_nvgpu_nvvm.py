@@ -100,7 +100,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     def print_lhs_as_memref_32(lhs: T.memref(M, K, T.f16())):
         M = memref.dim(lhs, 0)
         K = memref.dim(lhs, 1)
-        tmp_alloc = memref.alloc(M, K, T.f32())
+        tmp_alloc = memref.alloc((M, K), T.f32())
         for m in range_(0, M):
             for k in range_(0, K):
                 f16 = lhs[m, k]
@@ -116,7 +116,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     def print_rhs_as_memref_32(rhs: T.memref(K, N, T.f16())):
         K = memref.dim(rhs, 0)
         N = memref.dim(rhs, 1)
-        tmp_alloc = memref.alloc(K, N, T.f32())
+        tmp_alloc = memref.alloc((K, N), T.f32())
         for k in range_(0, K):
             for n in range_(0, N):
                 f16 = rhs[k, n]
@@ -134,7 +134,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
         c1 = arith.constant(1, index=True)
         M = memref.dim(res, c0)
         N = memref.dim(res, c1)
-        tmp_alloc = memref.alloc(M, N, T.f32())
+        tmp_alloc = memref.alloc((M, N), T.f32())
         for m in range_(0, M):
             for n in range_(0, N):
                 f16 = res[m, n]
@@ -148,9 +148,9 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     @func
     @canonicalize(using=scf.canonicalizer)
     def main():
-        lhs = memref.alloc(M, K, T.f16())
-        rhs = memref.alloc(K, N, T.f16())
-        res = memref.alloc(M, N, T.f16())
+        lhs = memref.alloc((M, K), T.f16())
+        rhs = memref.alloc((K, N), T.f16())
+        res = memref.alloc((M, N), T.f16())
 
         M_ = memref.dim(res, 0)
         N_ = memref.dim(res, 1)
@@ -449,7 +449,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
     def print_lhs_as_memref_32(lhs: T.memref(M, K, T.f16())):
         M = memref.dim(lhs, 0)
         K = memref.dim(lhs, 1)
-        tmp_alloc = memref.alloc(M, K, T.f32())
+        tmp_alloc = memref.alloc((M, K), T.f32())
         for m in range_(0, M):
             for k in range_(0, K):
                 f16 = lhs[m, k]
@@ -465,7 +465,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
     def print_rhs_as_memref_32(rhs: T.memref(K, N, T.f16())):
         K = memref.dim(rhs, 0)
         N = memref.dim(rhs, 1)
-        tmp_alloc = memref.alloc(K, N, T.f32())
+        tmp_alloc = memref.alloc((K, N), T.f32())
         for k in range_(0, K):
             for n in range_(0, N):
                 f16 = rhs[k, n]
@@ -483,7 +483,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
         c1 = arith.constant(1, index=True)
         M = memref.dim(res, c0)
         N = memref.dim(res, c1)
-        tmp_alloc = memref.alloc(M, N, T.f32())
+        tmp_alloc = memref.alloc((M, N), T.f32())
         for m in range_(0, M):
             for n in range_(0, N):
                 f16 = res[m, n]
@@ -497,9 +497,9 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
     @func
     @canonicalize(using=scf.canonicalizer)
     def main():
-        lhs = memref.alloc(M, K, T.f16())
-        rhs = memref.alloc(K, N, T.f16())
-        res = memref.alloc(M, N, T.f16())
+        lhs = memref.alloc((M, K), T.f16())
+        rhs = memref.alloc((K, N), T.f16())
+        res = memref.alloc((M, N), T.f16())
 
         M_ = memref.dim(res, 0)
         N_ = memref.dim(res, 1)

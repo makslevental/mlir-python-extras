@@ -6,7 +6,7 @@ from typing import Tuple
 import astpretty
 import pytest
 
-from mlir.extras.ast.canonicalize import transform_func
+from mlir.extras.ast.canonicalize import transform_func, insert_closed_vars
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.scf import (
     CanonicalizeElIfs,
@@ -14,6 +14,7 @@ from mlir.extras.dialects.ext.scf import (
     ReplaceYieldWithSCFYield,
     InsertEmptyYield,
     CanonicalizeWhile,
+    canonicalizer,
 )
 
 # noinspection PyUnresolvedReferences
@@ -4333,4 +4334,267 @@ def test_while_canonicalize(ctx: MLIRContext):
     """
     )
 
+    assert correct.strip() == dump
+
+
+def test_decorators_and_closed_vars(ctx: MLIRContext):
+
+    dtype = None
+    K = None
+
+    def mat_product_kernel(
+        A: "T.memref(M, K, dtype)",
+        B: "T.memref(K, N, dtype)",
+        C: "T.memref(M, N, dtype)",
+    ):
+        dtype, K
+
+    mod = transform_func(mat_product_kernel, *canonicalizer.cst_transformers)
+    mod = insert_closed_vars(mat_product_kernel, mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=1,
+                name='enclosing_mod',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=1,
+                        targets=[Name(lineno=1, id='K')],
+                        value=Constant(lineno=1, value=None),
+                    ),
+                    Assign(
+                        lineno=1,
+                        targets=[Name(lineno=1, id='dtype')],
+                        value=Constant(lineno=1, value=None),
+                    ),
+                    FunctionDef(
+                        lineno=1,
+                        name='mat_product_kernel',
+                        args=arguments(
+                            posonlyargs=[],
+                            args=[
+                                arg(
+                                    lineno=2,
+                                    arg='A',
+                                    annotation=Constant(lineno=2, value='T.memref(M, K, dtype)'),
+                                ),
+                                arg(
+                                    lineno=3,
+                                    arg='B',
+                                    annotation=Constant(lineno=3, value='T.memref(K, N, dtype)'),
+                                ),
+                                arg(
+                                    lineno=4,
+                                    arg='C',
+                                    annotation=Constant(lineno=4, value='T.memref(M, N, dtype)'),
+                                ),
+                            ],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[],
+                        ),
+                        body=[
+                            Expr(
+                                lineno=6,
+                                value=Tuple(
+                                    lineno=6,
+                                    elts=[
+                                        Name(lineno=6, id='dtype'),
+                                        Name(lineno=6, id='K'),
+                                    ],
+                                ),
+                            ),
+                        ],
+                        returns=None,
+                        type_params=[],
+                    ),
+                ],
+                returns=None,
+                type_params=[],
+            ),
+        ],
+    )
+    """
+    )
+    assert correct.strip() == dump
+
+    def dummy1(f):
+        return f
+
+    def dummy2(f):
+        return f
+
+    @dummy1
+    def mat_product_kernel(
+        A: "T.memref(M, K, dtype)",
+        B: "T.memref(K, N, dtype)",
+        C: "T.memref(M, N, dtype)",
+    ):
+        dtype, K
+
+    mod = transform_func(mat_product_kernel, *canonicalizer.cst_transformers)
+    mod = insert_closed_vars(mat_product_kernel, mod)
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=2,
+                name='enclosing_mod',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='K')],
+                        value=Constant(lineno=2, value=None),
+                    ),
+                    Assign(
+                        lineno=2,
+                        targets=[Name(lineno=2, id='dtype')],
+                        value=Constant(lineno=2, value=None),
+                    ),
+                    FunctionDef(
+                        lineno=2,
+                        name='mat_product_kernel',
+                        args=arguments(
+                            posonlyargs=[],
+                            args=[
+                                arg(
+                                    lineno=3,
+                                    arg='A',
+                                    annotation=Constant(lineno=3, value='T.memref(M, K, dtype)'),
+                                ),
+                                arg(
+                                    lineno=4,
+                                    arg='B',
+                                    annotation=Constant(lineno=4, value='T.memref(K, N, dtype)'),
+                                ),
+                                arg(
+                                    lineno=5,
+                                    arg='C',
+                                    annotation=Constant(lineno=5, value='T.memref(M, N, dtype)'),
+                                ),
+                            ],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[],
+                        ),
+                        body=[
+                            Expr(
+                                lineno=7,
+                                value=Tuple(
+                                    lineno=7,
+                                    elts=[
+                                        Name(lineno=7, id='dtype'),
+                                        Name(lineno=7, id='K'),
+                                    ],
+                                ),
+                            ),
+                        ],
+                        returns=None,
+                        type_params=[],
+                    ),
+                ],
+                returns=None,
+                type_params=[],
+            ),
+        ],
+    )
+    """
+    )
+    assert correct.strip() == dump
+
+    @dummy2
+    @dummy1
+    def mat_product_kernel(
+        A: "T.memref(M, K, dtype)",
+        B: "T.memref(K, N, dtype)",
+        C: "T.memref(M, N, dtype)",
+    ):
+        dtype, K
+
+    mod = transform_func(mat_product_kernel, *canonicalizer.cst_transformers)
+    mod = insert_closed_vars(mat_product_kernel, mod)
+
+    dump = astpretty.pformat(mod, show_offsets=True)
+    correct = dedent(
+        """\
+    Module(
+        body=[
+            FunctionDef(
+                lineno=3,
+                name='enclosing_mod',
+                args=arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[]),
+                body=[
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='K')],
+                        value=Constant(lineno=3, value=None),
+                    ),
+                    Assign(
+                        lineno=3,
+                        targets=[Name(lineno=3, id='dtype')],
+                        value=Constant(lineno=3, value=None),
+                    ),
+                    FunctionDef(
+                        lineno=3,
+                        name='mat_product_kernel',
+                        args=arguments(
+                            posonlyargs=[],
+                            args=[
+                                arg(
+                                    lineno=4,
+                                    arg='A',
+                                    annotation=Constant(lineno=4, value='T.memref(M, K, dtype)'),
+                                ),
+                                arg(
+                                    lineno=5,
+                                    arg='B',
+                                    annotation=Constant(lineno=5, value='T.memref(K, N, dtype)'),
+                                ),
+                                arg(
+                                    lineno=6,
+                                    arg='C',
+                                    annotation=Constant(lineno=6, value='T.memref(M, N, dtype)'),
+                                ),
+                            ],
+                            vararg=None,
+                            kwonlyargs=[],
+                            kw_defaults=[],
+                            kwarg=None,
+                            defaults=[],
+                        ),
+                        body=[
+                            Expr(
+                                lineno=8,
+                                value=Tuple(
+                                    lineno=8,
+                                    elts=[
+                                        Name(lineno=8, id='dtype'),
+                                        Name(lineno=8, id='K'),
+                                    ],
+                                ),
+                            ),
+                        ],
+                        returns=None,
+                        type_params=[],
+                    ),
+                ],
+                returns=None,
+                type_params=[],
+            ),
+        ],
+    )
+    """
+    )
     assert correct.strip() == dump

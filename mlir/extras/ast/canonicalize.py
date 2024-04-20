@@ -14,7 +14,7 @@ from typing import List, Union, Sequence
 import astunparse
 from bytecode import ConcreteBytecode
 
-from ..ast.util import get_module_cst
+from ..ast.util import get_module_cst, set_lineno
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,7 @@ def insert_closed_vars(f, module):
         ),
         body=[],
         decorator_list=[],
+        type_params=[],
     )
     for var in f.__code__.co_freevars:
         enclosing_mod.body.append(
@@ -77,6 +78,9 @@ def insert_closed_vars(f, module):
                 value=ast.Constant(None, kind="None"),
             )
         )
+    enclosing_mod = set_lineno(enclosing_mod, module.body[0].lineno)
+    enclosing_mod = ast.fix_missing_locations(enclosing_mod)
+
     enclosing_mod.body.extend(module.body)
     module.body = [enclosing_mod]
     return module
