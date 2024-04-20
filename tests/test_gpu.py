@@ -10,16 +10,18 @@ from mlir.dialects.math import fma
 from mlir.dialects.memref import cast
 
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import arith, scf
-from mlir.extras.dialects.ext.arith import constant
+from mlir.extras.dialects.ext import scf
+from mlir.extras.dialects.ext import arith
 from mlir.extras.dialects.ext.func import func
+
+# noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext.gpu import (
     all_reduce,
     wait,
     thread_attr as thread,
-    block_id,
+    block_idx,
+    thread_idx,
     block_dim,
-    thread_id,
     GPUModuleMeta,
     func as gpu_func,
     set_container_module,
@@ -42,7 +44,7 @@ pytest.mark.usefixtures("ctx")
 
 def test_basic(ctx: MLIRContext):
     unranked_memref_f32 = T.memref(element_type=T.f32())
-    mem = cast(unranked_memref_f32, alloc(10, 10, element_type=T.f32()))
+    mem = cast(unranked_memref_f32, alloc((10, 10), element_type=T.f32()))
     host_register(mem)
 
     ctx.module.operation.verify()
@@ -59,9 +61,9 @@ def test_basic(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContext):
-    x = alloc(10, 10, T.f32())
-    y = alloc(10, 10, T.f32())
-    alpha = constant(1, T.f32())
+    x = alloc((10, 10), T.f32())
+    y = alloc((10, 10), T.f32())
+    alpha = arith.constant(1, T.f32())
 
     for i, j in forall(
         [1, 1],
@@ -113,8 +115,8 @@ def test_class(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id.x
-            y = block_id.y
+            x = block_idx.x
+            y = block_idx.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
@@ -156,16 +158,16 @@ def test_class_call(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id.x
-            y = block_id.y
+            x = block_idx.x
+            y = block_idx.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
             return
 
-    a = alloc(M, N, T.f32())
-    b = alloc(N, K, T.f32())
-    c = alloc(M, K, T.f32())
+    a = alloc((M, N), T.f32())
+    b = alloc((N, K), T.f32())
+    c = alloc((M, K), T.f32())
 
     # this is to avoid python 3.8 parser
     eval(
@@ -218,8 +220,8 @@ def test_class_call_from_func(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id.x
-            y = block_id.y
+            x = block_idx.x
+            y = block_idx.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
@@ -231,9 +233,9 @@ def test_class_call_from_func(ctx: MLIRContext):
     @func(emit=True)
     @canonicalize(using=scf.canonicalizer)
     def main():
-        a = alloc(M, N, T.f32())
-        b = alloc(N, K, T.f32())
-        c = alloc(M, K, T.f32())
+        a = alloc((M, N), T.f32())
+        b = alloc((N, K), T.f32())
+        c = alloc((M, K), T.f32())
 
         MyClass1
         eval(
@@ -291,8 +293,8 @@ def test_async_object(ctx: MLIRContext):
             B: T.memref(N, K, T.f32()),
             C: T.memref(M, K, T.f32()),
         ):
-            x = block_id.x
-            y = block_id.y
+            x = block_idx.x
+            y = block_idx.y
             a = A[x, y]
             b = B[x, y]
             C[x, y] = a * b
@@ -304,9 +306,9 @@ def test_async_object(ctx: MLIRContext):
     @func(emit=True)
     @canonicalize(using=scf.canonicalizer)
     def main():
-        a = alloc(M, N, T.f32())
-        b = alloc(N, K, T.f32())
-        c = alloc(M, K, T.f32())
+        a = alloc((M, N), T.f32())
+        b = alloc((N, K), T.f32())
+        c = alloc((M, K), T.f32())
 
         w = wait()
         stream = mlir_zero(llvm_ptr_t())
@@ -353,11 +355,17 @@ def test_async_object(ctx: MLIRContext):
 def test_launch_op(ctx: MLIRContext):
     @func(emit=True)
     def main():
-        data = alloc(2, 6, T.i32())
-        sum = alloc(2, T.i32())
+        data = alloc((2, 6), T.i32())
+        sum = alloc((2,), T.i32())
 
-        power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
-        odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
+        power_csts = [arith.constant(0)] + [arith.constant(2**i) for i in range(5)]
+        odd_csts = [
+            arith.constant(3),
+            arith.constant(6),
+            arith.constant(7),
+            arith.constant(10),
+            arith.constant(11),
+        ]
         cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
         cast_sum = cast(T.memref(T.i32()), sum)
@@ -443,11 +451,17 @@ def test_launch_op(ctx: MLIRContext):
 def test_launch_op_reduce_op(ctx: MLIRContext):
     @func(emit=True)
     def main():
-        data = alloc(2, 6, T.i32())
-        sum = alloc(2, T.i32())
+        data = alloc((2, 6), T.i32())
+        sum = alloc((2,), T.i32())
 
-        power_csts = [constant(0)] + [constant(2**i) for i in range(5)]
-        odd_csts = [constant(3), constant(6), constant(7), constant(10), constant(11)]
+        power_csts = [arith.constant(0)] + [arith.constant(2**i) for i in range(5)]
+        odd_csts = [
+            arith.constant(3),
+            arith.constant(6),
+            arith.constant(7),
+            arith.constant(10),
+            arith.constant(11),
+        ]
         cast_data = cast(T.memref(T.i32()), data)
         host_register(cast_data)
         cast_sum = cast(T.memref(T.i32()), sum)
@@ -544,8 +558,8 @@ def test_generics(ctx: MLIRContext):
         B: "T.memref(K, N, dtype)",
         C: "T.memref(M, N, dtype)",
     ):
-        x = block_dim.x * block_id.x + thread_id.x
-        y = block_dim.y * block_id.y + thread_id.y
+        x = block_dim.x * block_idx.x + thread_idx.x
+        y = block_dim.y * block_idx.y + thread_idx.y
 
         one = arith.constant(1.0, type=dtype)
         tmp = arith.constant(0, type=dtype)

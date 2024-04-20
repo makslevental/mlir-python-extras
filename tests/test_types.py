@@ -39,5 +39,5 @@ def test_n_elements(ctx: MLIRContext):
     ten = empty(1, 2, 3, 4, T.i32())
     assert ten.n_elements == 1 * 2 * 3 * 4
 
-    mem = alloc(1, 2, 3, 4, T.i32())
+    mem = alloc((1, 2, 3, 4), T.i32())
     assert mem.n_elements == 1 * 2 * 3 * 4

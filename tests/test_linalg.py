@@ -13,7 +13,7 @@ pytest.mark.usefixtures("ctx")
 
 
 def test_np_constructor(ctx: MLIRContext):
-    x = memref.alloc(10, 10, T.i32())
+    x = memref.alloc((10, 10), T.i32())
     linalg.fill(5, x)
     linalg.fill_rng_2d(0.0, 10.0, 1, x)
 

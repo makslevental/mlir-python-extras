@@ -45,7 +45,7 @@ class classproperty(property):
         return self.fget(owner_cls)
 
 
-class block_id:
+class block_idx:
     @classproperty
     def x(cls):
         return _block_id("x")
@@ -73,7 +73,7 @@ class block_dim:
         return _block_dim("z")
 
 
-class thread_id:
+class thread_idx:
     @classproperty
     def x(cls):
         return _thread_id("x")
@@ -85,6 +85,14 @@ class thread_id:
     @classproperty
     def z(cls):
         return _thread_id("z")
+
+
+def thread_id():
+    return (
+        block_dim.x * block_dim.y * thread_idx.z
+        + block_dim.x * thread_idx.y
+        + thread_idx.x
+    )
 
 
 def gpu_async_token():
@@ -128,12 +136,12 @@ def warpgroup_attr(warpgroup):
     return device_mapping_attr("warpgroup", warpgroup)
 
 
-def memory_space_attr(address_space: AddressSpace):
-    return device_mapping_attr("memory_space", address_space)
+def address_space_attr(address_space: AddressSpace):
+    return device_mapping_attr("address_space", address_space)
 
 
 def smem_space():
-    return memory_space_attr(AddressSpace.Workgroup)
+    return address_space_attr(AddressSpace.Workgroup)
 
 
 @_cext.register_operation(_Dialect, replace=True)
@@ -556,3 +564,26 @@ def get_compile_object_bytes(compiled_module):
     binary = find_ops(compiled_module, lambda o: isinstance(o, BinaryOp), single=True)
     objects = list(map(ObjectAttr, binary.objects))
     return objects[-1].object
+
+
+_printf = printf
+
+
+def printf(format, *args):
+    loc = get_user_code_loc()
+    return _printf(format=format, args=args, loc=loc)
+
+
+_dynamic_shared_memory = dynamic_shared_memory
+
+
+def dynamic_shared_memory(*, loc=None, ip=None):
+    return _dynamic_shared_memory(
+        T.memref(
+            ShapedType.get_dynamic_size(),
+            element_type=T.i8(),
+            memory_space=smem_space(),
+        ),
+        loc=loc,
+        ip=ip,
+    )

@@ -175,7 +175,7 @@ def test_np_constructor(ctx: MLIRContext):
 
 def test_vector_wrappers(ctx: MLIRContext):
     M, K, N = 2, 4, 6
-    mem = memref.alloc(M, K, N, T.i32())
+    mem = memref.alloc((M, K, N), T.i32())
     vec = vector.transfer_read(T.vector(M, K, T.i32()), mem, [0, 0, 0], padding=5)
     e_vec = vector.extract(vec, [0])
     vector.transfer_write(e_vec, mem, [0, 0, 0], in_bounds=[True])

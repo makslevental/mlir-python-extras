@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import dataclass
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, Union, Sequence
 
 # noinspection PyUnresolvedReferences
 import numpy as np
@@ -477,7 +477,12 @@ def _indices_to_indexer(
             if step is None:
                 if start is None or isinstance(start, int) and start == 0:
                     start = None
-                if stop is None or isinstance(stop, int) and stop >= in_shape[in_axis]:
+                if (
+                    stop is None
+                    or isinstance(stop, int)
+                    and in_shape[in_axis] != ShapedType.get_dynamic_size()
+                    and stop >= in_shape[in_axis]
+                ):
                     stop = None
             # Handle slice(None) and slice(None, None, -1)
             if (

@@ -10,12 +10,11 @@ from ... import types as T
 from ...meta import region_op
 from ...util import (
     _get_sym_name,
-    _unpack_sizes_element_type,
     get_user_code_loc,
     infer_mlir_type,
 )
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import arith, memref
+from ....dialects import memref, arith
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
 from ....ir import (
@@ -24,7 +23,6 @@ from ....ir import (
     ShapedType,
     Type,
     Value,
-    InsertionPoint,
 )
 
 S = ShapedType.get_dynamic_size()
@@ -32,13 +30,14 @@ S = ShapedType.get_dynamic_size()
 
 def _alloc(
     op_ctor,
-    *sizes_element_type: Sequence[Union[int, Value]],
+    sizes: Sequence[Union[int, Value]],
+    element_type: Type,
+    memory_space=None,
     loc=None,
     ip=None,
 ):
     if loc is None:
         loc = get_user_code_loc()
-    sizes, element_type = _unpack_sizes_element_type(sizes_element_type)
     dynamic_sizes = []
     memref_shape = []
     for s in sizes:
@@ -47,7 +46,9 @@ def _alloc(
         else:
             memref_shape.append(ShapedType.get_dynamic_size())
             dynamic_sizes.append(s)
-    result_type = T.memref(*memref_shape, element_type)
+    result_type = T.memref(
+        *memref_shape, element_type=element_type, memory_space=memory_space
+    )
 
     symbol_operands = []
     return get_op_result_or_op_results(
@@ -55,14 +56,18 @@ def _alloc(
     )
 
 
-def alloc(*sizes: Union[int, Value], element_type: Type = None):
+def alloc(sizes: Union[int, Value], element_type: Type = None, memory_space=None):
     loc = get_user_code_loc()
-    return _alloc(AllocOp, *sizes, element_type, loc=loc, ip=None)
+    return _alloc(
+        AllocOp, sizes, element_type, memory_space=memory_space, loc=loc, ip=None
+    )
 
 
-def alloca(*sizes: Union[int, Value], element_type: Type = None):
+def alloca(sizes: Union[int, Value], element_type: Type = None, memory_space=None):
     loc = get_user_code_loc()
-    return _alloc(AllocaOp, *sizes, element_type, loc=loc, ip=None)
+    return _alloc(
+        AllocaOp, sizes, element_type, memory_space=memory_space, loc=loc, ip=None
+    )
 
 
 def load(mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None):
@@ -175,6 +180,38 @@ def expand_shape(
     )
 
 
+def _canonicalize_start_stop(start, stop, step):
+    # TODO(max): figure out how to use actual canonicalizers
+    if (
+        isinstance(start, Value)
+        and isinstance(stop, Value)
+        and stop.owner.operands[0]._eq(start)
+        and stop.owner.operands[1].is_constant()
+    ):
+        return stop.owner.operands[1].literal_value
+    elif (
+        isinstance(start.owner.opview, arith.MulIOp)
+        and isinstance(stop.owner.opview, arith.MulIOp)
+        and isinstance(stop.owner.operands[0].owner.opview, arith.AddIOp)
+        and start.owner.operands[0] == stop.owner.operands[0].owner.operands[0]
+        and stop.owner.operands[1].is_constant()
+        and isinstance(step, int)
+        or isinstance(step, Scalar)
+        and step.is_constant()
+    ):
+        # looks like this
+        # l = lambda l: l * D
+        # r = lambda r: (r + 1) * D
+        # a, b, c = (
+        #     A[l(i) : r(i), l(j) : r(j)],
+        #     B[l(i) : r(i), l(j) : r(j)],
+        #     C[l(i) : r(i), l(j) : r(j)],
+        # )
+        return stop.owner.operands[1]
+    elif isinstance(start, int) and isinstance(stop, int):
+        return stop - start
+
+
 def _subview(
     mem: MemRef,
     idx,
@@ -203,33 +240,17 @@ def _subview(
         static_sizes = [None] * len(indexer.in_shape)
         static_strides = [None] * len(indexer.in_shape)
         for i, ind in enumerate(indexer.indices):
-            maybe_size = ind.stop.owner.operands[1]
-            if (
-                isinstance(ind.start.owner.opview, arith.MulIOp)
-                and isinstance(ind.stop.owner.opview, arith.MulIOp)
-                and isinstance(ind.stop.owner.operands[0].owner.opview, arith.AddIOp)
-                and ind.start.owner.operands[0]
-                == ind.stop.owner.operands[0].owner.operands[0]
-                and maybe_size.is_constant()
-                and isinstance(ind.step, int)
-                or isinstance(ind.step, Scalar)
-                and ind.step.is_constant()
-            ):
+            maybe_size = _canonicalize_start_stop(ind.start, ind.stop, ind.step)
+            if maybe_size is not None:
                 offsets[i] = ind.start
-                static_sizes[i] = maybe_size.literal_value
+                static_sizes[i] = maybe_size
                 static_strides[i] = (
                     ind.step.literal_value if isinstance(ind.step, Scalar) else ind.step
                 )
             else:
                 raise RuntimeError(f"indexing not supported {indexer.indices}")
-        offsets = list(filter(None, offsets))
-        static_sizes = list(filter(None, static_sizes))
-        static_strides = list(filter(None, static_strides))
-        assert (
-            len(offsets)
-            == len(static_sizes)
-            == len(static_strides)
-            == len(indexer.in_shape)
+        assert all(
+            map(lambda x: x is not None, offsets + static_sizes + static_strides)
         ), f"not each slice is statically known: {indexer.indices}"
         out = subview(
             out,
@@ -320,10 +341,17 @@ def global_(
     ).opview
 
 
-def view(source, shape, dtype=None, shift=0):
+def view(source, shape, dtype=None, shift=0, memory_space=None):
     if dtype is None:
         dtype = source.type.element_type
     byte_width_dtype = dtype.width // 8
     byte_shift = shift * byte_width_dtype
     byte_shift = constant(byte_shift, index=True)
-    return memref.view(T.memref(*shape, dtype), source, byte_shift, [])
+    if memory_space is None and source:
+        memory_space = source.type.memory_space
+    return memref.view(
+        T.memref(*shape, element_type=dtype, memory_space=memory_space),
+        source,
+        byte_shift,
+        [],
+    )
