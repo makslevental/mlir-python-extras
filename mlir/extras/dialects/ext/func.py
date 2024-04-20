@@ -280,11 +280,17 @@ class FuncBase:
             else:
                 r = ReifiedTypeParams(t.__name__, item[i])
             reified_type_params.append(r)
+
+            if t.__name__ in body_builder.__globals__:
+                body_builder.__globals__[t.__name__] = r.val
             if r.name in body_builder.__code__.co_freevars:
                 free_i = body_builder.__code__.co_freevars.index(r.name)
+                assert (
+                    body_builder.__closure__[free_i].cell_contents == t
+                ), "typevars don't match"
                 body_builder.__closure__[free_i].cell_contents = r.val
 
-        generics = tuple(reified_type_params)
+        generics = reified_type_params
 
         return FuncBase(
             body_builder,
@@ -318,14 +324,8 @@ def func(
 ) -> FuncBase:
     if loc is None:
         loc = get_user_code_loc()
-    if hasattr(f, "__type_params__") and f.__type_params__:
-        assert generics is None, "generics XOR type params"
+    if generics is None and hasattr(f, "__type_params__") and f.__type_params__:
         generics = f.__type_params__
-    if generics is not None:
-        for i, g in enumerate(generics):
-            if isinstance(g, str):
-                generics[i] = TypeVar(g)
-
     func_ = FuncBase(
         body_builder=f,
         func_op_ctor=FuncOp.__base__,

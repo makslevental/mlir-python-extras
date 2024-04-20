@@ -95,6 +95,7 @@ def thread_id():
     )
 
 
+# TODO(max): replace all the parsing here with upstream bindings work
 def gpu_async_token():
     return Type.parse("!gpu.async.token")
 
@@ -430,8 +431,7 @@ def func(
 ) -> Grid:
     if loc is None:
         loc = get_user_code_loc()
-    if hasattr(f, "__type_params__") and f.__type_params__:
-        assert generics is None, "generics XOR type params"
+    if generics is None and hasattr(f, "__type_params__") and f.__type_params__:
         generics = f.__type_params__
     func_ = GPUFunc(
         body_builder=f,

@@ -170,20 +170,20 @@ def test_func_no_context():
     filecheck(correct, mod_ctx.module)
 
 
-M = N = 16
+generics = M, K, N, dtype = list(map(TypeVar, ["M", "K", "N", "dtype"]))
 
 
-@func
+@func(generics=list(map(TypeVar, ["M", "N"])))
 def matmul_i32_i32(
-    A: lambda: T.memref(M, N, T.i32()),
-    B: lambda: T.memref(M, N, T.i32()),
-    C: lambda: T.memref(M, N, T.i32()),
+    A: "T.memref(M, N, T.i32())",
+    B: "T.memref(M, N, T.i32())",
+    C: "T.memref(M, N, T.i32())",
 ):
     linalg.matmul(A, B, C)
 
 
 def test_func_no_context_2(ctx: MLIRContext):
-    matmul_i32_i32.emit()
+    matmul_i32_i32[16, 16].emit()
     correct = dedent(
         """\
     module {
@@ -198,19 +198,20 @@ def test_func_no_context_2(ctx: MLIRContext):
 
 
 def test_generics_just_args(ctx: MLIRContext):
-    @func(generics=["M", "K", "N", "dtype"])
+
+    @func(generics=generics)
     def mat_product_kernel(
         A: "T.memref(M, K, dtype)",
         B: "T.memref(K, N, dtype)",
         C: "T.memref(M, N, dtype)",
     ):
-        one = arith.constant(1.0)
+        one = arith.constant(1.0, dtype)
 
-    mat_product_kernel[32, 32, 32, T.i32()].emit()
+    mat_product_kernel[32, 32, 32, T.f32()].emit()
     correct = dedent(
         """\
     module {
-      func.func @mat_product_kernel(%arg0: memref<32x32xi32>, %arg1: memref<32x32xi32>, %arg2: memref<32x32xi32>) {
+      func.func @mat_product_kernel(%arg0: memref<32x32xf32>, %arg1: memref<32x32xf32>, %arg2: memref<32x32xf32>) {
         %cst = arith.constant 1.000000e+00 : f32
         return
       }
@@ -221,9 +222,9 @@ def test_generics_just_args(ctx: MLIRContext):
 
 
 def test_generics_closure(ctx: MLIRContext):
-    dtype = None
+    generics = M, K, N, dtype = list(map(TypeVar, ["M", "K", "N", "dtype"]))
 
-    @func(generics=["M", "K", "N", "dtype"])
+    @func(generics=generics)
     def mat_product_kernel(
         A: "T.memref(M, K, dtype)",
         B: "T.memref(K, N, dtype)",
@@ -246,10 +247,10 @@ def test_generics_closure(ctx: MLIRContext):
 
 
 def test_generics_with_canonicalizations(ctx: MLIRContext):
-    dtype = None
-    K = None
 
-    @func(generics=["M", "K", "N", "dtype"])
+    generics = M, K, N, dtype = list(map(TypeVar, ["M", "K", "N", "dtype"]))
+
+    @func(generics=generics)
     @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
     def mat_product_kernel(
         A: "T.memref(M, K, dtype)",
