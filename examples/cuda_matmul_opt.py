@@ -13,7 +13,7 @@ from mlir.extras.context import (
     mlir_mod_ctx,
     MLIRContext,
 )
-from mlir.extras.dialects.ext import arith, memref, gpu, scf
+from mlir.extras.dialects.ext import arith, memref, gpu, scf, linalg
 from mlir.extras.dialects.ext.gpu import (
     block_idx,
     thread_idx,
@@ -47,7 +47,9 @@ def compile_module(module, enable_ir_printing=False, print_ptx_=False):
         print_ptx_ = True
     mod = run_pipeline(
         module,
-        Pipeline().add_pass(
+        Pipeline()
+        .convert_linalg_to_loops()
+        .add_pass(
             "gpu-lower-to-nvvm-pipeline",
             # https://github.com/llvm/llvm-project/blob/ace69e6b942b8fa7e610d70be2a92e801ceea481/mlir/include/mlir/Dialect/GPU/Pipelines/Passes.h#L18
             **{
@@ -124,7 +126,7 @@ def sgemm_naive_row_order[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_coalesce[
-    M, K, N, dtype, BLOCK_SIZE
+    M, K, N, dtype, BLOCK_SIZE: 32
 ](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
 
     tid = gpu.thread_id()
@@ -183,7 +185,7 @@ def sgemm_coalesce[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_coalesce_transpose_B[
-    M, K, N, dtype, BLOCK_SIZE
+    M, K, N, dtype, BLOCK_SIZE: 32
 ](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
 
     tid = gpu.thread_id()
@@ -205,7 +207,7 @@ def sgemm_coalesce_transpose_B[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_block[
-    M, K, N, dtype, BLOCK_SIZE
+    M, K, N, dtype, BLOCK_SIZE: 32
 ](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
     # allocate buffer for current block in fast shared mem
     # shared mem is shared between all threads in a block
@@ -224,7 +226,6 @@ def sgemm_shared_mem_block[
     c_row = block_idx.x * BLOCK_SIZE
     c_col = block_idx.y * BLOCK_SIZE
 
-    one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
     for bk_idx, tmp in range_(0, K, BLOCK_SIZE, iter_args=[tmp]):
@@ -232,7 +233,7 @@ def sgemm_shared_mem_block[
         B_ = B[bk_idx : bk_idx + BLOCK_SIZE, c_col : c_col + BLOCK_SIZE]
 
         # Have each thread load one of the elements in A & B
-        # Make the threadCol (=threadIdx.x) the consecutive index
+        # Make the threadCol (=thread_idx.x) the consecutive index
         # to allow global memory access coalescing
         A_shared[thread_row, thread_col] = A_[thread_row, thread_col]
         B_shared[thread_row, thread_col] = B_[thread_row, thread_col]
@@ -241,8 +242,8 @@ def sgemm_shared_mem_block[
         gpu.barrier()
 
         # execute the dotproduct on the currently cached block
-        for k, tmp in range_(BLOCK_SIZE, iter_args=[tmp]):
-            tmp += A_shared[thread_row, k] * B_shared[k, thread_col]
+        for dot_idx, tmp in range_(BLOCK_SIZE, iter_args=[tmp]):
+            tmp += A_shared[thread_row, dot_idx] * B_shared[dot_idx, thread_col]
             tmp = yield tmp
 
         # need to sync again at the end, to avoid faster threads
@@ -251,13 +252,12 @@ def sgemm_shared_mem_block[
 
         tmp = yield tmp
 
+    one = arith.constant(1.0, type=dtype)
     C_ = C[c_row : c_row + BLOCK_SIZE, c_col : c_col + BLOCK_SIZE]
     C_[thread_row, thread_col] = tmp + one
 
 
-def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=None):
-    if repeat_times is None:
-        repeat_times = 50
+def prepare_non_tiled_kernel(ctx: MLIRContext, kernel, M, K, N, BLOCK_SIZE=32):
     dtype = T.f32()
     npy_dtype = np.float32
 
@@ -265,27 +265,16 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=None):
 
     @gpu.module("matmul", ["#nvvm.target"])
     def matmul_mod():
-        sgemm_shared_mem_block[M, K, N, dtype, BLOCK_SIZE].emit()
+        kernel[M, K, N, dtype].emit()
 
     # print(ctx.module)
     # print(ctx.module.operation.verify())
     # exit()
 
-    kernel_name = matmul_mod.opview.body.operations[0].attributes["sym_name"].value
+    kernel_name = kernel.__name__
     compiled_module = compile_module(ctx.module)
     cuda_func = build_cuda_func(compiled_module, kernel_name)
     # print_ptx(compiled_module)
-
-    A = np.random.randint(0, 10, (M, K)).astype(npy_dtype)
-    B = np.random.randint(0, 10, (K, N)).astype(npy_dtype)
-    C = np.zeros((M, N)).astype(npy_dtype)
-
-    dA = cp.asarray(A)
-    if "transpose_B" in kernel_name:
-        dB = cp.asarray(np.ascontiguousarray(B.T))
-    else:
-        dB = cp.asarray(B)
-    dC = cp.asarray(C)
 
     grid_dims = (math.ceil(M / BLOCK_SIZE), math.ceil(N / BLOCK_SIZE))
     block_dims = (BLOCK_SIZE, BLOCK_SIZE)
@@ -294,6 +283,218 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=None):
         shared_mem = 2 * BLOCK_SIZE * BLOCK_SIZE * npy_dtype().nbytes
     else:
         shared_mem = 0
+
+    return (
+        cuda_func,
+        grid_dims,
+        block_dims,
+        shared_mem,
+        npy_dtype,
+        "transpose_B" in kernel_name,
+    )
+
+
+@gpu.func
+@canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+def sgemm_shared_mem_1d_block_tiling[
+    M, K, N, dtype, BM, BN, BK, TM
+](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    base = gpu.dynamic_shared_memory()
+    A_shared = memref.view(base, (BM, BK), dtype=dtype)
+    B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
+
+    c_row = block_idx.y * BM
+    c_col = block_idx.x * BN
+
+    tid = gpu.thread_id()
+    thread_col = tid % BN
+    thread_row = tid / BN
+
+    inner_col_A = tid % BK  # warp-level GMEM coalescing
+    inner_row_A = tid / BK
+    inner_col_B = tid % BN  # warp-level GMEM coalescing
+    inner_row_B = tid / BN
+
+    thread_results = memref.alloca((TM,), dtype)
+    linalg.fill(0, thread_results)
+
+    for bk_idx in range_(0, K, BK):
+        # Move blocktile to beginning of A's row and B's column
+        A_ = A[c_row : c_row + BM, bk_idx : bk_idx + BK]
+        B_ = B[bk_idx : bk_idx + BK, c_col : c_col + BN]
+
+        A_shared[inner_row_A, inner_col_A] = A_[inner_row_A, inner_col_A]
+        B_shared[inner_row_B, inner_col_B] = B_[inner_row_B, inner_col_B]
+
+        gpu.barrier()
+
+        for dot_idx in range_(BK):
+            tmp_B = B_shared[dot_idx, thread_col]
+            for res_idx, tmp_B in range_(TM, iter_args=[tmp_B]):
+                thread_results[res_idx] += (
+                    A_shared[thread_row * TM + res_idx, dot_idx] * tmp_B
+                )
+                yield tmp_B
+
+        gpu.barrier()
+
+    one = arith.constant(1.0, type=dtype)
+    C_ = C[c_row : c_row + BM, c_col : c_col + BN]
+    for res_idx in range_(TM):
+        C_[thread_row * TM + res_idx, thread_col] = thread_results[res_idx] + one
+
+
+@gpu.func
+@canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+def sgemm_shared_mem_2d_block_tiling[
+    M, K, N, dtype, BM, BN, BK, TM, TN
+](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    base = gpu.dynamic_shared_memory()
+    A_shared = memref.view(base, (BM, BK), dtype=dtype)
+    B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
+
+    c_row = block_idx.y * BM
+    c_col = block_idx.x * BN
+
+    total_results_blocktile = BM * BN
+    num_threads_blocktile = total_results_blocktile // (TM * TN)
+
+    tid = gpu.thread_id()
+    # BN/TN are the number of threads to span a column
+    thread_col = tid % (BN // TN)
+    thread_row = tid / (BN // TN)
+
+    inner_col_A = tid % BK  # warp-level GMEM coalescing
+    inner_row_A = tid / BK
+    stride_A = num_threads_blocktile // BK
+
+    inner_col_B = tid % BN  # warp-level GMEM coalescing
+    inner_row_B = tid / BN
+    stride_B = num_threads_blocktile // BN
+
+    thread_results = memref.alloca((TM, TN), dtype)
+    linalg.fill(0, thread_results)
+
+    reg_M = memref.alloca((TM,), dtype)
+    linalg.fill(0, reg_M)
+
+    reg_N = memref.alloca((TN,), dtype)
+    linalg.fill(0, reg_N)
+
+    for bk_idx in range_(0, K, BK):
+        A_ = A[c_row : c_row + BM, bk_idx : bk_idx + BK]
+        B_ = B[bk_idx : bk_idx + BK, c_col : c_col + BN]
+
+        for load_offset in range_(0, BM, stride_A):
+            A_shared[inner_row_A + load_offset, inner_col_A] = A_[
+                inner_row_A + load_offset, inner_col_A
+            ]
+        for load_offset in range_(0, BK, stride_B):
+            B_shared[inner_row_B + load_offset, inner_col_B] = B_[
+                inner_row_B + load_offset, inner_col_B
+            ]
+
+        gpu.barrier()
+
+        for dot_idx in range_(BK):
+            for i in range_(TM):
+                reg_M[i] = A_shared[thread_row * TM + i, dot_idx]
+            for i in range_(TN):
+                reg_N[i] = B_shared[dot_idx, thread_col * TN + i]
+
+            for res_idx_m in range_(TM):
+                for res_idx_n in range_(TN):
+                    thread_results[res_idx_m, res_idx_n] += (
+                        reg_M[res_idx_m] * reg_N[res_idx_n]
+                    )
+
+        gpu.barrier()
+
+    one = arith.constant(1.0, type=dtype)
+    C_ = C[c_row : c_row + BM, c_col : c_col + BN]
+
+    for res_idx_m in range_(TM):
+        for res_idx_n in range_(TN):
+            C_[thread_row * TM + res_idx_m, thread_col * TN + res_idx_n] = (
+                thread_results[res_idx_m, res_idx_n] + one
+            )
+
+
+def prepare_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
+    dtype = T.f32()
+    npy_dtype = np.float32
+    kernel_name = kernel.__name__
+
+    gpu.set_container_module(ctx.module)
+
+    BK = 8
+    TM = 8
+    TN = 8
+    if "2d" in kernel_name and M >= 128 and N >= 128:
+        BM = 128
+        BN = 128
+    else:
+        BM = 64
+        BN = 64
+
+    @gpu.module("matmul", ["#nvvm.target"])
+    def matmul_mod():
+        kernel[M, K, N, dtype, BM, BN, BK, TM, TN].emit()
+
+    # print(ctx.module)
+    # print(ctx.module.operation.verify())
+    # exit()
+
+    compiled_module = compile_module(ctx.module)
+    cuda_func = build_cuda_func(compiled_module, kernel_name)
+    # print_ptx(compiled_module)
+
+    grid_dims = (math.ceil(N / BN), math.ceil(M / BM))
+    if "2d" in kernel_name:
+        block_dims = (BM // TM, BN // TN)
+    else:
+        block_dims = (BM // TM, BN)
+
+    if "shared" in kernel_name:
+        shared_mem = ((BM * BK) + (BK * BN)) * npy_dtype().nbytes
+    else:
+        shared_mem = 0
+
+    return (
+        cuda_func,
+        grid_dims,
+        block_dims,
+        shared_mem,
+        npy_dtype,
+        False,
+    )
+
+
+def run_eval(
+    M,
+    K,
+    N,
+    cuda_func,
+    grid_dims,
+    block_dims,
+    shared_mem,
+    npy_dtype,
+    transpose_B,
+    repeat_times=None,
+):
+    if repeat_times is None:
+        repeat_times = 50
+
+    A = np.random.randint(0, 10, (M, K)).astype(npy_dtype)
+    B = np.random.randint(0, 10, (K, N)).astype(npy_dtype)
+    C = np.zeros((M, N)).astype(npy_dtype)
+
+    dA = cp.asarray(A)
+    if transpose_B:
+        dB = cp.asarray(np.ascontiguousarray(B.T))
+    else:
+        dB = cp.asarray(B)
+    dC = cp.asarray(C)
 
     cuda_func(
         grid_dims,
@@ -320,15 +521,64 @@ def main(ctx: MLIRContext, M, K, N, BLOCK_SIZE=32, repeat_times=None):
 
     t_gpu = cp.cuda.get_elapsed_time(start_gpu, end_gpu)
 
-    print(f"t_gpu={t_gpu / repeat_times:.6f} ms")
+    print(f"t={t_gpu / repeat_times:.6f} ms")
 
 
 sizes = [128, 256, 512, 1024]
 repeats = None
 
-for s in sizes:
-    with (
-        mlir_mod_ctx() as ctx,
-        # enable_debug()
-    ):
-        main(ctx, s, s, s, repeat_times=repeats)
+for k in [
+    sgemm_naive,
+    sgemm_naive_row_order,
+    sgemm_coalesce,
+    sgemm_coalesce_transpose_B,
+    sgemm_shared_mem_block,
+]:
+    print(f"\n{k.__name__}")
+    for s in sizes:
+        with (
+            mlir_mod_ctx() as ctx,
+            # enable_debug()
+        ):
+            print(f"{s=}", end=" ")
+            cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+                prepare_non_tiled_kernel(ctx, k, s, s, s)
+            )
+            run_eval(
+                s,
+                s,
+                s,
+                cuda_func,
+                grid_dims,
+                block_dims,
+                shared_mem,
+                npy_dtype,
+                transpose_B,
+            )
+
+
+for k in [
+    sgemm_shared_mem_1d_block_tiling,
+    sgemm_shared_mem_2d_block_tiling,
+]:
+    print(f"\n{k.__name__}")
+    for s in sizes:
+        with (
+            mlir_mod_ctx() as ctx,
+            # enable_debug()
+        ):
+            print(f"{s=}", end=" ")
+            cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+                prepare_tiled_kernel(ctx, k, s, s, s)
+            )
+            run_eval(
+                s,
+                s,
+                s,
+                cuda_func,
+                grid_dims,
+                block_dims,
+                shared_mem,
+                npy_dtype,
+                transpose_B,
+            )

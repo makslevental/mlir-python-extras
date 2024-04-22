@@ -2,7 +2,7 @@ import ast
 import logging
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import List
+from typing import List, Union, Optional, Sequence
 
 from bytecode import ConcreteBytecode
 
@@ -18,6 +18,7 @@ from ....dialects._ods_common import (
     get_op_result_or_op_results,
 )
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
+
 # gotta come first
 from ....dialects.scf import *
 from ....dialects.scf import _Dialect, yield_ as yield__
@@ -432,6 +433,7 @@ class InsertEmptyYield(StrictTransformer):
                 updated_node.orelse, deepcopy(new_yield)
             )
 
+        updated_node = ast.fix_missing_locations(updated_node)
         return updated_node
 
     def visit_For(self, updated_node: ast.For) -> ast.For:
@@ -439,6 +441,7 @@ class InsertEmptyYield(StrictTransformer):
         new_yield = ast.Expr(ast.Yield(value=None))
         if not is_yield(updated_node.body[-1]):
             updated_node.body = append_hidden_node(updated_node.body, new_yield)
+        updated_node = ast.fix_missing_locations(updated_node)
         return updated_node
 
 
@@ -480,6 +483,7 @@ class CanonicalizeElIfs(StrictTransformer):
 
         if needs_forward(updated_node.orelse):
             updated_node.orelse = forward_yield_from_nested_if(updated_node.orelse)
+        updated_node = ast.fix_missing_locations(updated_node)
         return updated_node
 
 
@@ -515,6 +519,10 @@ class CanonicalizeWhile(StrictTransformer):
             )
             new_test = ast.copy_location(new_test, updated_node)
             updated_node.test = new_test
+
+        updated_node = ast.fix_missing_locations(updated_node)
+        assign = ast.fix_missing_locations(assign)
+
         return [assign, updated_node]
 
 

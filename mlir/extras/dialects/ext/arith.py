@@ -1,4 +1,5 @@
 import ast
+import copy
 import operator
 from abc import abstractmethod
 from copy import deepcopy
@@ -513,6 +514,8 @@ class CanonicalizeFMA(StrictTransformer):
             and isinstance(updated_node.value, ast.BinOp)
             and isinstance(updated_node.value.op, ast.Mult)
         ):
+            target = copy.deepcopy(updated_node.target)
+            target.ctx = ast.Load()
             updated_node = ast.Assign(
                 targets=[updated_node.target],
                 value=ast_call(
@@ -520,10 +523,11 @@ class CanonicalizeFMA(StrictTransformer):
                     [
                         updated_node.value.left,
                         updated_node.value.right,
-                        ast.Name(updated_node.target.id, ast.Load()),
+                        target,
                     ],
                 ),
             )
+            updated_node = ast.fix_missing_locations(updated_node)
 
         return updated_node
 
