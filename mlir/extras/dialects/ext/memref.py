@@ -33,6 +33,7 @@ def _alloc(
     sizes: Sequence[Union[int, Value]],
     element_type: Type,
     memory_space=None,
+    alignment=None,
     loc=None,
     ip=None,
 ):
@@ -52,21 +53,56 @@ def _alloc(
 
     symbol_operands = []
     return get_op_result_or_op_results(
-        op_ctor(result_type, dynamic_sizes, symbol_operands, loc=loc, ip=ip)
+        op_ctor(
+            result_type,
+            dynamic_sizes,
+            symbol_operands,
+            alignment=alignment,
+            loc=loc,
+            ip=ip,
+        )
     )
 
 
-def alloc(sizes: Union[int, Value], element_type: Type = None, memory_space=None):
-    loc = get_user_code_loc()
+def alloc(
+    sizes: Union[int, Value],
+    element_type: Type = None,
+    memory_space=None,
+    alignment=None,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
     return _alloc(
-        AllocOp, sizes, element_type, memory_space=memory_space, loc=loc, ip=None
+        AllocOp,
+        sizes,
+        element_type,
+        memory_space=memory_space,
+        alignment=alignment,
+        loc=loc,
+        ip=ip,
     )
 
 
-def alloca(sizes: Union[int, Value], element_type: Type = None, memory_space=None):
-    loc = get_user_code_loc()
+def alloca(
+    sizes: Union[int, Value],
+    element_type: Type = None,
+    memory_space=None,
+    alignment=None,
+    loc=None,
+    ip=None,
+):
+    if loc is None:
+        loc = get_user_code_loc()
     return _alloc(
-        AllocaOp, sizes, element_type, memory_space=memory_space, loc=loc, ip=None
+        AllocaOp,
+        sizes,
+        element_type,
+        memory_space=memory_space,
+        alignment=alignment,
+        loc=loc,
+        ip=ip,
     )
 
 
@@ -113,8 +149,9 @@ class MemRef(Value, ShapedValue):
         if idx is None:
             return expand_shape(self, (0,), loc=loc)
 
-        idx = list((idx,) if isinstance(idx, (int, slice)) else idx)
+        idx = list((idx,) if isinstance(idx, (int, Scalar, slice)) else idx)
         for i, d in enumerate(idx):
+            # TODO(max): rethink this since subview and etc probably take constant attributes?
             if isinstance(d, int):
                 idx[i] = constant(d, index=True, loc=loc)
 
@@ -123,7 +160,7 @@ class MemRef(Value, ShapedValue):
         else:
             return _subview(self, tuple(idx), loc=loc)
 
-    def __setitem__(self, idx, source):
+    def __setitem__(self, idx, val):
         loc = get_user_code_loc()
 
         if not self.has_rank():
@@ -135,12 +172,10 @@ class MemRef(Value, ShapedValue):
                 idx[i] = constant(d, index=True, loc=loc)
 
         if all(isinstance(d, Scalar) for d in idx) and len(idx) == len(self.shape):
-            assert isinstance(
-                source, Scalar
-            ), "coordinate insert requires scalar element"
-            store(source, self, idx, loc=loc)
+            assert isinstance(val, Scalar), "coordinate insert requires scalar element"
+            store(val, self, idx, loc=loc)
         else:
-            _copy_to_subview(self, source, tuple(idx), loc=loc)
+            _copy_to_subview(self, val, tuple(idx), loc=loc)
 
 
 def expand_shape(

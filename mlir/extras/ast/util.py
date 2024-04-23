@@ -143,6 +143,9 @@ def copy_func(f, new_closure: Dict = None):
 
 def append_hidden_node(node_body, new_node):
     last_statement = node_body[-1]
+    assert (
+        last_statement.end_lineno is not None
+    ), f"last_statement {ast.unparse(last_statement)} must have end_lineno"
     new_node = ast.fix_missing_locations(
         set_lineno(new_node, last_statement.end_lineno)
     )

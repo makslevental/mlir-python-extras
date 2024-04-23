@@ -102,6 +102,7 @@ def insert_slice(
     )
 
 
+# TODO(max): unify vector/memref/tensor
 @register_value_caster(RankedTensorType.static_typeid)
 class Tensor(ShapedValue, ArithValue):
     def __getitem__(self, idx: tuple) -> "Tensor":

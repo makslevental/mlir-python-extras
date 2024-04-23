@@ -116,7 +116,7 @@ def transform_ast(
         max([l for _, l in line_starts]) - min([l for _, l in line_starts]) + 1
         > n_lines
     ) or (f.__code__.co_firstlineno != min([l for _, l in line_starts])):
-        warnings.warn(
+        logger.debug(
             "something went wrong with the line numbers for the rewritten/canonicalized function"
         )
     f.__code__ = new_f_code_o
