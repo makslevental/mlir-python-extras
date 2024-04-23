@@ -8,17 +8,19 @@ import mlir.extras.types as T
 import numpy as np
 from cupy.cuda import Module
 
+from mlir.ir import Type
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import (
     mlir_mod_ctx,
     MLIRContext,
 )
-from mlir.extras.dialects.ext import arith, memref, gpu, scf, linalg, vector
+from mlir.extras.dialects.ext import arith, memref, gpu, scf, linalg, vector, nvgpu
 from mlir.extras.dialects.ext.gpu import (
     block_idx,
     thread_idx,
     block_dim,
     get_compile_object_bytes,
+    smem_space,
 )
 from mlir.extras.dialects.ext.memref import S
 from mlir.extras.dialects.ext.scf import range_
@@ -718,6 +720,97 @@ def sgemm_warp_tiling[
                     )
 
 
+@gpu.func
+@canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+def sgemm_tensor_core[
+    M, K, N, dtype
+](
+    A: T.memref(M, K, dtype),
+    B: T.memref(K, N, dtype),
+    C: T.memref(M, N, dtype),
+    a_tma: nvgpu.TensorMapDescriptorType.get(
+        T.memref(128, 64, dtype, memory_space=smem_space()),
+        swizzle=int(nvgpu.TensorMapSwizzleKind.SWIZZLE_128B),
+        l2promo=int(nvgpu.TensorMapL2PromoKind.L2PROMO_NONE),
+        oob_fill=int(nvgpu.TensorMapOOBKind.OOB_ZERO),
+        interleave=int(nvgpu.TensorMapInterleaveKind.INTERLEAVE_NONE),
+    ),
+    b_tma: nvgpu.TensorMapDescriptorType.get(
+        T.memref(64, 64, dtype, memory_space=smem_space()),
+        swizzle=int(nvgpu.TensorMapSwizzleKind.SWIZZLE_128B),
+        l2promo=int(nvgpu.TensorMapL2PromoKind.L2PROMO_NONE),
+        oob_fill=int(nvgpu.TensorMapOOBKind.OOB_ZERO),
+        interleave=int(nvgpu.TensorMapInterleaveKind.INTERLEAVE_NONE),
+    ),
+):
+    VECTOR_WIDTH = 4
+    DTYPE_WIDTH = dtype.width // 8
+    tid = gpu.thread_id()
+    memref.assume_alignment(A, VECTOR_WIDTH * DTYPE_WIDTH)
+    memref.assume_alignment(B, VECTOR_WIDTH * DTYPE_WIDTH)
+    memref.assume_alignment(C, VECTOR_WIDTH * DTYPE_WIDTH)
+
+    mbarrier = nvgpu.mbarrier_create()
+    is_thread_0 = tid == 0
+    nvgpu.mbarrier_init(mbarrier, 1, 0, predicate=is_thread_0)
+    nvgpu.tma_prefetch_descriptor(a_tma)
+    nvgpu.tma_prefetch_descriptor(b_tma)
+
+    base = gpu.dynamic_shared_memory()
+
+    shift = 0
+    A_shared = memref.view(base, (M, K), dtype=dtype, shift=shift)
+    shift += A_shared.n_elements
+    B_shared = memref.view(base, (K, N), dtype=dtype, shift=shift)
+    shift += B_shared.n_elements
+    a = memref.view(base, (128, 64), dtype=dtype, shift=shift)
+    shift += a.n_elements
+    b1 = memref.view(base, (64, 64), dtype=dtype, shift=shift)
+    shift += b1.n_elements
+    b2 = memref.view(base, (64, 64), dtype=dtype, shift=shift)
+
+    ta_count = a.n_elements + b1.n_elements + b2.n_elements
+    nvgpu.mbarrier_arrive_expect_tx(mbarrier, ta_count, 0, predicate=is_thread_0)
+
+    nvgpu.tma_async_load(
+        a,
+        mbarrier,
+        a_tma,
+        coordinates=[0, 0],
+        mbar_id=0,
+        predicate=is_thread_0,
+    )
+    nvgpu.tma_async_load(
+        b1,
+        mbarrier,
+        b_tma,
+        coordinates=[0, 0],
+        mbar_id=0,
+        predicate=is_thread_0,
+    )
+    nvgpu.tma_async_load(
+        b2,
+        mbarrier,
+        b_tma,
+        coordinates=[64, 0],
+        mbar_id=0,
+        predicate=is_thread_0,
+    )
+    nvgpu.mbarrier_try_wait_parity(mbarrier, mbar_id=0)
+
+    accum = nvgpu.warpgroup_mma_init_accumulator(
+        nvgpu.warpgroup_accumulator_t(M, N, T.f32())
+    )
+    lhs = nvgpu.warpgroup_generate_descriptor(
+        nvgpu.warpgroup_descriptor(M, K, dtype), A_shared, a_tma
+    )
+    rhs = nvgpu.warpgroup_generate_descriptor(
+        nvgpu.warpgroup_descriptor(K, N, dtype), B_shared, b_tma
+    )
+    acc = nvgpu.warpgroup_mma(accum, lhs, rhs, transpose_b=True)
+    nvgpu.warpgroup_mma_store(acc, C)
+
+
 def prepare_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
     dtype = T.f32()
     npy_dtype = np.float32
@@ -793,6 +886,50 @@ def prepare_warp_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
     # print(ctx.module)
     # print(ctx.module.operation.verify())
     # exit()
+
+    compiled_module = compile_module(ctx.module)
+    cuda_func = build_cuda_func(compiled_module, kernel_name)
+    # print_ptx(compiled_module)
+
+    grid_dims = (math.ceil(N / BN), math.ceil(M / BM))
+    block_dims = (NUM_THREADS,)
+    shared_mem = ((BM * BK) + (BK * BN)) * npy_dtype().nbytes
+
+    return (
+        cuda_func,
+        grid_dims,
+        block_dims,
+        shared_mem,
+        npy_dtype,
+        False,
+    )
+
+
+def prepare_tensor_core_kernel(ctx: MLIRContext, kernel, M, K, N):
+    dtype = T.f16()
+    npy_dtype = np.float16
+    kernel_name = kernel.__name__
+
+    gpu.set_container_module(ctx.module)
+
+    # Settings for A100 (looks like it works for 3070 too?)
+    NUM_THREADS = 128
+    BN = 128
+    BM = 64
+    BK = 16
+    WN = 64
+    WM = 32
+    WNITER = 1
+    TN = 4
+    TM = 4
+
+    @gpu.module("matmul", ["#nvvm.target"])
+    def matmul_mod():
+        kernel[M, K, N, dtype].emit()
+
+    print(ctx.module)
+    print(ctx.module.operation.verify())
+    exit()
 
     compiled_module = compile_module(ctx.module)
     cuda_func = build_cuda_func(compiled_module, kernel_name)
@@ -934,7 +1071,7 @@ for s in sizes:
     ):
         print(f"{s=}", end=" ")
         cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
-            prepare_warp_tiled_kernel(ctx, sgemm_warp_tiling, s, s, s)
+            prepare_tensor_core_kernel(ctx, sgemm_tensor_core, s, s, s)
         )
         run_eval(
             s,

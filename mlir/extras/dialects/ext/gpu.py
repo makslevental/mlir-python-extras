@@ -2,7 +2,6 @@ import inspect
 from functools import partial
 from typing import Any, List, Optional, Tuple, Union
 
-from mlir.dialects._gpu_enum_gen import AddressSpace
 
 from .arith import constant
 from .func import FuncBase
@@ -119,8 +118,8 @@ def get_device_mapping_array_attr(
     return ArrayAttr.get(mapping, context=context)
 
 
-def gpu_attr(mnemonic, mapping_id_enum: MappingId):
-    return Attribute.parse(f"#gpu.{mnemonic}<{mapping_id_enum}>")
+def gpu_attr(mnemonic, attr_value):
+    return Attribute.parse(f"#gpu.{mnemonic}<{attr_value}>")
 
 
 def thread_attr(thread):
