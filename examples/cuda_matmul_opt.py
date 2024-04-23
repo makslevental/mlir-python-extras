@@ -556,6 +556,168 @@ def sgemm_shared_mem_2d_block_tiling_vectorize[
             )
 
 
+WARP_SIZE = 32
+
+
+@gpu.func
+@canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+def sgemm_warp_tiling[
+    M, K, N, dtype, BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS
+](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    VECTOR_WIDTH = 4
+    DTYPE_WIDTH = dtype.width // 8
+
+    tid = gpu.thread_id()
+
+    # ld.global.v4.u32 and st.global.v4.f32 emitted only input args are aligned
+    # alignment for cupy is 512 bytes https://github.com/cupy/cupy/blob/59e6c2b2e0c722b09c7a7af13f908942ef7806cc/cupy/cuda/memory.pyx#L805-L809
+    # so we're good
+    memref.assume_alignment(A, VECTOR_WIDTH * DTYPE_WIDTH)
+    memref.assume_alignment(B, VECTOR_WIDTH * DTYPE_WIDTH)
+    memref.assume_alignment(C, VECTOR_WIDTH * DTYPE_WIDTH)
+
+    base = gpu.dynamic_shared_memory()
+    base = memref.memory_space_cast(T.memref(S, element_type=T.i8()), base)
+
+    # transpose A
+    A_shared = memref.view(base, (BK, BM), dtype=dtype)
+    B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
+
+    c_row = block_idx.y * BM
+    c_col = block_idx.x * BN
+
+    # Placement of the warp in the threadblock tile
+    warp_idx = tid / WARP_SIZE
+    warp_row = warp_idx / (BN // WN)
+    warp_col = warp_idx % (BN // WN)
+
+    # size of the warp subtile
+    WMITER = (WM * WN) // (WARP_SIZE * TM * TN * WNITER)
+    WSUBM = WM // WMITER
+    WSUBN = WN // WNITER
+
+    # Placement of the thread in the warp subtile
+    thread_idx_in_warp = tid % WARP_SIZE
+    thread_col_in_warp = thread_idx_in_warp % (WSUBN // TN)
+    thread_row_in_warp = thread_idx_in_warp / (WSUBN // TN)
+
+    # calculating the indices that this thread will load into SMEM
+    # we'll load 128bit / 32bit = 4 elements per thread at each step
+    inner_row_A = tid / (BK // VECTOR_WIDTH)
+    inner_col_A = tid % (BK // VECTOR_WIDTH)
+    row_stride_A = (NUM_THREADS * VECTOR_WIDTH) // BK
+    inner_row_B = tid / (BN // VECTOR_WIDTH)
+    inner_col_B = tid % (BN // VECTOR_WIDTH)
+    row_stride_B = NUM_THREADS // (BN // VECTOR_WIDTH)
+
+    # allocate thread-local cache for results in registerfile
+    thread_results = memref.alloca((WMITER * TM, WNITER * TN), dtype)
+    linalg.fill(0, thread_results)
+
+    reg_M = memref.alloca((WMITER, TM), dtype)
+    linalg.fill(0, reg_M)
+
+    reg_N = memref.alloca((WNITER, TN), dtype)
+    linalg.fill(0, reg_N)
+
+    for bk_idx in range_(0, K, BK):
+        A_ = A[c_row : c_row + BM, bk_idx : bk_idx + BK]
+        B_ = B[bk_idx : bk_idx + BK, c_col : c_col + BN]
+
+        for offset in range(0, BM - row_stride_A + 1, row_stride_A):
+            A_vec = vector.load(
+                T.vector(VECTOR_WIDTH, dtype),
+                A_,
+                [inner_row_A + offset, inner_col_A * VECTOR_WIDTH],
+            )
+            for j in range(VECTOR_WIDTH):
+                #  transpose A while loading it
+                A_shared[inner_col_A * VECTOR_WIDTH + j, inner_row_A + offset] = A_vec[
+                    j
+                ]
+
+        for offset in range(0, BK - row_stride_B + 1, row_stride_B):
+            B_vec = vector.load(
+                T.vector(VECTOR_WIDTH, dtype),
+                B_,
+                [inner_row_B + offset, inner_col_B * VECTOR_WIDTH],
+            )
+            vector.store(
+                B_vec, B_shared, [inner_row_B + offset, inner_col_B * VECTOR_WIDTH]
+            )
+
+        gpu.barrier()
+
+        for dot_idx in range_(BK):
+            for w_sub_row_idx in range_(WMITER):
+                for i in range_(TM):
+                    reg_M[w_sub_row_idx, i] = A_shared[
+                        dot_idx,
+                        warp_row * WM
+                        + w_sub_row_idx * WSUBM
+                        + thread_row_in_warp * TM
+                        + i,
+                    ]
+
+            for w_sub_col_idx in range_(WNITER):
+                for i in range_(TN):
+                    reg_N[w_sub_col_idx, i] = A_shared[
+                        dot_idx,
+                        warp_col * WN
+                        + w_sub_col_idx * WSUBN
+                        + thread_col_in_warp * TN
+                        + i,
+                    ]
+
+            for w_sub_row_idx in range_(WMITER):
+                for w_sub_col_idx in range_(WNITER):
+                    for res_idx_m in range_(TM):
+                        for res_idx_n in range_(TN):
+                            thread_results[
+                                w_sub_row_idx * TM + res_idx_m,
+                                w_sub_col_idx * TN + res_idx_n,
+                            ] += (
+                                reg_M[w_sub_row_idx, res_idx_m]
+                                * reg_N[w_sub_col_idx, res_idx_n]
+                            )
+
+        gpu.barrier()
+
+    one = arith.constant(1.0, type=dtype)
+
+    for w_sub_row_idx in range_(WMITER):
+        for w_sub_col_idx in range_(WNITER):
+            r = c_row + warp_row * WM + w_sub_row_idx * WSUBM
+            c = c_col + warp_col * WN + w_sub_col_idx * WSUBN
+            C_ = C[r : r + WSUBM, c : c + WSUBN]
+            for res_idx_m in range_(TM):
+                for res_idx_n in range_(0, TN, VECTOR_WIDTH):
+                    tmp = vector.load(
+                        T.vector(VECTOR_WIDTH, dtype),
+                        C_,
+                        [
+                            thread_row_in_warp * TM + res_idx_m,
+                            thread_col_in_warp * TN + res_idx_n,
+                        ],
+                    )
+                    for j in range(VECTOR_WIDTH):
+                        tmp[j] = (
+                            thread_results[
+                                w_sub_row_idx * TM + res_idx_m,
+                                w_sub_col_idx * TN + res_idx_n + j,
+                            ]
+                            + one
+                        )
+                    vector.store(
+                        tmp,
+                        C_,
+                        [
+                            thread_row_in_warp * TM + res_idx_m,
+                            thread_col_in_warp * TN + res_idx_n,
+                        ],
+                    )
+
+
 def prepare_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
     dtype = T.f32()
     npy_dtype = np.float32
@@ -595,6 +757,49 @@ def prepare_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
         shared_mem = ((BM * BK) + (BK * BN)) * npy_dtype().nbytes
     else:
         shared_mem = 0
+
+    return (
+        cuda_func,
+        grid_dims,
+        block_dims,
+        shared_mem,
+        npy_dtype,
+        False,
+    )
+
+
+def prepare_warp_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
+    dtype = T.f32()
+    npy_dtype = np.float32
+    kernel_name = kernel.__name__
+
+    gpu.set_container_module(ctx.module)
+
+    NUM_THREADS = 128
+    BN = 128
+    BM = 128
+    BK = 16
+    WN = 64
+    WM = 64
+    WNITER = 4
+    TN = 4
+    TM = 8
+
+    @gpu.module("matmul", ["#nvvm.target"])
+    def matmul_mod():
+        kernel[M, K, N, dtype, BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS].emit()
+
+    # print(ctx.module)
+    # print(ctx.module.operation.verify())
+    # exit()
+
+    compiled_module = compile_module(ctx.module)
+    cuda_func = build_cuda_func(compiled_module, kernel_name)
+    # print_ptx(compiled_module)
+
+    grid_dims = (math.ceil(N / BN), math.ceil(M / BM))
+    block_dims = (NUM_THREADS,)
+    shared_mem = ((BM * BK) + (BK * BN)) * npy_dtype().nbytes
 
     return (
         cuda_func,
@@ -664,11 +869,11 @@ sizes = [128, 256, 512, 1024]
 repeats = None
 
 for k in [
-    sgemm_naive,
-    sgemm_naive_row_order,
-    sgemm_coalesce,
-    sgemm_coalesce_transpose_B,
-    sgemm_shared_mem_block,
+    # sgemm_naive,
+    # sgemm_naive_row_order,
+    # sgemm_coalesce,
+    # sgemm_coalesce_transpose_B,
+    # sgemm_shared_mem_block,
 ]:
     print(f"\n{k.__name__}")
     for s in sizes:
@@ -694,9 +899,9 @@ for k in [
 
 
 for k in [
-    sgemm_shared_mem_1d_block_tiling,
-    sgemm_shared_mem_2d_block_tiling,
-    sgemm_shared_mem_2d_block_tiling_vectorize,
+    # sgemm_shared_mem_1d_block_tiling,
+    # sgemm_shared_mem_2d_block_tiling,
+    # sgemm_shared_mem_2d_block_tiling_vectorize,
 ]:
     print(f"\n{k.__name__}")
     for s in sizes:
@@ -719,3 +924,24 @@ for k in [
                 npy_dtype,
                 transpose_B,
             )
+
+for s in sizes:
+    with (
+        mlir_mod_ctx() as ctx,
+        # enable_debug()
+    ):
+        print(f"{s=}", end=" ")
+        cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+            prepare_warp_tiled_kernel(ctx, sgemm_warp_tiling, s, s, s)
+        )
+        run_eval(
+            s,
+            s,
+            s,
+            cuda_func,
+            grid_dims,
+            block_dims,
+            shared_mem,
+            npy_dtype,
+            transpose_B,
+        )

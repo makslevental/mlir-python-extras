@@ -596,3 +596,19 @@ def dynamic_shared_memory(*, int=False, loc=None, ip=None):
         loc=loc,
         ip=ip,
     )
+
+
+_memset = memset
+
+
+def memset(dst, value, async_dependencies=None, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    if async_dependencies is None:
+        async_dependencies = []
+    async_token = None
+    if len(async_dependencies):
+        async_token = gpu_async_token()
+    if isinstance(value, (int, float, bool)):
+        value = constant(value, type=dst.type.element_type)
+    return _memset(async_token, async_dependencies, dst, value, loc=loc, ip=ip)
