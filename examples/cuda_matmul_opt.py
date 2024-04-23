@@ -661,7 +661,7 @@ def sgemm_warp_tiling[
 
             for w_sub_col_idx in range_(WNITER):
                 for i in range_(TN):
-                    reg_N[w_sub_col_idx, i] = A_shared[
+                    reg_N[w_sub_col_idx, i] = B_shared[
                         dot_idx,
                         warp_col * WN
                         + w_sub_col_idx * WSUBN
