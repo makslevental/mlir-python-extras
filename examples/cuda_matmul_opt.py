@@ -775,15 +775,16 @@ def prepare_warp_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
 
     gpu.set_container_module(ctx.module)
 
+    # Settings for A100 (looks like it works for 3070 too?)
     NUM_THREADS = 128
     BN = 128
-    BM = 128
+    BM = 64
     BK = 16
     WN = 64
-    WM = 64
-    WNITER = 4
+    WM = 32
+    WNITER = 1
     TN = 4
-    TM = 8
+    TM = 4
 
     @gpu.module("matmul", ["#nvvm.target"])
     def matmul_mod():
@@ -869,11 +870,11 @@ sizes = [128, 256, 512, 1024]
 repeats = None
 
 for k in [
-    # sgemm_naive,
-    # sgemm_naive_row_order,
-    # sgemm_coalesce,
-    # sgemm_coalesce_transpose_B,
-    # sgemm_shared_mem_block,
+    sgemm_naive,
+    sgemm_naive_row_order,
+    sgemm_coalesce,
+    sgemm_coalesce_transpose_B,
+    sgemm_shared_mem_block,
 ]:
     print(f"\n{k.__name__}")
     for s in sizes:
@@ -899,9 +900,9 @@ for k in [
 
 
 for k in [
-    # sgemm_shared_mem_1d_block_tiling,
-    # sgemm_shared_mem_2d_block_tiling,
-    # sgemm_shared_mem_2d_block_tiling_vectorize,
+    sgemm_shared_mem_1d_block_tiling,
+    sgemm_shared_mem_2d_block_tiling,
+    sgemm_shared_mem_2d_block_tiling_vectorize,
 ]:
     print(f"\n{k.__name__}")
     for s in sizes:
@@ -925,6 +926,7 @@ for k in [
                 transpose_B,
             )
 
+print(f"\n{sgemm_warp_tiling.__name__}")
 for s in sizes:
     with (
         mlir_mod_ctx() as ctx,
