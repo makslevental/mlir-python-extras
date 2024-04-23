@@ -437,11 +437,14 @@ class InsertEmptyYield(StrictTransformer):
         return updated_node
 
     def visit_For(self, updated_node: ast.For) -> ast.For:
-        updated_node = self.generic_visit(updated_node)
-        new_yield = ast.Expr(ast.Yield(value=None))
-        if not is_yield(updated_node.body[-1]):
-            updated_node.body = append_hidden_node(updated_node.body, new_yield)
-        updated_node = ast.fix_missing_locations(updated_node)
+        # TODO(max): this isn't robust at all...
+        line = ast.dump(updated_node.iter.func)
+        if "range_" in line or "for_" in line:
+            updated_node = self.generic_visit(updated_node)
+            new_yield = ast.Expr(ast.Yield(value=None))
+            if not is_yield(updated_node.body[-1]):
+                updated_node.body = append_hidden_node(updated_node.body, new_yield)
+            updated_node = ast.fix_missing_locations(updated_node)
         return updated_node
 
 

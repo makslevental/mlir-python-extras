@@ -2,6 +2,8 @@ import inspect
 from functools import partial
 from typing import Any, List, Optional, Tuple, Union
 
+from mlir.dialects._gpu_enum_gen import AddressSpace
+
 from .arith import constant
 from .func import FuncBase
 from ... import types as T
@@ -117,32 +119,39 @@ def get_device_mapping_array_attr(
     return ArrayAttr.get(mapping, context=context)
 
 
-def device_mapping_attr(mnemonic, mapping_id_enum: MappingId):
+def gpu_attr(mnemonic, mapping_id_enum: MappingId):
     return Attribute.parse(f"#gpu.{mnemonic}<{mapping_id_enum}>")
 
 
 def thread_attr(thread):
-    return device_mapping_attr("thread", thread)
+    return gpu_attr("thread", thread)
 
 
 def block_attr(block):
-    return device_mapping_attr("block", block)
+    return gpu_attr("block", block)
 
 
 def warp_attr(warp):
-    return device_mapping_attr("warp", warp)
+    return gpu_attr("warp", warp)
 
 
 def warpgroup_attr(warpgroup):
-    return device_mapping_attr("warpgroup", warpgroup)
+    return gpu_attr("warpgroup", warpgroup)
 
 
 def address_space_attr(address_space: AddressSpace):
-    return device_mapping_attr("address_space", address_space)
+    return gpu_attr("address_space", address_space)
 
 
-def smem_space():
-    return address_space_attr(AddressSpace.Workgroup)
+_int = int
+
+
+def smem_space(int=False):
+    a = AddressSpace.Workgroup
+    if int:
+        return _int(a)
+
+    return address_space_attr(a)
 
 
 @_cext.register_operation(_Dialect, replace=True)
@@ -577,12 +586,12 @@ def printf(format, *args):
 _dynamic_shared_memory = dynamic_shared_memory
 
 
-def dynamic_shared_memory(*, loc=None, ip=None):
+def dynamic_shared_memory(*, int=False, loc=None, ip=None):
     return _dynamic_shared_memory(
         T.memref(
             ShapedType.get_dynamic_size(),
             element_type=T.i8(),
-            memory_space=smem_space(),
+            memory_space=smem_space(int),
         ),
         loc=loc,
         ip=ip,

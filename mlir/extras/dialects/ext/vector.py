@@ -1,20 +1,46 @@
+import inspect
 from typing import List
 
 from ._shaped_value import ShapedValue
-from .arith import ArithValue, FastMathFlags, constant
-from ...util import get_user_code_loc
+from .arith import ArithValue, FastMathFlags, constant, Scalar
+from ...util import get_user_code_loc, _update_caller_vars
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects._ods_common import _dispatch_mixed_values
 
 # noinspection PyUnresolvedReferences
 from ....dialects.vector import *
 from ....extras import types as T
-from ....ir import AffineMap, VectorType
+from ....ir import AffineMap, VectorType, Value
 
 
 @register_value_caster(VectorType.static_typeid)
 class Vector(ShapedValue, ArithValue):
-    pass
+    def __getitem__(self, idx: tuple) -> "Vector":
+        loc = get_user_code_loc()
+
+        if not self.has_rank():
+            raise ValueError("only ranked memref slicing/indexing supported")
+
+        if idx == Ellipsis or idx == slice(None):
+            return self
+        if isinstance(idx, tuple) and all(i == slice(None) for i in idx):
+            return self
+        if idx is None:
+            raise RuntimeError("None idx not supported")
+
+        idx = list((idx,) if isinstance(idx, (int, Scalar, slice)) else idx)
+        return extract(self, tuple(idx), loc=loc)
+
+    def __setitem__(self, idx, val):
+        loc = get_user_code_loc()
+
+        if not self.has_rank():
+            raise ValueError("only ranked memref slicing/indexing supported")
+
+        idx = list((idx,) if isinstance(idx, (Scalar, int, Value)) else idx)
+        res = insert(self, val, idx, loc=loc)
+        previous_frame = inspect.currentframe().f_back
+        _update_caller_vars(previous_frame, [self], [res])
 
 
 _transfer_write = transfer_write
@@ -22,28 +48,27 @@ _transfer_write = transfer_write
 
 def transfer_write(
     vector: Vector,
-    source,
+    dest,
     indices,
     *,
     permutation_map=None,
     mask: List[int] = None,
     in_bounds: List[bool] = None,
     loc=None,
-    ip=None
+    ip=None,
 ):
     if loc is None:
         loc = get_user_code_loc()
     if permutation_map is None:
-        permutation_map = AffineMap.get_minor_identity(
-            source.type.rank, vector.type.rank
-        )
+        permutation_map = AffineMap.get_minor_identity(dest.type.rank, vector.type.rank)
     for j, i in enumerate(indices):
         if isinstance(i, int):
             indices[j] = constant(i, index=True)
     return _transfer_write(
         result=None,
         vector=vector,
-        source=source,
+        # no clue why they chose this name...
+        source=dest,
         indices=indices,
         permutation_map=permutation_map,
         mask=mask,
@@ -66,7 +91,7 @@ def transfer_read(
     mask=None,
     in_bounds=None,
     loc=None,
-    ip=None
+    ip=None,
 ):
     if loc is None:
         loc = get_user_code_loc()
@@ -111,6 +136,25 @@ def extract(vector, position, *, loc=None, ip=None):
     )
 
 
+_insert = insert
+
+
+def insert(vector, val, position, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    dynamic_position, _packed_position, static_position = _dispatch_mixed_values(
+        position
+    )
+    return _insert(
+        val,
+        dest=vector,
+        dynamic_position=dynamic_position,
+        static_position=static_position,
+        loc=loc,
+        ip=ip,
+    )
+
+
 _reduction = reduction
 
 
@@ -121,7 +165,7 @@ def reduction(
     acc=None,
     fastmath: FastMathFlags = None,
     loc=None,
-    ip=None
+    ip=None,
 ):
     if loc is None:
         loc = get_user_code_loc()
