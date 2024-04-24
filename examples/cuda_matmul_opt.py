@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import contextlib
 import math
 
@@ -7,8 +5,8 @@ import cupy as cp
 import mlir.extras.types as T
 import numpy as np
 from cupy.cuda import Module
-
 from mlir.dialects import builtin
+
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import (
     mlir_mod_ctx,
@@ -134,8 +132,14 @@ def time_cuda():
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_naive[
-    M, K, N, dtype
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
@@ -156,8 +160,14 @@ def sgemm_naive[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_naive_row_order[
-    M, K, N, dtype
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
@@ -176,8 +186,15 @@ def sgemm_naive_row_order[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_coalesce[
-    M, K, N, dtype, BLOCK_SIZE: 32
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BLOCK_SIZE: 32,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
 
     tid = gpu.thread_id()
     # this is actually floordiv
@@ -235,8 +252,15 @@ def sgemm_coalesce[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_coalesce_transpose_B[
-    M, K, N, dtype, BLOCK_SIZE: 32
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BLOCK_SIZE: 32,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
 
     tid = gpu.thread_id()
     r = block_idx.x * BLOCK_SIZE + (tid / BLOCK_SIZE)
@@ -257,8 +281,15 @@ def sgemm_coalesce_transpose_B[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_block[
-    M, K, N, dtype, BLOCK_SIZE: 32
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BLOCK_SIZE: 32,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     # allocate buffer for current block in fast shared mem
     # shared mem is shared between all threads in a block
     base = gpu.dynamic_shared_memory()
@@ -347,8 +378,18 @@ def prepare_non_tiled_kernel(ctx: MLIRContext, kernel, M, K, N, BLOCK_SIZE=32):
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_1d_block_tiling[
-    M, K, N, dtype, BM, BN, BK, TM
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    TM,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     base = gpu.dynamic_shared_memory()
     A_shared = memref.view(base, (BM, BK), dtype=dtype)
     B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
@@ -397,8 +438,19 @@ def sgemm_shared_mem_1d_block_tiling[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_2d_block_tiling[
-    M, K, N, dtype, BM, BN, BK, TM, TN
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    TM,
+    TN,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     base = gpu.dynamic_shared_memory()
     A_shared = memref.view(base, (BM, BK), dtype=dtype)
     B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
@@ -473,8 +525,19 @@ def sgemm_shared_mem_2d_block_tiling[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_2d_block_tiling_vectorize[
-    M, K, N, dtype, BM, BN, BK, TM, TN
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    TM,
+    TN,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     VECTOR_WIDTH = 4
     DTYPE_WIDTH = dtype.width // 8
 
@@ -572,8 +635,23 @@ WARP_SIZE = 32
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_warp_tiling[
-    M, K, N, dtype, BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    WM,
+    WN,
+    WNITER,
+    TM,
+    TN,
+    NUM_THREADS,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     VECTOR_WIDTH = 4
     DTYPE_WIDTH = dtype.width // 8
 
@@ -731,14 +809,15 @@ def sgemm_warp_tiling[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_tensor_core[
-    M, K, N
-](
-    A: T.memref(M, K, T.f16()),
-    B: T.memref(K, N, T.f16()),
-    C: T.memref(M, N, T.f32()),
-    a_tma: llvm_ptr_t(),
-    b_tma: llvm_ptr_t(),
-):
+    M,
+    K,
+    N,
+    A_t: T.memref(M, K, T.f16()),
+    B_t: T.memref(K, N, T.f16()),
+    C_t: T.memref(M, N, T.f32()),
+    a_tma_t: llvm_ptr_t(),
+    b_tma_t: llvm_ptr_t(),
+](A: A_t, B: B_t, C: C_t, a_tma: a_tma_t, b_tma: b_tma_t):
     a_tma = builtin.unrealized_conversion_cast(
         [
             nvgpu.TensorMapDescriptorType.get(
@@ -950,7 +1029,7 @@ def prepare_tensor_core_kernel(ctx: MLIRContext, kernel, M, K, N):
     compiled_module = compile_module(
         ctx.module, chip="sm_90a", opt_level=3, full_pipeline=False
     )
-    cuda_func = build_cuda_func(compiled_module, kernel_name)
+    # cuda_func = build_cuda_func(compiled_module, kernel_name)
     # print_ptx(compiled_module)
 
     grid_dims = (math.ceil(N / BN), math.ceil(M / BM))
@@ -958,7 +1037,8 @@ def prepare_tensor_core_kernel(ctx: MLIRContext, kernel, M, K, N):
     shared_mem = ((BM * BK) + (BK * BN)) * npy_dtype().nbytes
 
     return (
-        cuda_func,
+        # cuda_func,
+        None,
         grid_dims,
         block_dims,
         shared_mem,
@@ -1089,7 +1169,7 @@ for s in sizes:
     ):
         print(f"{s=}", end=" ")
         cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
-            prepare_tensor_core_kernel(ctx, sgemm_tensor_core, s, s, s)
+            prepare_warp_tiled_kernel(ctx, sgemm_warp_tiling, s, s, s)
         )
         run_eval(
             s,
@@ -1102,3 +1182,27 @@ for s in sizes:
             npy_dtype,
             transpose_B,
         )
+
+
+sizes = [128, 256]
+
+for s in sizes:
+    with (
+        mlir_mod_ctx() as ctx,
+        # enable_debug()
+    ):
+        print(f"{s=}", end=" ")
+        cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+            prepare_tensor_core_kernel(ctx, sgemm_tensor_core, s, s, s)
+        )
+        # run_eval(
+        #     s,
+        #     s,
+        #     s,
+        #     cuda_func,
+        #     grid_dims,
+        #     block_dims,
+        #     shared_mem,
+        #     npy_dtype,
+        #     transpose_B,
+        # )

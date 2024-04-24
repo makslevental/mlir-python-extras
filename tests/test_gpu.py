@@ -1,4 +1,6 @@
+import platform
 import sys
+import tempfile
 from textwrap import dedent
 
 import mlir.extras.types as T
@@ -10,8 +12,8 @@ from mlir.dialects.math import fma
 from mlir.dialects.memref import cast
 
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import scf
 from mlir.extras.dialects.ext import arith
+from mlir.extras.dialects.ext import scf
 from mlir.extras.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences
@@ -613,4 +615,120 @@ def test_generics(ctx: MLIRContext):
     """
     )
 
+    filecheck(correct, ctx.module)
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="requires python3.12 or higher")
+def test_generic_type_var_closure_patching(ctx: MLIRContext):
+
+    # dodge <3.12 parser that doesn't support square brackets generics
+    exec(
+        dedent(
+            """\
+    from mlir.extras.ast.util import PyTypeVarObject
+
+    def fun2[foo, bar, A: foo + bar]():
+        print(A.__bound__)
+
+
+    A_type_param = fun2.__type_params__[2]
+
+
+    a = PyTypeVarObject.try_from(A_type_param)
+    a_something = a.bound.contents.into_object()
+    a_something.__closure__[0].cell_contents = 5
+    a_something.__closure__[1].cell_contents = 7
+
+    fun2()
+    """
+        )
+    )
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 12) or platform.system() == "Windows",
+    reason="requires python3.12 or higher (and windows can't find the source file)",
+)
+def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
+
+    # dodge <3.12 parser that doesn't support square brackets generics
+    # but also need a real file here because rewriter needs source...
+    src = dedent(
+        """\
+    from mlir.extras.dialects.ext import arith, gpu, scf
+    from mlir.extras.ast.canonicalize import canonicalize
+    import mlir.extras.types as T
+
+    @gpu.func
+    def test_plain[
+        M,
+        K,
+        N,
+        dtype,
+        A_t: T.memref(M, K, dtype),
+        B_t: T.memref(K, N, dtype),
+        C_t: T.memref(M, N, dtype),
+    ](A: A_t, B: B_t, C: C_t):
+        one = arith.constant(1.0, type=dtype)
+
+    @gpu.func
+    @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+    def test_2_with_rewrite[
+        M,
+        K,
+        N,
+        dtype,
+        A_t: T.memref(M, K, dtype),
+        B_t: T.memref(K, N, dtype),
+        C_t: T.memref(M, N, dtype),
+    ](A: A_t, B: B_t, C: C_t):
+        one = arith.constant(1.0, type=dtype)
+        
+    globals()["test_plain"] = test_plain
+    globals()["test_2_with_rewrite"] = test_2_with_rewrite
+    """
+    )
+
+    with tempfile.NamedTemporaryFile(mode="w") as tmp:
+        tmp.write(src)
+        tmp.flush()
+        code = compile(src, tmp.name, "exec")
+        exec(code, globals(), locals())
+
+    @module("mod1", ["#nvvm.target"])
+    def _():
+        test_plain[1, 2, 3, T.f32()].emit()
+        test_2_with_rewrite[1, 2, 3, T.f32()].emit()
+
+    @module("mod2", ["#nvvm.target"])
+    def _():
+        test_plain[4, 5, 6, T.f16()].emit()
+        test_2_with_rewrite[4, 5, 6, T.f16()].emit()
+
+    correct = dedent(
+        """\
+    module {
+      gpu.module @mod1 [#nvvm.target]  {
+        gpu.func @test_plain(%arg0: memref<1x2xf32>, %arg1: memref<2x3xf32>, %arg2: memref<1x3xf32>) kernel {
+          %cst = arith.constant 1.000000e+00 : f32
+          gpu.return
+        }
+        gpu.func @test_2_with_rewrite(%arg0: memref<1x2xf32>, %arg1: memref<2x3xf32>, %arg2: memref<1x3xf32>) kernel {
+          %cst = arith.constant 1.000000e+00 : f32
+          gpu.return
+        }
+      }
+      gpu.module @mod2 [#nvvm.target]  {
+        gpu.func @test_plain(%arg0: memref<4x5xf16>, %arg1: memref<5x6xf16>, %arg2: memref<4x6xf16>) kernel {
+          %cst = arith.constant 1.000000e+00 : f16
+          gpu.return
+        }
+        gpu.func @test_2_with_rewrite(%arg0: memref<4x5xf16>, %arg1: memref<5x6xf16>, %arg2: memref<4x6xf16>) kernel {
+          %cst = arith.constant 1.000000e+00 : f16
+          gpu.return
+        }
+      }
+    }
+    """
+    )
     filecheck(correct, ctx.module)

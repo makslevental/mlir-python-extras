@@ -2,15 +2,10 @@ import re
 from pathlib import Path
 from textwrap import dedent
 
-import pytest
-from mlir import _mlir_libs
-from mlir.dialects.transform.extras import named_sequence
-
 import mlir.extras.types as T
-from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import arith, memref, scf, gpu, linalg, transform
-from mlir.dialects.transform import any_op_t
-from mlir.extras.dialects.ext.func import func
+import pytest
+from mlir.dialects import builtin
+from mlir.dialects.memref import cast
 from mlir.dialects.nvgpu import (
     TensorMapDescriptorType,
     TensorMapSwizzleKind,
@@ -18,18 +13,24 @@ from mlir.dialects.nvgpu import (
     TensorMapOOBKind,
     TensorMapInterleaveKind,
 )
-from mlir.dialects.transform.structured import MatchInterfaceEnum
-from mlir.dialects.memref import cast
 from mlir.dialects.nvgpu import tma_create_descriptor
-from mlir.dialects import builtin
-from mlir.extras.runtime.passes import run_pipeline, Pipeline
+from mlir.dialects.transform import any_op_t
+from mlir.dialects.transform.extras import named_sequence
+from mlir.dialects.transform.structured import MatchInterfaceEnum
 from mlir.ir import StringAttr, UnitAttr
 
+from mlir import _mlir_libs
+from mlir.extras.ast.canonicalize import canonicalize
+from mlir.extras.dialects.ext import arith, memref, scf, gpu, linalg, transform, nvgpu
+from mlir.extras.dialects.ext.func import func
+from mlir.extras.dialects.ext.gpu import smem_space
+from mlir.extras.dialects.ext.llvm import llvm_ptr_t
+from mlir.extras.runtime.passes import run_pipeline, Pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
-from mlir.extras.util import find_ops
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.util import find_ops
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -657,3 +658,178 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
     )
     out, err = capfd.readouterr()
     filecheck(correct, re.sub(r"0x\w+", "", out))
+
+
+def test_tma(ctx: MLIRContext):
+
+    M = K = N = 64
+
+    @gpu.func
+    @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+    def sgemm_tensor_core(
+        A: T.memref(M, K, T.f16()),
+        B: T.memref(K, N, T.f16()),
+        C: T.memref(M, N, T.f32()),
+        a_tma: llvm_ptr_t(),
+        b_tma: llvm_ptr_t(),
+    ):
+        a_tma = builtin.unrealized_conversion_cast(
+            [
+                nvgpu.TensorMapDescriptorType.get(
+                    T.memref(128, 64, T.f16(), memory_space=smem_space()),
+                    swizzle=int(nvgpu.TensorMapSwizzleKind.SWIZZLE_128B),
+                    l2promo=int(nvgpu.TensorMapL2PromoKind.L2PROMO_NONE),
+                    oob_fill=int(nvgpu.TensorMapOOBKind.OOB_ZERO),
+                    interleave=int(nvgpu.TensorMapInterleaveKind.INTERLEAVE_NONE),
+                )
+            ],
+            [a_tma],
+        )
+        b_tma = builtin.unrealized_conversion_cast(
+            [
+                nvgpu.TensorMapDescriptorType.get(
+                    T.memref(64, 64, T.f16(), memory_space=smem_space()),
+                    swizzle=int(nvgpu.TensorMapSwizzleKind.SWIZZLE_128B),
+                    l2promo=int(nvgpu.TensorMapL2PromoKind.L2PROMO_NONE),
+                    oob_fill=int(nvgpu.TensorMapOOBKind.OOB_ZERO),
+                    interleave=int(nvgpu.TensorMapInterleaveKind.INTERLEAVE_NONE),
+                )
+            ],
+            [b_tma],
+        )
+        tid = gpu.thread_id()
+        is_thread_0 = tid == 0
+
+        mbarrier = nvgpu.mbarrier_create()
+        nvgpu.mbarrier_init(mbarrier, 1, 0, predicate=is_thread_0)
+        nvgpu.tma_prefetch_descriptor(a_tma)
+        nvgpu.tma_prefetch_descriptor(b_tma)
+
+        base = gpu.dynamic_shared_memory()
+
+        shift = 0
+        A_shared = memref.view(base, (M, K), dtype=T.f16(), shift=shift)
+        shift += A_shared.n_elements
+        B_shared = memref.view(base, (K, N), dtype=T.f16(), shift=shift)
+        shift += B_shared.n_elements
+
+        a = memref.view(base, (128, 64), dtype=T.f16(), shift=shift)
+        shift += a.n_elements
+        b1 = memref.view(base, (64, 64), dtype=T.f16(), shift=shift)
+        shift += b1.n_elements
+        b2 = memref.view(base, (64, 64), dtype=T.f16(), shift=shift)
+
+        ta_count = a.n_elements + b1.n_elements + b2.n_elements
+        nvgpu.mbarrier_arrive_expect_tx(mbarrier, ta_count, 0, predicate=is_thread_0)
+
+        nvgpu.tma_async_load(
+            a,
+            mbarrier,
+            a_tma,
+            coordinates=[0, 0],
+            mbar_id=0,
+            predicate=is_thread_0,
+        )
+        nvgpu.tma_async_load(
+            b1,
+            mbarrier,
+            b_tma,
+            coordinates=[0, 0],
+            mbar_id=0,
+            predicate=is_thread_0,
+        )
+        nvgpu.tma_async_load(
+            b2,
+            mbarrier,
+            b_tma,
+            coordinates=[64, 0],
+            mbar_id=0,
+            predicate=is_thread_0,
+        )
+        nvgpu.mbarrier_try_wait_parity(mbarrier, mbar_id=0)
+
+        accum = nvgpu.warpgroup_mma_init_accumulator(
+            nvgpu.warpgroup_accumulator_t(M, N, T.f32())
+        )
+        lhs = nvgpu.warpgroup_generate_descriptor(
+            nvgpu.warpgroup_descriptor(M, K, T.f16()), A_shared, a_tma
+        )
+        rhs = nvgpu.warpgroup_generate_descriptor(
+            nvgpu.warpgroup_descriptor(K, N, T.f16()), B_shared, b_tma
+        )
+        acc = nvgpu.warpgroup_mma(accum, lhs, rhs, transpose_b=True)
+        nvgpu.warpgroup_mma_store(acc, C)
+
+    @gpu.module("matmul", ["#nvvm.target"])
+    def matmul_mod():
+        sgemm_tensor_core.emit()
+
+    correct = dedent(
+        """\
+    module {
+      gpu.module @matmul [#nvvm.target]  {
+        gpu.func @sgemm_tensor_core(%arg0: memref<64x64xf16>, %arg1: memref<64x64xf16>, %arg2: memref<64x64xf32>, %arg3: !llvm.ptr, %arg4: !llvm.ptr) kernel {
+          %0 = builtin.unrealized_conversion_cast %arg3 : !llvm.ptr to !nvgpu.tensormap.descriptor<tensor = memref<128x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>
+          %1 = builtin.unrealized_conversion_cast %arg4 : !llvm.ptr to !nvgpu.tensormap.descriptor<tensor = memref<64x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>
+          %block_dim_x = gpu.block_dim  x
+          %block_dim_y = gpu.block_dim  y
+          %2 = arith.muli %block_dim_x, %block_dim_y : index
+          %thread_id_z = gpu.thread_id  z
+          %3 = arith.muli %2, %thread_id_z : index
+          %block_dim_x_0 = gpu.block_dim  x
+          %thread_id_y = gpu.thread_id  y
+          %4 = arith.muli %block_dim_x_0, %thread_id_y : index
+          %5 = arith.addi %3, %4 : index
+          %thread_id_x = gpu.thread_id  x
+          %6 = arith.addi %5, %thread_id_x : index
+          %c0 = arith.constant 0 : index
+          %7 = arith.cmpi eq, %6, %c0 : index
+          %8 = nvgpu.mbarrier.create -> <memorySpace = #gpu.address_space<workgroup>>
+          %c1 = arith.constant 1 : index
+          %c0_1 = arith.constant 0 : index
+          nvgpu.mbarrier.init %8[%c0_1], %c1, predicate = %7 : <memorySpace = #gpu.address_space<workgroup>>
+          nvgpu.tma.prefetch.descriptor %0 : <tensor = memref<128x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>
+          nvgpu.tma.prefetch.descriptor %1 : <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>
+          %9 = gpu.dynamic_shared_memory : memref<?xi8, #gpu.address_space<workgroup>>
+          %c0_2 = arith.constant 0 : index
+          %view = memref.view %9[%c0_2][] : memref<?xi8, #gpu.address_space<workgroup>> to memref<64x64xf16, #gpu.address_space<workgroup>>
+          %c8192 = arith.constant 8192 : index
+          %view_3 = memref.view %9[%c8192][] : memref<?xi8, #gpu.address_space<workgroup>> to memref<64x64xf16, #gpu.address_space<workgroup>>
+          %c16384 = arith.constant 16384 : index
+          %view_4 = memref.view %9[%c16384][] : memref<?xi8, #gpu.address_space<workgroup>> to memref<128x64xf16, #gpu.address_space<workgroup>>
+          %c32768 = arith.constant 32768 : index
+          %view_5 = memref.view %9[%c32768][] : memref<?xi8, #gpu.address_space<workgroup>> to memref<64x64xf16, #gpu.address_space<workgroup>>
+          %c40960 = arith.constant 40960 : index
+          %view_6 = memref.view %9[%c40960][] : memref<?xi8, #gpu.address_space<workgroup>> to memref<64x64xf16, #gpu.address_space<workgroup>>
+          %c16384_7 = arith.constant 16384 : index
+          %c0_8 = arith.constant 0 : index
+          nvgpu.mbarrier.arrive.expect_tx %8[%c0_8], %c16384_7, predicate = %7 : <memorySpace = #gpu.address_space<workgroup>>
+          %c0_9 = arith.constant 0 : index
+          %c0_10 = arith.constant 0 : index
+          %c0_11 = arith.constant 0 : index
+          nvgpu.tma.async.load %0[%c0_9, %c0_10], %8[%c0_11] to %view_4, predicate = %7 : <tensor = memref<128x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>, <memorySpace = #gpu.address_space<workgroup>> -> memref<128x64xf16, #gpu.address_space<workgroup>>
+          %c0_12 = arith.constant 0 : index
+          %c0_13 = arith.constant 0 : index
+          %c0_14 = arith.constant 0 : index
+          nvgpu.tma.async.load %1[%c0_12, %c0_13], %8[%c0_14] to %view_5, predicate = %7 : <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>, <memorySpace = #gpu.address_space<workgroup>> -> memref<64x64xf16, #gpu.address_space<workgroup>>
+          %c64 = arith.constant 64 : index
+          %c0_15 = arith.constant 0 : index
+          %c0_16 = arith.constant 0 : index
+          nvgpu.tma.async.load %1[%c64, %c0_15], %8[%c0_16] to %view_6, predicate = %7 : <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none>, <memorySpace = #gpu.address_space<workgroup>> -> memref<64x64xf16, #gpu.address_space<workgroup>>
+          %c10000000 = arith.constant 10000000 : index
+          %c0_17 = arith.constant 0 : index
+          %false = arith.constant false
+          nvgpu.mbarrier.try_wait.parity %8[%c0_17], %false, %c10000000 : <memorySpace = #gpu.address_space<workgroup>>
+          %10 = nvgpu.warpgroup.mma.init.accumulator -> <fragmented = vector<64x64xf32>>
+          %11 = nvgpu.warpgroup.generate.descriptor %view, %0 : memref<64x64xf16, #gpu.address_space<workgroup>>, <tensor = memref<128x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none> -> <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>>
+          %12 = nvgpu.warpgroup.generate.descriptor %view_3, %1 : memref<64x64xf16, #gpu.address_space<workgroup>>, <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>, swizzle = swizzle_128b, l2promo = none, oob = zero, interleave = none> -> <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>>
+          %13 = nvgpu.warpgroup.mma %11, %12, %10 {transposeB} : <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>>, <tensor = memref<64x64xf16, #gpu.address_space<workgroup>>>, <fragmented = vector<64x64xf32>> -> <fragmented = vector<64x64xf32>>
+          nvgpu.warpgroup.mma.store %13, %arg2 : <fragmented = vector<64x64xf32>> to memref<64x64xf32>
+          gpu.return
+        }
+      }
+    }
+    """
+    )
+
+    filecheck(correct, ctx.module)
