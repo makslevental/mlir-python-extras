@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import contextlib
 import math
 
@@ -7,19 +5,22 @@ import cupy as cp
 import mlir.extras.types as T
 import numpy as np
 from cupy.cuda import Module
+from mlir.dialects import builtin
 
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import (
     mlir_mod_ctx,
     MLIRContext,
 )
-from mlir.extras.dialects.ext import arith, memref, gpu, scf, linalg, vector
+from mlir.extras.dialects.ext import arith, memref, gpu, scf, linalg, vector, nvgpu
 from mlir.extras.dialects.ext.gpu import (
     block_idx,
     thread_idx,
     block_dim,
     get_compile_object_bytes,
+    smem_space,
 )
+from mlir.extras.dialects.ext.llvm import llvm_ptr_t
 from mlir.extras.dialects.ext.memref import S
 from mlir.extras.dialects.ext.scf import range_
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
@@ -43,66 +44,73 @@ def print_ptx(compiled_module):
     print(ptx.decode())
 
 
-def compile_module(module, enable_ir_printing=False, print_ptx_=False):
+def compile_module(
+    module,
+    chip="sm_80",
+    features="+ptx83",
+    opt_level=2,
+    enable_ir_printing=False,
+    print_ptx_=False,
+    full_pipeline=True,
+):
     if enable_ir_printing:
         print_ptx_ = True
-    mod = run_pipeline(
-        module,
-        # if you're not using vectors you can just uncomment the gpu-lower-to-nvvm-pipeline below
-        Pipeline()
-        .convert_linalg_to_loops()
-        .convert_nvgpu_to_nvvm()
-        .gpu_kernel_outlining()
-        .convert_vector_to_scf()
-        .convert_scf_to_cf()
-        .convert_nvvm_to_llvm()
-        .convert_func_to_llvm()
-        .expand_strided_metadata()
-        .add_pass(
-            "nvvm-attach-target",
-            **{
-                "chip": "sm_80",
-                "features": "+ptx83",
-                "O": "2",
-            },
-        )
-        .lower_affine()
-        .convert_arith_to_llvm()
-        .convert_index_to_llvm()
-        .canonicalize()
-        .cse()
-        .Gpu(
+    if full_pipeline:
+        p = (
             Pipeline()
-            .strip_debuginfo()
-            # TODO(max): upstream this (add to gpu pipeline)
-            # vector.transfer
-            .convert_vector_to_llvm()
-            .convert_gpu_to_nvvm(use_bare_ptr_memref_call_conv=True)
+            .convert_linalg_to_loops()
+            .convert_nvgpu_to_nvvm()
+            .gpu_kernel_outlining()
+            .convert_vector_to_scf()
+            .convert_scf_to_cf()
+            .convert_nvvm_to_llvm()
+            .convert_func_to_llvm()
+            .expand_strided_metadata()
+            .add_pass(
+                "nvvm-attach-target",
+                **{
+                    "chip": chip,
+                    "features": features,
+                    "O": str(opt_level),
+                },
+            )
+            .lower_affine()
+            .convert_arith_to_llvm()
+            .convert_index_to_llvm()
+            .canonicalize()
+            .cse()
+            .Gpu(
+                Pipeline()
+                .strip_debuginfo()
+                # TODO(max): upstream this (add to gpu pipeline)
+                # vector.transfer
+                .convert_vector_to_llvm()
+                .convert_gpu_to_nvvm(use_bare_ptr_memref_call_conv=True)
+                .canonicalize()
+                .cse()
+                .reconcile_unrealized_casts()
+            )
+            .gpu_to_llvm(use_bare_pointers_for_kernels=True)
+            .gpu_module_to_binary(format="isa")
             .canonicalize()
             .cse()
             .reconcile_unrealized_casts()
         )
-        .gpu_to_llvm(use_bare_pointers_for_kernels=True)
-        .gpu_module_to_binary(format="isa")
-        .canonicalize()
-        .cse()
-        .reconcile_unrealized_casts()
-        # .add_pass(
-        #     "gpu-lower-to-nvvm-pipeline",
-        #     # https://github.com/llvm/llvm-project/blob/ace69e6b942b8fa7e610d70be2a92e801ceea481/mlir/include/mlir/Dialect/GPU/Pipelines/Passes.h#L18
-        #     **{
-        #         "cubin-chip": "sm_80",
-        #         "cubin-features": "+ptx83",
-        #         "cubin-format": "isa",
-        #         "kernel-bare-ptr-calling-convention": "1",
-        #         "opt-level": "2",
-        #         # "cubin-format": "fatbin",
-        #         # "cubin-format": "bin",
-        #     },
-        # )
-        ,
-        enable_ir_printing=enable_ir_printing,
-    )
+    else:
+        p = Pipeline().add_pass(
+            "gpu-lower-to-nvvm-pipeline",
+            # https://github.com/llvm/llvm-project/blob/ace69e6b942b8fa7e610d70be2a92e801ceea481/mlir/include/mlir/Dialect/GPU/Pipelines/Passes.h#L18
+            **{
+                "cubin-chip": chip,
+                "cubin-features": features,
+                "cubin-format": "isa",
+                "kernel-bare-ptr-calling-convention": "1",
+                "opt-level": str(opt_level),
+                # "cubin-format": "fatbin",
+                # "cubin-format": "bin",
+            },
+        )
+    mod = run_pipeline(module, p, enable_ir_printing=enable_ir_printing)
 
     if print_ptx_:
         print_ptx(mod)
@@ -124,8 +132,14 @@ def time_cuda():
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_naive[
-    M, K, N, dtype
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
@@ -146,8 +160,14 @@ def sgemm_naive[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_naive_row_order[
-    M, K, N, dtype
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
@@ -166,8 +186,15 @@ def sgemm_naive_row_order[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_coalesce[
-    M, K, N, dtype, BLOCK_SIZE: 32
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BLOCK_SIZE: 32,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
 
     tid = gpu.thread_id()
     # this is actually floordiv
@@ -225,8 +252,15 @@ def sgemm_coalesce[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_coalesce_transpose_B[
-    M, K, N, dtype, BLOCK_SIZE: 32
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BLOCK_SIZE: 32,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
 
     tid = gpu.thread_id()
     r = block_idx.x * BLOCK_SIZE + (tid / BLOCK_SIZE)
@@ -247,8 +281,15 @@ def sgemm_coalesce_transpose_B[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_block[
-    M, K, N, dtype, BLOCK_SIZE: 32
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BLOCK_SIZE: 32,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     # allocate buffer for current block in fast shared mem
     # shared mem is shared between all threads in a block
     base = gpu.dynamic_shared_memory()
@@ -337,8 +378,18 @@ def prepare_non_tiled_kernel(ctx: MLIRContext, kernel, M, K, N, BLOCK_SIZE=32):
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_1d_block_tiling[
-    M, K, N, dtype, BM, BN, BK, TM
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    TM,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     base = gpu.dynamic_shared_memory()
     A_shared = memref.view(base, (BM, BK), dtype=dtype)
     B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
@@ -387,8 +438,19 @@ def sgemm_shared_mem_1d_block_tiling[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_2d_block_tiling[
-    M, K, N, dtype, BM, BN, BK, TM, TN
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    TM,
+    TN,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     base = gpu.dynamic_shared_memory()
     A_shared = memref.view(base, (BM, BK), dtype=dtype)
     B_shared = memref.view(base, (BK, BN), dtype=dtype, shift=BM * BK)
@@ -463,8 +525,19 @@ def sgemm_shared_mem_2d_block_tiling[
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_shared_mem_2d_block_tiling_vectorize[
-    M, K, N, dtype, BM, BN, BK, TM, TN
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    TM,
+    TN,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     VECTOR_WIDTH = 4
     DTYPE_WIDTH = dtype.width // 8
 
@@ -562,8 +635,23 @@ WARP_SIZE = 32
 @gpu.func
 @canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
 def sgemm_warp_tiling[
-    M, K, N, dtype, BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS
-](A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)):
+    M,
+    K,
+    N,
+    dtype,
+    BM,
+    BN,
+    BK,
+    WM,
+    WN,
+    WNITER,
+    TM,
+    TN,
+    NUM_THREADS,
+    A_t: T.memref(M, K, dtype),
+    B_t: T.memref(K, N, dtype),
+    C_t: T.memref(M, N, dtype),
+](A: A_t, B: B_t, C: C_t):
     VECTOR_WIDTH = 4
     DTYPE_WIDTH = dtype.width // 8
 
@@ -718,6 +806,106 @@ def sgemm_warp_tiling[
                     )
 
 
+@gpu.func
+@canonicalize(using=(arith.canonicalizer, scf.canonicalizer))
+def sgemm_tensor_core[
+    M,
+    K,
+    N,
+    A_t: T.memref(M, K, T.f16()),
+    B_t: T.memref(K, N, T.f16()),
+    C_t: T.memref(M, N, T.f32()),
+    a_tma_t: llvm_ptr_t(),
+    b_tma_t: llvm_ptr_t(),
+](A: A_t, B: B_t, C: C_t, a_tma: a_tma_t, b_tma: b_tma_t):
+    a_tma = builtin.unrealized_conversion_cast(
+        [
+            nvgpu.TensorMapDescriptorType.get(
+                T.memref(128, 64, T.f16(), memory_space=smem_space()),
+                swizzle=int(nvgpu.TensorMapSwizzleKind.SWIZZLE_128B),
+                l2promo=int(nvgpu.TensorMapL2PromoKind.L2PROMO_NONE),
+                oob_fill=int(nvgpu.TensorMapOOBKind.OOB_ZERO),
+                interleave=int(nvgpu.TensorMapInterleaveKind.INTERLEAVE_NONE),
+            )
+        ],
+        [a_tma],
+    )
+    b_tma = builtin.unrealized_conversion_cast(
+        [
+            nvgpu.TensorMapDescriptorType.get(
+                T.memref(64, 64, T.f16(), memory_space=smem_space()),
+                swizzle=int(nvgpu.TensorMapSwizzleKind.SWIZZLE_128B),
+                l2promo=int(nvgpu.TensorMapL2PromoKind.L2PROMO_NONE),
+                oob_fill=int(nvgpu.TensorMapOOBKind.OOB_ZERO),
+                interleave=int(nvgpu.TensorMapInterleaveKind.INTERLEAVE_NONE),
+            )
+        ],
+        [b_tma],
+    )
+    tid = gpu.thread_id()
+    is_thread_0 = tid == 0
+
+    mbarrier = nvgpu.mbarrier_create()
+    nvgpu.mbarrier_init(mbarrier, 1, 0, predicate=is_thread_0)
+    nvgpu.tma_prefetch_descriptor(a_tma)
+    nvgpu.tma_prefetch_descriptor(b_tma)
+
+    base = gpu.dynamic_shared_memory()
+
+    shift = 0
+    A_shared = memref.view(base, (M, K), dtype=T.f16(), shift=shift)
+    shift += A_shared.n_elements
+    B_shared = memref.view(base, (K, N), dtype=T.f16(), shift=shift)
+    shift += B_shared.n_elements
+
+    a = memref.view(base, (128, 64), dtype=T.f16(), shift=shift)
+    shift += a.n_elements
+    b1 = memref.view(base, (64, 64), dtype=T.f16(), shift=shift)
+    shift += b1.n_elements
+    b2 = memref.view(base, (64, 64), dtype=T.f16(), shift=shift)
+
+    ta_count = a.n_elements + b1.n_elements + b2.n_elements
+    nvgpu.mbarrier_arrive_expect_tx(mbarrier, ta_count, 0, predicate=is_thread_0)
+
+    nvgpu.tma_async_load(
+        a,
+        mbarrier,
+        a_tma,
+        coordinates=[0, 0],
+        mbar_id=0,
+        predicate=is_thread_0,
+    )
+    nvgpu.tma_async_load(
+        b1,
+        mbarrier,
+        b_tma,
+        coordinates=[0, 0],
+        mbar_id=0,
+        predicate=is_thread_0,
+    )
+    nvgpu.tma_async_load(
+        b2,
+        mbarrier,
+        b_tma,
+        coordinates=[64, 0],
+        mbar_id=0,
+        predicate=is_thread_0,
+    )
+    nvgpu.mbarrier_try_wait_parity(mbarrier, mbar_id=0)
+
+    accum = nvgpu.warpgroup_mma_init_accumulator(
+        nvgpu.warpgroup_accumulator_t(M, N, T.f32())
+    )
+    lhs = nvgpu.warpgroup_generate_descriptor(
+        nvgpu.warpgroup_descriptor(M, K, T.f16()), A_shared, a_tma
+    )
+    rhs = nvgpu.warpgroup_generate_descriptor(
+        nvgpu.warpgroup_descriptor(K, N, T.f16()), B_shared, b_tma
+    )
+    acc = nvgpu.warpgroup_mma(accum, lhs, rhs, transpose_b=True)
+    nvgpu.warpgroup_mma_store(acc, C)
+
+
 def prepare_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
     dtype = T.f32()
     npy_dtype = np.float32
@@ -804,6 +992,53 @@ def prepare_warp_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
 
     return (
         cuda_func,
+        grid_dims,
+        block_dims,
+        shared_mem,
+        npy_dtype,
+        False,
+    )
+
+
+def prepare_tensor_core_kernel(ctx: MLIRContext, kernel, M, K, N):
+    dtype = T.f16()
+    npy_dtype = np.float16
+    kernel_name = kernel.__name__
+
+    gpu.set_container_module(ctx.module)
+
+    # Settings for A100 (looks like it works for 3070 too?)
+    NUM_THREADS = 128
+    BN = 128
+    BM = 64
+    BK = 16
+    WN = 64
+    WM = 32
+    WNITER = 1
+    TN = 4
+    TM = 4
+
+    @gpu.module("matmul", ["#nvvm.target"])
+    def matmul_mod():
+        kernel[M, K, N, dtype].emit()
+
+    print(ctx.module)
+    print(ctx.module.operation.verify())
+    # exit()
+
+    compiled_module = compile_module(
+        ctx.module, chip="sm_90a", opt_level=3, full_pipeline=False
+    )
+    # cuda_func = build_cuda_func(compiled_module, kernel_name)
+    # print_ptx(compiled_module)
+
+    grid_dims = (math.ceil(N / BN), math.ceil(M / BM))
+    block_dims = (NUM_THREADS,)
+    shared_mem = ((BM * BK) + (BK * BN)) * npy_dtype().nbytes
+
+    return (
+        # cuda_func,
+        None,
         grid_dims,
         block_dims,
         shared_mem,
@@ -947,3 +1182,27 @@ for s in sizes:
             npy_dtype,
             transpose_B,
         )
+
+
+sizes = [128, 256]
+
+for s in sizes:
+    with (
+        mlir_mod_ctx() as ctx,
+        # enable_debug()
+    ):
+        print(f"{s=}", end=" ")
+        cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+            prepare_tensor_core_kernel(ctx, sgemm_tensor_core, s, s, s)
+        )
+        # run_eval(
+        #     s,
+        #     s,
+        #     s,
+        #     cuda_func,
+        #     grid_dims,
+        #     block_dims,
+        #     shared_mem,
+        #     npy_dtype,
+        #     transpose_B,
+        # )

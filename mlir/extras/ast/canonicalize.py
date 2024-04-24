@@ -4,17 +4,15 @@ import enum
 import inspect
 import logging
 import types
-import warnings
 from abc import ABC, abstractmethod
 from dis import findlinestarts
 from opcode import opmap
-from types import CodeType
 from typing import List, Union, Sequence
 
 import astunparse
 from bytecode import ConcreteBytecode
 
-from ..ast.util import get_module_cst, set_lineno
+from ..ast.util import get_module_cst, set_lineno, find_func_in_code_object
 
 logger = logging.getLogger(__name__)
 
@@ -84,17 +82,6 @@ def insert_closed_vars(f, module):
     enclosing_mod.body.extend(module.body)
     module.body = [enclosing_mod]
     return module
-
-
-def find_func_in_code_object(co, func_name):
-    for c in co.co_consts:
-        if type(c) is CodeType:
-            if c.co_name == func_name:
-                return c
-            else:
-                f = find_func_in_code_object(c, func_name)
-                if f is not None:
-                    return f
 
 
 def transform_ast(

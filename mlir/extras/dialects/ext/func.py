@@ -1,11 +1,13 @@
+import copy
 import inspect
 import sys
 from dataclasses import dataclass
 from functools import update_wrapper
 from typing import Optional, List, Union, TypeVar
 
-from ...ast.util import copy_func
+from ...ast.util import copy_func, PyTypeVarObject
 from ...meta import op_region_builder
+from ... import types as T
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.func import *
@@ -105,8 +107,8 @@ def prep_func_types(sig, return_types):
         return_types = [return_types]
     return_types = list(return_types)
     assert all(
-        isinstance(r, Type) for r in return_types
-    ), f"all return types must be mlir types {return_types=}"
+        isinstance(r, (str, Type, TypeVar)) or isalambda(r) for r in return_types
+    ), f"all return types must be mlir types or strings or TypeVars or lambdas {return_types=}"
 
     input_types = [
         p.annotation
@@ -114,8 +116,8 @@ def prep_func_types(sig, return_types):
         if not p.annotation is inspect.Signature.empty
     ]
     assert all(
-        isinstance(r, (str, Type)) or isalambda(r) for r in input_types
-    ), f"all input types must be mlir types {input_types=}"
+        isinstance(r, (str, Type, TypeVar)) or isalambda(r) for r in input_types
+    ), f"all input types must be mlir types or strings or TypeVars or lambdas {input_types=}"
     user_loc = get_user_code_loc()
     # If ir.Context is none (like for deferred func emit)
     if user_loc is None:
@@ -205,13 +207,15 @@ class FuncBase:
         if self._func_op is None or decl or force:
             if len(call_args) == 0:
                 input_types = self.input_types[:]
-                locals = {}
+                locals = {"T": T}
                 if self.generics is not None:
                     for t in self.generics:
                         if not isinstance(t, ReifiedTypeParams):
                             raise RuntimeError(f"{t=} must reified")
                         locals[t.name] = t.val
                 for i, v in enumerate(input_types):
+                    if isinstance(v, TypeVar):
+                        v = v.__name__
                     if isinstance(v, str):
                         input_types[i] = Type(
                             eval(v, self.body_builder.__globals__, locals)
@@ -274,12 +278,38 @@ class FuncBase:
         # this also copies the function so that the original body_builder remains "generic" (via its closure)
         body_builder = copy_func(self.body_builder)
         reified_type_params = []
-        for i, t in enumerate(self.generics):
-            if t.__bound__ is not None:
-                r = ReifiedTypeParams(t.__name__, t.__bound__)
+        # dumb but whatever
+        already_reified_type_params = {}
+        generics = copy.deepcopy(self.generics)
+        for i, t in enumerate(generics):
+            if sys.version_info >= (3, 12):
+                type_var_bound = PyTypeVarObject.try_from(t).bound
+            else:
+                type_var_bound = t.__bound__
+            if type_var_bound:
+                # before 3.12 typevar was just a python class
+                # https://github.com/python/cpython/blob/3.11/Lib/typing.py#L966
+                if sys.version_info < (3, 12):
+                    type_var_bound = lambda: type_var_bound
+                else:
+                    type_var_bound = type_var_bound.contents.into_object()
+                    cvrs = inspect.getclosurevars(type_var_bound).nonlocals
+                    if len(cvrs):
+                        for k, v in cvrs.items():
+                            if not isinstance(v, TypeVar):
+                                continue
+                            if k not in already_reified_type_params:
+                                raise RuntimeError(
+                                    f"typevar {k} not reified prior to evaluating dependent typevar {t}"
+                                )
+                            cvrs[k] = already_reified_type_params[k]
+                        type_var_bound = copy_func(type_var_bound, cvrs)
+                r = ReifiedTypeParams(t.__name__, type_var_bound())
             else:
                 r = ReifiedTypeParams(t.__name__, item[i])
+
             reified_type_params.append(r)
+            already_reified_type_params[r.name] = r.val
 
             if t.__name__ in body_builder.__globals__:
                 body_builder.__globals__[t.__name__] = r.val
@@ -289,8 +319,6 @@ class FuncBase:
                     body_builder.__closure__[free_i].cell_contents == t
                 ), "typevars don't match"
                 body_builder.__closure__[free_i].cell_contents = r.val
-
-        generics = reified_type_params
 
         return FuncBase(
             body_builder,
@@ -302,7 +330,7 @@ class FuncBase:
             arg_attrs=self.arg_attrs,
             res_attrs=self.res_attrs,
             func_attrs=self.func_attrs,
-            generics=generics,
+            generics=reified_type_params,
             qualname=self.qualname,
             loc=self.loc,
             ip=self.ip,
