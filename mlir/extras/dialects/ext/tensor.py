@@ -325,6 +325,8 @@ def expand_dims(
             RankedTensorType.get(result_shape, inp.dtype),
             inp,
             reassoc_list,
+            output_shape=[],
+            static_output_shape=result_shape,
             loc=loc,
             ip=ip,
         )
