@@ -210,7 +210,13 @@ def expand_shape(
 
     return MemRef(
         memref.expand_shape(
-            T.memref(*result_shape, inp.dtype), inp, reassoc_list, loc=loc, ip=ip
+            T.memref(*result_shape, inp.dtype),
+            inp,
+            reassoc_list,
+            output_shape=[],
+            static_output_shape=result_shape,
+            loc=loc,
+            ip=ip,
         )
     )
 

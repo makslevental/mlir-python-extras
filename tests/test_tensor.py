@@ -223,17 +223,17 @@ def test_none_indices(ctx: MLIRContext):
         """\
     module {
       %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-      %expanded = tensor.expand_shape %0 [[0, 1], [2], [3], [4]] : tensor<10x22x333x4444xi32> into tensor<1x10x22x333x4444xi32>
-      %expanded_0 = tensor.expand_shape %0 [[0, 1], [2], [3], [4]] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444xi32>
-      %expanded_1 = tensor.expand_shape %0 [[0, 1, 2], [3], [4], [5]] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x333x4444xi32>
-      %expanded_2 = tensor.expand_shape %0 [[0], [1, 2], [3], [4]] : tensor<10x22x333x4444xi32> into tensor<10x22x1x333x4444xi32>
-      %expanded_3 = tensor.expand_shape %0 [[0], [1], [2, 3], [4]] : tensor<10x22x333x4444xi32> into tensor<10x22x333x1x4444xi32>
-      %expanded_4 = tensor.expand_shape %0 [[0], [1], [2], [3, 4]] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
-      %expanded_5 = tensor.expand_shape %0 [[0], [1], [2], [3, 4]] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
-      %expanded_6 = tensor.expand_shape %0 [[0, 1], [2], [3], [4, 5]] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444x1xi32>
-      %expanded_7 = tensor.expand_shape %0 [[0, 1], [2, 3], [4], [5, 6]] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x4444x1xi32>
-      %expanded_8 = tensor.expand_shape %0 [[0, 1], [2, 3], [4, 5], [6, 7]] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x1x4444x1xi32>
-      %expanded_9 = tensor.expand_shape %0 [[0, 1, 2], [3, 4], [5, 6], [7, 8]] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x1x333x1x4444x1xi32>
+      %expanded = tensor.expand_shape %0 [[0, 1], [2], [3], [4]] output_shape [1, 10, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<1x10x22x333x4444xi32>
+      %expanded_0 = tensor.expand_shape %0 [[0, 1], [2], [3], [4]] output_shape [10, 1, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444xi32>
+      %expanded_1 = tensor.expand_shape %0 [[0, 1, 2], [3], [4], [5]] output_shape [1, 10, 1, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x333x4444xi32>
+      %expanded_2 = tensor.expand_shape %0 [[0], [1, 2], [3], [4]] output_shape [10, 22, 1, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<10x22x1x333x4444xi32>
+      %expanded_3 = tensor.expand_shape %0 [[0], [1], [2, 3], [4]] output_shape [10, 22, 333, 1, 4444] : tensor<10x22x333x4444xi32> into tensor<10x22x333x1x4444xi32>
+      %expanded_4 = tensor.expand_shape %0 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
+      %expanded_5 = tensor.expand_shape %0 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
+      %expanded_6 = tensor.expand_shape %0 [[0, 1], [2], [3], [4, 5]] output_shape [10, 1, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444x1xi32>
+      %expanded_7 = tensor.expand_shape %0 [[0, 1], [2, 3], [4], [5, 6]] output_shape [10, 1, 22, 1, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x4444x1xi32>
+      %expanded_8 = tensor.expand_shape %0 [[0, 1], [2, 3], [4, 5], [6, 7]] output_shape [10, 1, 22, 1, 333, 1, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x1x4444x1xi32>
+      %expanded_9 = tensor.expand_shape %0 [[0, 1, 2], [3, 4], [5, 6], [7, 8]] output_shape [1, 10, 1, 22, 1, 333, 1, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x1x333x1x4444x1xi32>
     }
     """
     )

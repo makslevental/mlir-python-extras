@@ -343,27 +343,27 @@ def test_none_indices(ctx: MLIRContext):
         """\
     module {
       %alloc = memref.alloc() : memref<10x22x333x4444xi32>
-      %expand_shape = memref.expand_shape %alloc [[0, 1], [2], [3], [4]] : memref<10x22x333x4444xi32> into memref<1x10x22x333x4444xi32>
+      %expand_shape = memref.expand_shape %alloc [[0, 1], [2], [3], [4]] output_shape [1, 10, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<1x10x22x333x4444xi32>
       %subview = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_0 = memref.expand_shape %subview [[0, 1], [2], [3], [4]] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444xi32>
+      %expand_shape_0 = memref.expand_shape %subview [[0, 1], [2], [3], [4]] output_shape [10, 1, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444xi32>
       %subview_1 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_2 = memref.expand_shape %subview_1 [[0, 1, 2], [3], [4], [5]] : memref<10x22x333x4444xi32> into memref<1x10x1x22x333x4444xi32>
+      %expand_shape_2 = memref.expand_shape %subview_1 [[0, 1, 2], [3], [4], [5]] output_shape [1, 10, 1, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<1x10x1x22x333x4444xi32>
       %subview_3 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_4 = memref.expand_shape %subview_3 [[0], [1, 2], [3], [4]] : memref<10x22x333x4444xi32> into memref<10x22x1x333x4444xi32>
+      %expand_shape_4 = memref.expand_shape %subview_3 [[0], [1, 2], [3], [4]] output_shape [10, 22, 1, 333, 4444] : memref<10x22x333x4444xi32> into memref<10x22x1x333x4444xi32>
       %subview_5 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_6 = memref.expand_shape %subview_5 [[0], [1], [2, 3], [4]] : memref<10x22x333x4444xi32> into memref<10x22x333x1x4444xi32>
+      %expand_shape_6 = memref.expand_shape %subview_5 [[0], [1], [2, 3], [4]] output_shape [10, 22, 333, 1, 4444] : memref<10x22x333x4444xi32> into memref<10x22x333x1x4444xi32>
       %subview_7 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_8 = memref.expand_shape %subview_7 [[0], [1], [2], [3, 4]] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
+      %expand_shape_8 = memref.expand_shape %subview_7 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
       %subview_9 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_10 = memref.expand_shape %subview_9 [[0], [1], [2], [3, 4]] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
+      %expand_shape_10 = memref.expand_shape %subview_9 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
       %subview_11 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_12 = memref.expand_shape %subview_11 [[0, 1], [2], [3], [4, 5]] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444x1xi32>
+      %expand_shape_12 = memref.expand_shape %subview_11 [[0, 1], [2], [3], [4, 5]] output_shape [10, 1, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444x1xi32>
       %subview_13 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_14 = memref.expand_shape %subview_13 [[0, 1], [2, 3], [4], [5, 6]] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x4444x1xi32>
+      %expand_shape_14 = memref.expand_shape %subview_13 [[0, 1], [2, 3], [4], [5, 6]] output_shape [10, 1, 22, 1, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x4444x1xi32>
       %subview_15 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_16 = memref.expand_shape %subview_15 [[0, 1], [2, 3], [4, 5], [6, 7]] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x1x4444x1xi32>
+      %expand_shape_16 = memref.expand_shape %subview_15 [[0, 1], [2, 3], [4, 5], [6, 7]] output_shape [10, 1, 22, 1, 333, 1, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x1x4444x1xi32>
       %subview_17 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_18 = memref.expand_shape %subview_17 [[0, 1, 2], [3, 4], [5, 6], [7, 8]] : memref<10x22x333x4444xi32> into memref<1x10x1x22x1x333x1x4444x1xi32>
+      %expand_shape_18 = memref.expand_shape %subview_17 [[0, 1, 2], [3, 4], [5, 6], [7, 8]] output_shape [1, 10, 1, 22, 1, 333, 1, 4444, 1] : memref<10x22x333x4444xi32> into memref<1x10x1x22x1x333x1x4444x1xi32>
       %subview_19 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
     }
     """
