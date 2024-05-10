@@ -156,7 +156,7 @@ def test_basic_tile(ctx):
       module attributes {transform.with_named_sequence} {
         transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
           %0 = transform.structured.match ops{["tensor.pad"]} in %arg0 : (!transform.any_op) -> !transform.any_op
-          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
           transform.yield 
         }
       }
@@ -267,7 +267,7 @@ def test_linalg_tile(ctx: MLIRContext):
       module attributes {transform.with_named_sequence} {
         transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
           %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
-          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0[2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
           transform.yield 
         }
       }
@@ -859,7 +859,7 @@ def test_matmul_schedule(ctx: MLIRContext):
               %allocated_buffer_19, %new_ops_20 = transform.structured.bufferize_to_allocation %pack_op_12 {bufferize_destination_only, memory_space = "local"} : !transform.any_op
               %11 = transform.get_producer_of_operand %packed_op_14[2] : (!transform.any_op) -> !transform.any_op
               %allocated_buffer_21, %new_ops_22 = transform.structured.bufferize_to_allocation %11 {bufferize_destination_only, memory_space = "local"} : !transform.any_op
-              %tiled_linalg_op, %loops = transform.structured.tile_using_for %packed_op_14[0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+              %tiled_linalg_op, %loops = transform.structured.tile_using_for %packed_op_14 tile_sizes [0, 0, 1] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
               transform.include @cleanup failures(propagate) (%arg0) : (!transform.any_op) -> ()
               transform.yield 
             }
