@@ -30,14 +30,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-22.04, macos-11, windows-2022 ]
+        os: [ ubuntu-22.04, macos-12, macos-14, windows-2022 ]
         py_version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
 
         exclude:
-          - os: macos-11
+          - os: macos-12
             py_version: "3.8"
 
-          - os: macos-11
+          - os: macos-12
+            py_version: "3.9"
+
+          - os: macos-14
+            py_version: "3.8"
+
+          - os: macos-14
             py_version: "3.9"
 
     steps:
@@ -76,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-22.04, macos-11, windows-2022 ]
+        os: [ ubuntu-22.04, macos-12, macos-14, windows-2022 ]
         py_version: [ "3.10", "3.11" ]
 
     steps:
