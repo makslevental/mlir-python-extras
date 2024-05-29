@@ -21,6 +21,9 @@ concurrency:
   group: ci-build-test-${{ github.event.number || github.sha }}
   cancel-in-progress: true
 
+env:
+  SYSTEM_VERSION_COMPAT: 0
+
 jobs:
 
   test-mlir-bindings:
