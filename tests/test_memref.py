@@ -501,7 +501,7 @@ def test_move_slice(ctx: MLIRContext):
 
 def test_for_loops(ctx: MLIRContext):
     mem = alloc((10, 10), T.i32())
-    for i, it_mem in range_(0, 10, iter_args=[mem]):
+    for i, it_mem, _res in range_(0, 10, iter_args=[mem]):
         it_mem[i, i] = it_mem[i, i] + it_mem[i, i]
         res = yield_(it_mem)
 
@@ -532,7 +532,7 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def tenfoo():
         mem = alloc((10, 10), T.i32())
-        for i, it_mem in range_(0, 10, iter_args=[mem]):
+        for i, it_mem, _ in range_(0, 10, iter_args=[mem]):
             it_mem[i, i] = it_mem[i, i] + it_mem[i, i]
             res = yield it_mem
 

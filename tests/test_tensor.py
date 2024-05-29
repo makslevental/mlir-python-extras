@@ -332,7 +332,7 @@ def test_fold_1(ctx: MLIRContext):
 
 def test_for_loops(ctx: MLIRContext):
     ten = empty(7, 22, 333, 4444, T.i32())
-    for i, r1 in range_(0, 10, iter_args=[ten]):
+    for i, r1, _ in range_(0, 10, iter_args=[ten]):
         y = r1 + r1
         res = yield_(y)
 
@@ -360,7 +360,7 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def tenfoo():
         ten = empty(7, 22, 333, 4444, T.i32())
-        for i, r1 in range_(0, 10, iter_args=[ten]):
+        for i, r1, _ in range_(0, 10, iter_args=[ten]):
             y = r1 + r1
             res = yield y
 

@@ -261,7 +261,7 @@ def test_generics_with_canonicalizations(ctx: MLIRContext):
         y = arith.constant(1, index=True)
         one = arith.constant(1.0, type=dtype)
         tmp = arith.constant(0, type=dtype)
-        for k, tmp in scf.range_(K, iter_args=[tmp]):
+        for k, tmp, _ in scf.range_(K, iter_args=[tmp]):
             tmp += A[x, k] * B[k, y]
             tmp = yield tmp
         C[x, y] = tmp + one
