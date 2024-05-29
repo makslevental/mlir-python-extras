@@ -159,7 +159,7 @@ def test_for_bare(ctx: MLIRContext):
     two = constant(1.0)
 
     _i = 0
-    for i, (i1, i2) in range_(0, 10, iter_args=[one, two]):
+    for i, (i1, i2), _ in range_(0, 10, iter_args=[one, two]):
         _i += 1
         assert (
             isinstance(i, Scalar)
@@ -236,7 +236,7 @@ def test_scf_canonicalizer_with_explicit_yield(ctx: MLIRContext):
         two = constant(1.0)
 
         _i = 0
-        for i, i1 in range_(0, 10, iter_args=[one]):
+        for i, i1, _ in range_(0, 10, iter_args=[one]):
             _i += 1
             assert isinstance(i, Scalar) and str(i) == "Scalar(%arg0, index)"
             assert isinstance(i1, Scalar) and str(i1) == "Scalar(%arg1, f32)"
@@ -274,7 +274,7 @@ def test_scf_canonicalizer_tuple(ctx: MLIRContext):
         two = constant(1.0)
 
         _i = 0
-        for i, (i1, i2) in range_(0, 10, iter_args=[one, two]):
+        for i, (i1, i2), _ in range_(0, 10, iter_args=[one, two]):
             _i += 1
             assert isinstance(i, Scalar) and str(i) == "Scalar(%arg0, index)"
             assert isinstance(i1, Scalar) and str(i1) == "Scalar(%arg1, f32)"
@@ -1828,7 +1828,7 @@ def test_with_for_if_replace_yield_2_first_branch_with_yield(ctx: MLIRContext):
         two = constant(2.0)
         if one < two:
             three = constant(3.0)
-            for i, it in range_(0, 10, iter_args=[three]):
+            for i, it, _ in range_(0, 10, iter_args=[three]):
                 four = constant(4.0)
                 res = yield four
             res = yield res
@@ -1876,7 +1876,7 @@ def test_with_for_if_replace_yield_2_both_branches_one_nested_if_with_yield(
         two = constant(2.0)
         if one < two:
             three = constant(3.0)
-            for i, it in range_(0, 10, iter_args=[three]):
+            for i, it, _ in range_(0, 10, iter_args=[three]):
                 four = constant(4.0)
                 if one < two:
                     five = constant(5.0)
@@ -1888,7 +1888,7 @@ def test_with_for_if_replace_yield_2_both_branches_one_nested_if_with_yield(
             res = yield res
         else:
             seven = constant(7.0)
-            for i, it in range_(0, 10, iter_args=[seven]):
+            for i, it, _ in range_(0, 10, iter_args=[seven]):
                 res = yield it
             res = yield res
         return

@@ -565,7 +565,7 @@ def test_generics(ctx: MLIRContext):
 
         one = arith.constant(1.0, type=dtype)
         tmp = arith.constant(0, type=dtype)
-        for k, tmp in scf.range_(K, iter_args=[tmp]):
+        for k, tmp, _ in scf.range_(K, iter_args=[tmp]):
             tmp += A[x, k] * B[k, y]
             tmp = scf.yield_(tmp)
         C[x, y] = tmp + one

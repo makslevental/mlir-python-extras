@@ -144,13 +144,11 @@ class Pipeline:
                 Pipeline()
                 .scf_bufferize()
                 .empty_tensor_to_alloc_tensor()
-                .linalg_bufferize()
             )
             .func_bufferize()
-            .arith_bufferize()
+            .one_shot_bufferize()
             .Func(
                 Pipeline()
-                .tensor_bufferize()
                 .finalizing_bufferize()
                 .buffer_deallocation()
             )
@@ -628,18 +626,6 @@ class Pipeline:
         )
         return self
 
-    def allocate_arm_sme_tiles(self):
-        """Allocate SME tiles
-
-        This pass does tile allocation for SME "virtual tiles". It is run at the
-        'func.func' op level, and assigns tile IDs (via an attribute) to all ops
-        that implement the `ArmSMETileOpInterface`. An error will be emitted when
-        there's no tiles left.
-
-        """
-        self.add_pass("allocate-arm-sme-tiles")
-        return self
-
     def amdgpu_emulate_atomics(self, chipset: str = None):
         """Emulate atomic operations on chipsets that do not support them
 
@@ -650,33 +636,6 @@ class Pipeline:
             chipset: Chipset that these operations will run on
         """
         self.add_pass("amdgpu-emulate-atomics", chipset=chipset)
-        return self
-
-    def amdgpu_optimize_shared_memory(self):
-        """Optimizes accesses to shared memory memrefs in order to reduce bank conflicts.
-
-        This pass adds a transformation and pass to the AMDGPU dialect that
-        attempts to optimize reads/writes from a memref representing GPU shared
-        memory in order to avoid bank conflicts.
-
-        """
-        self.add_pass("amdgpu-optimize-shared-memory")
-        return self
-
-    def arith_bufferize(self, alignment: int = None):
-        """Bufferize Arith dialect ops.
-
-        This pass bufferizes arith dialect ops.
-
-        This pass needs to be a module pass because it inserts memref.global
-        ops into the module, which cannot be done safely from a function pass due to
-        multi-threading. Most other bufferization passes can run in parallel at
-        function granularity.
-
-        Args:
-            alignment: Create global memrefs with a specified alignment
-        """
-        self.add_pass("arith-bufferize", alignment=alignment)
         return self
 
     def arith_emulate_unsupported_floats(
@@ -767,6 +726,56 @@ class Pipeline:
     def arm_neon_2d_to_intr(self):
         """Convert Arm NEON structured ops to intrinsics"""
         self.add_pass("arm-neon-2d-to-intr")
+        return self
+
+    def arm_sme_outer_product_fusion(self):
+        """Fuse 'arm_sme.outerproduct' operations into 2-way or 4-way widening variants
+
+        This pass fuses 'arm_sme.outerproduct' operations that are chained via the
+        accumulator into 2-way or 4-way ArmSME outer product operations.
+
+        For example:
+        ```mlir
+        %a0_ext = arith.extf %a0 : vector<[4]xf16> to vector<[4]xf32>
+        %b0_ext = arith.extf %b0 : vector<[4]xf16> to vector<[4]xf32>
+        %a1_ext = arith.extf %a1 : vector<[4]xf16> to vector<[4]xf32>
+        %b1_ext = arith.extf %b1 : vector<[4]xf16> to vector<[4]xf32>
+
+        %0 = arm_sme.outerproduct %a0_ext, %b0_ext : vector<[4]xf32>, vector<[4]xf32>
+        %1 = arm_sme.outerproduct %a1_ext, %b1_ext acc(%0) : vector<[4]xf32>, vector<[4]xf32>
+        ```
+
+        Becomes:
+
+        ```mlir
+        %a_packed = "llvm.intr.experimental.vector.interleave2"(%a0, %a1) : (vector<[4]xf16>, vector<[4]xf16>) -> vector<[8]xf16>
+        %b_packed = "llvm.intr.experimental.vector.interleave2"(%b0, %b1) : (vector<[4]xf16>, vector<[4]xf16>) -> vector<[8]xf16>
+        %0 = arm_sme.fmopa_2way %a_packed, %b_packed : vector<[8]xf16>, vector<[8]xf16> into vector<[4]x[4]xf32>
+        ```
+
+        For further information on the 2-way or 4-way widening ops see:
+        https://mlir.llvm.org/docs/Dialects/ArmSME/#arm_smefmopa_2way-arm_smefmopa_2wayop
+        https://mlir.llvm.org/docs/Dialects/ArmSME/#arm_smesmopa_4way-arm_smesmopa_4wayop
+
+        """
+        self.add_pass("arm-sme-outer-product-fusion")
+        return self
+
+    def arm_sme_vector_legalization(self):
+        """Legalize vectors for ArmSME
+
+        This pass legalizes vector operations so that they can be lowered to ArmSME.
+        This includes decomposing operations that operate on vector types larger
+        than a single SME tile (e.g. `vector<[8]x[8]xf32>`) into multiple SME
+        tile-sized operations, as well as rewrites needed to get operations into
+        forms compatible with SME lowerings.
+
+        Note: Decomposition is currently limited to vector types that are an exact
+        multiple of SME tiles. That is scalable in two dimensions, with both the
+        rows and columns divisible by the SVE vector length for the element type.
+
+        """
+        self.add_pass("arm-sme-vector-legalization")
         return self
 
     def arm_sve_legalize_vector_storage(self):
@@ -1010,7 +1019,9 @@ class Pipeline:
         self.add_pass("buffer-loop-hoisting")
         return self
 
-    def buffer_results_to_out_params(self):
+    def buffer_results_to_out_params(
+        self, add_result_attr: bool = None, hoist_static_allocs: bool = None
+    ):
         """Converts memref-typed function results to out-params
 
         Some calling conventions prefer to pass output memrefs as "out params". The
@@ -1031,13 +1042,21 @@ class Pipeline:
         buffers for results need to be allocated in the caller. This currently only
         works for static shaped memrefs.
 
-        """
-        self.add_pass("buffer-results-to-out-params")
-        return self
+        If the hoist-static-allocs option is on, the pass tries to eliminate the
+        allocation for the returned memref and avoid the memory-copy if possible.
+        This optimization applies on the returned memref which has static shape and
+        is allocated by memref.alloc in the function. It will use the memref given
+        in function argument to replace the allocated memref.
 
-    def bufferization_bufferize(self):
-        """Bufferize the `bufferization` dialect"""
-        self.add_pass("bufferization-bufferize")
+        Args:
+            add-result-attr: Add the attribute 'bufferize.result' to all output parameters.
+            hoist-static-allocs: Hoist static allocations to call sites.
+        """
+        self.add_pass(
+            "buffer-results-to-out-params",
+            add_result_attr=add_result_attr,
+            hoist_static_allocs=hoist_static_allocs,
+        )
         return self
 
     def bufferization_lower_deallocations(self):
@@ -1097,6 +1116,27 @@ class Pipeline:
         )
         return self
 
+    def composite_fixed_point_pass(
+        self, name: str = None, pipeline: str = None, max_iterations: int = None
+    ):
+        """Composite fixed point pass
+
+        Composite pass runs provided set of passes until fixed point or maximum
+        number of iterations reached.
+
+        Args:
+            name: Composite pass display name
+            pipeline: Composite pass inner pipeline
+            max-iterations: Maximum number of iterations if inner pipeline
+        """
+        self.add_pass(
+            "composite-fixed-point-pass",
+            name=name,
+            pipeline=pipeline,
+            max_iterations=max_iterations,
+        )
+        return self
+
     def control_flow_sink(self):
         """Sink operations into conditional blocks
 
@@ -1151,6 +1191,11 @@ class Pipeline:
         self.add_pass("convert-arith-to-arm-sme")
         return self
 
+    def convert_arith_to_emitc(self):
+        """Convert Arith dialect to EmitC dialect"""
+        self.add_pass("convert-arith-to-emitc")
+        return self
+
     def convert_arith_to_llvm(self, index_bitwidth: int = None):
         """Convert Arith dialect to LLVM dialect
 
@@ -1162,24 +1207,15 @@ class Pipeline:
         self.add_pass("convert-arith-to-llvm", index_bitwidth=index_bitwidth)
         return self
 
-    def convert_arith_to_spirv(
-        self, emulate_lt_32_bit_scalar_types: bool = None, enable_fast_math: bool = None
-    ):
+    def convert_arith_to_spirv(self, emulate_lt_32_bit_scalar_types: bool = None):
         """Convert Arith dialect to SPIR-V dialect
         Args:
             emulate-lt-32-bit-scalar-types: Emulate narrower scalar types with 32-bit ones if not supported by the target
-            enable-fast-math: Enable fast math mode (assuming no NaN and infinity for floating point values) when performing conversion
         """
         self.add_pass(
             "convert-arith-to-spirv",
             emulate_lt_32_bit_scalar_types=emulate_lt_32_bit_scalar_types,
-            enable_fast_math=enable_fast_math,
         )
-        return self
-
-    def convert_arm_sme_to_llvm(self):
-        """Lower the operations from the ArmSME dialect into the LLVM dialect"""
-        self.add_pass("convert-arm-sme-to-llvm")
         return self
 
     def convert_arm_sme_to_scf(self):
@@ -1290,6 +1326,11 @@ class Pipeline:
 
         """
         self.add_pass("convert-elementwise-to-linalg")
+        return self
+
+    def convert_func_to_emitc(self):
+        """Convert Func dialect to EmitC dialect"""
+        self.add_pass("convert-func-to-emitc")
         return self
 
     def convert_func_to_llvm(
@@ -1518,6 +1559,11 @@ class Pipeline:
     def convert_math_to_spirv(self):
         """Convert Math dialect to SPIR-V dialect"""
         self.add_pass("convert-math-to-spirv")
+        return self
+
+    def convert_memref_to_emitc(self):
+        """Convert MemRef dialect to EmitC dialect"""
+        self.add_pass("convert-memref-to-emitc")
         return self
 
     def convert_memref_to_spirv(
@@ -2123,7 +2169,6 @@ class Pipeline:
 
     def gpu_module_to_binary(
         self,
-        handler: "Attribute" = None,
         toolkit: str = None,
         l: List[str] = None,
         opts: str = None,
@@ -2142,19 +2187,13 @@ class Pipeline:
         4. `fatbinary`, `fatbin`: produces fatbinaries.
 
         Args:
-            handler: Offloading handler to be attached to the resulting binary op.
             toolkit: Toolkit path.
             l: Extra files to link to.
             opts: Command line options to pass to the tools.
             format: The target representation of the compilation process.
         """
         self.add_pass(
-            "gpu-module-to-binary",
-            handler=handler,
-            toolkit=toolkit,
-            l=l,
-            opts=opts,
-            format=format,
+            "gpu-module-to-binary", toolkit=toolkit, l=l, opts=opts, format=format
         )
         return self
 
@@ -2191,18 +2230,21 @@ class Pipeline:
         default_pipeline: str = None,
         op_pipelines: List["OpPassManager"] = None,
         max_iterations: int = None,
+        inlining_threshold: int = None,
     ):
         """Inline function calls
         Args:
-            default-pipeline: The default optimizer pipeline used for callables
+            default-pipeline: The optimizer pipeline used for callables that do not have a dedicated optimizer pipeline in opPipelineList
             op-pipelines: Callable operation specific optimizer pipelines (in the form of `dialect.op(pipeline)`)
             max-iterations: Maximum number of iterations when inlining within an SCC
+            inlining-threshold: If the ratio between the number of the operations in the callee and the number of the operations in the caller exceeds this value (in percentage), then the callee is not inlined even if it is legal to inline it
         """
         self.add_pass(
             "inline",
             default_pipeline=default_pipeline,
             op_pipelines=op_pipelines,
             max_iterations=max_iterations,
+            inlining_threshold=inlining_threshold,
         )
         return self
 
@@ -2248,9 +2290,70 @@ class Pipeline:
         self.add_pass("lift-cf-to-scf")
         return self
 
-    def linalg_bufferize(self):
-        """Bufferize the linalg dialect"""
-        self.add_pass("linalg-bufferize")
+    def linalg_block_pack_matmul(
+        self,
+        block_factors: List[int] = None,
+        allow_padding: bool = None,
+        mnk_padded_multiples: List[int] = None,
+        mnk_order: List[int] = None,
+        lhs_transpose_outer_blocks: bool = None,
+        lhs_transpose_inner_blocks: bool = None,
+        rhs_transpose_outer_blocks: bool = None,
+        rhs_transpose_inner_blocks: bool = None,
+    ):
+        """Convert linalg matmul ops to block layout and back
+
+        Pack a matmul operation into blocked layout with two levels of subdivision:
+        - major 2D blocks - outer dimensions, consist of minor blocks
+        - minor 2D blocks - inner dimensions, consist of scalar elements
+
+        A 2D matmul MxNxK gets reshaped into blocked 4D representation
+        as: [MB][NB][mb][nb] += [MB][KB][mb][kb] * [NB][KB][nb][kb]
+        where the (MB, NB, KB) dimensions represent the major blocks,
+        and the (mb, nb, kb) are the minor blocks of their respective
+        original 2D dimensions (M, N, K).
+
+        Depending on the initial operands' data layout and the specified
+        packing options, the major blocks dimensions might get transposed
+        e.g., [MB][KB] -> [KB][MB]. The minor blocks can also be transposed
+        e.g., [mb][kb] -> [kb][mb].
+        Any present batch dimensions remain unchanged.
+        The final result is unpacked back to the original shape.
+
+        For example, given a matmul operation:
+        ```mlir
+          %res = linalg.matmul ins(%A, %B) outs(%C)
+        ```
+        the default transformation result can be represented as:
+        ```mlir
+          %A_packed = pack %A : 2D <MxK> -> 4D <MBxKBxmbxkb>
+          %B_packed = pack %B : 2D <KxN> -> 4D <NBxKBxnbxkb>
+          %C_packed = pack %C : 2D <MxN> -> 4D <MBxNBxmbxnb>
+          %res_packed = linalg.mmt4d ins(%A_packed, %B_packed) outs(%C_packed)
+          %res = unpack %res_packed : 4D <MBxNBxmbxnb> -> 2D <MxN>
+        ```
+
+        Args:
+            block-factors: Block factors (mb, nb, kb) for relayout
+            allow-padding: Allow packing padding
+            mnk-padded-multiples: Next multiples of the packing sizes
+            mnk-order: Permutation of matmul (M, N, K) dimensions order
+            lhs-transpose-outer-blocks: Transpose LHS outer block layout [MB][KB] -> [KB][MB]
+            lhs-transpose-inner-blocks: Transpose LHS inner block layout [mb][kb] -> [kb][mb]
+            rhs-transpose-outer-blocks: Transpose RHS outer block layout [KB][NB] -> [NB][KB]
+            rhs-transpose-inner-blocks: Transpose RHS inner block layout [kb][nb] -> [nb][kb]
+        """
+        self.add_pass(
+            "linalg-block-pack-matmul",
+            block_factors=block_factors,
+            allow_padding=allow_padding,
+            mnk_padded_multiples=mnk_padded_multiples,
+            mnk_order=mnk_order,
+            lhs_transpose_outer_blocks=lhs_transpose_outer_blocks,
+            lhs_transpose_inner_blocks=lhs_transpose_inner_blocks,
+            rhs_transpose_outer_blocks=rhs_transpose_outer_blocks,
+            rhs_transpose_inner_blocks=rhs_transpose_inner_blocks,
+        )
         return self
 
     def linalg_fold_unit_extent_dims(self, use_rank_reducing_slices: bool = None):
@@ -2320,21 +2423,6 @@ class Pipeline:
 
         """
         self.add_pass("llvm-request-c-wrappers")
-        return self
-
-    def llvm_type_consistency(self, max_vector_split_size: int = None):
-        """Rewrites to improve type consistency
-
-        Set of rewrites to improve the coherency of types within an LLVM dialect
-        program. This will adjust operations operating on pointers so they interpret
-        their associated pointee type as consistently as possible.
-
-        Args:
-            max-vector-split-size: Maximum size in bits of a vector value in a load or store operation operating on multiple elements that should still be split
-        """
-        self.add_pass(
-            "llvm-type-consistency", max_vector_split_size=max_vector_split_size
-        )
         return self
 
     def loop_invariant_code_motion(self):
@@ -2446,6 +2534,18 @@ class Pipeline:
     def lower_vector_mask(self):
         """Lower 'vector.mask' operations"""
         self.add_pass("lower-vector-mask")
+        return self
+
+    def lower_vector_multi_reduction(
+        self, lowering_strategy: "mlir::vector::VectorMultiReductionLowering" = None
+    ):
+        """Lower 'vector.multi_reduction' operations
+        Args:
+            lowering-strategy: Select the strategy to control how multi_reduction is lowered.
+        """
+        self.add_pass(
+            "lower-vector-multi-reduction", lowering_strategy=lowering_strategy
+        )
         return self
 
     def map_memref_spirv_storage_class(self, client_api: str = None):
@@ -2818,6 +2918,24 @@ class Pipeline:
         For debugging purposes, such information can be printed with
         `test-analysis-only`.
 
+        The order in which ops are analyzed is important. The analysis is greedy and
+        ops that are analyzed earlier are more likely to bufferize in-place. The
+        heuristic can be set with `analysis-heuristic`. At the moment, the following
+        heuristics are available:
+
+        * `bottom-up` (default): Analyze ops from bottom to top.
+        * `top-down`: Analyze ops from top to bottom.
+        * `fuzzer`: Randomize the ordering of ops with `analysis-fuzzer-seed`.
+        * `bottom-up-from-terminators`: Traverse the reverse use-def chains of
+          tensor IR, starting from region branch terminators (bottom-up). Nested
+          regions are traversed before enclosing regions. Analyze the traversed ops
+          first, then analyze the remaining ops bottom-up. This heuristic is useful
+          for bufferizing loop constructs. One-Shot Bufferize currently supports
+          only such IR where yielded tensor values bufferize to equivalent region
+          iter_args, and first analyzing all ops on the path from the "yielding" op
+          to the beginning of the loop body makes it more likely for the region
+          iter_args and yielded values to bufferize to equivalent buffers.
+
         Args:
             allow-return-allocs-from-loops: Allows returning/yielding new allocations from a loop.
             allow-unknown-ops: Allows unknown (not bufferizable) ops in the input IR.
@@ -2851,6 +2969,18 @@ class Pipeline:
             print_conflicts=print_conflicts,
             unknown_type_conversion=unknown_type_conversion,
         )
+        return self
+
+    def openacc_legalize_data(self, host_to_device: bool = None):
+        """Legalize the data in the compute region
+
+        This pass replace uses of varPtr in the compute region with their accPtr
+        gathered from the data clause operands.
+
+        Args:
+            host-to-device: Replace varPtr uses with accPtr if true. Replace accPtr uses with varPtr if false
+        """
+        self.add_pass("openacc-legalize-data", host_to_device=host_to_device)
         return self
 
     def opt_reduction_pass(
@@ -3514,6 +3644,11 @@ class Pipeline:
         self.add_pass("scf-for-to-while")
         return self
 
+    def scf_forall_to_for(self):
+        """Convert SCF forall loops to SCF for loops"""
+        self.add_pass("scf-forall-to-for")
+        return self
+
     def scf_parallel_loop_fusion(self):
         """Fuse adjacent parallel loops"""
         self.add_pass("scf-parallel-loop-fusion")
@@ -3552,26 +3687,9 @@ class Pipeline:
         self.add_pass("set-llvm-module-datalayout", data_layout=data_layout)
         return self
 
-    def shape_bufferize(self):
-        """Bufferize the shape dialect."""
-        self.add_pass("shape-bufferize")
-        return self
-
     def shape_to_shape_lowering(self):
         """Legalize Shape dialect to be convertible to Arith"""
         self.add_pass("shape-to-shape-lowering")
-        return self
-
-    def sharding_propagation(self):
-        """sharding propagation
-
-        Propagates sharding information throughout the graph. After this pass, each
-        of the operations' operands and results is annotated with a `mesh.shard`
-        operation, and the operations themselves are added with sharding option
-        attributes.
-
-        """
-        self.add_pass("sharding-propagation")
         return self
 
     def snapshot_op_locations(self, filename: str = None, tag: str = None):
@@ -3614,6 +3732,29 @@ class Pipeline:
             tag: A tag to use when fusing the new locations with the original. If unset, the locations are replaced.
         """
         self.add_pass("snapshot-op-locations", filename=filename, tag=tag)
+        return self
+
+    def sparse_assembler(self, direct_out: bool = None):
+        """Add [dis]assemble operations on external sparse tensors
+
+        A pass that converts public entry methods that use sparse tensors as
+        input parameters and/or output return values into wrapper methods
+        that [dis]assemble the individual tensors that constitute the actual
+        storage used externally into MLIR sparse tensors. This pass can be used
+        to prepare the public entry methods of a program that is compiled by the
+        MLIR sparsifier to interface with an external runtime, e.g., when passing
+        sparse tensors as numpy arrays from and to Python. Note that eventual
+        bufferization decisions (e.g. who [de]allocates the underlying memory)
+        should be resolved in agreement with the external runtime.
+
+        By default, the pass uses the [dis]assemble operations to input and output
+        sparse tensors. When the direct-out option is set, however, the output
+        directly returns the MLIR allocated buffers to the external runtime.
+
+        Args:
+            direct-out: Directly returns buffers externally
+        """
+        self.add_pass("sparse-assembler", direct_out=direct_out)
         return self
 
     def sparse_buffer_rewrite(self, enable_buffer_initialization: bool = None):
@@ -3834,6 +3975,7 @@ class Pipeline:
     def sparsification(
         self,
         parallelization_strategy: "SparseParallelizationStrategy" = None,
+        sparse_emit_strategy: "mlir::SparseEmitStrategy" = None,
         enable_runtime_library: bool = None,
     ):
         """Automatically generate sparse tensor code from sparse tensor types
@@ -3877,11 +4019,13 @@ class Pipeline:
 
         Args:
             parallelization-strategy: Set the parallelization strategy
+            sparse-emit-strategy: Emit functional code or interfaces (to debug) for sparse loops
             enable-runtime-library: Enable runtime library for manipulating sparse tensors
         """
         self.add_pass(
             "sparsification",
             parallelization_strategy=parallelization_strategy,
+            sparse_emit_strategy=sparse_emit_strategy,
             enable_runtime_library=enable_runtime_library,
         )
         return self
@@ -4098,9 +4242,26 @@ class Pipeline:
         self.add_pass("symbol-privatize", exclude=exclude)
         return self
 
-    def tensor_bufferize(self):
-        """Bufferize the `tensor` dialect"""
-        self.add_pass("tensor-bufferize")
+    def test_arm_sme_tile_allocation(
+        self, dump_tile_live_ranges: bool = None, preprocess_only: bool = None
+    ):
+        """Tests SME 'virtual tile' allocation
+
+        This pass does tile allocation for SME "virtual tiles". It is run at the
+        'func.func' op level, and assigns tile IDs (via an attribute) to all ops
+        that implement the `ArmSMETileOpInterface`. Note: This pass is only intended
+        to be used for testing, tile allocation is done as part of the ArmSME to
+        LLVM conversion (`convert-arm-sme-to-llvm`).
+
+        Args:
+            dump-tile-live-ranges: Dump the live ranges of SME tiles (for debugging)
+            preprocess-only: Only preprocess IR so it is ready for tile allocation (but do not allocate any tiles)
+        """
+        self.add_pass(
+            "test-arm-sme-tile-allocation",
+            dump_tile_live_ranges=dump_tile_live_ranges,
+            preprocess_only=preprocess_only,
+        )
         return self
 
     def test_scf_parallel_loop_collapsing(
@@ -4327,6 +4488,7 @@ class Pipeline:
     def transform_interpreter(
         self,
         debug_payload_root_tag: str = None,
+        debug_bind_trailing_args: List[str] = None,
         disable_expensive_checks: bool = None,
         entry_point: str = None,
     ):
@@ -4334,16 +4496,36 @@ class Pipeline:
 
         This pass runs the transform dialect interpreter and applies the named
         sequence transformation specified by the provided name (defaults to
-        `TransformDialect::kTransformEntryPointSymbolName` (i.e. `__transform_main`)).
+        `TransformDialect::kTransformEntryPointSymbolName`,
+        i.e. `__transform_main`).
+
+        Additional options can be used to narrow down the pass applicability for
+        debugging purposes:
+          * `debugPayloadRootTag` makes the transform script apply to the payload
+            operation that has a `transform.target_tag` string attribute with the
+            given value, rather than to the anchor operation of the pass.
+          * `debugBindTrailingArgs` allows one to bind values to trailing arguments
+            of the transform entry point as follows:
+            * arguments of `TransformHandleTypeInterface` type can be bound to all
+              payload operations with the name provided as a simple string;
+            * arguments of `TransformValueHandleTypeInterface` type can be bound to
+              a flattened list of results of all operations with the name provided
+              as a string prefixed with `^`;
+            * arguments of `TransformParamTypeInterface` type can be bound to
+              integer constants provided as `;`-separated list prefixed with `#`.
+          * `entryPoint` specifies the name of the transform symbol to serve as the
+            entry point.
 
         Args:
             debug-payload-root-tag: Select the operation with 'transform.target_tag' attribute having the given value as payload IR root. If empty select the pass anchor operation as the payload IR root.
+            debug-bind-trailing-args: Binds trailing arguments of the entry point to the payload operations with specified names.
             disable-expensive-checks: Disable expensive checks in the interpreter for a faster run.
             entry-point: Entry point of the pass pipeline.
         """
         self.add_pass(
             "transform-interpreter",
             debug_payload_root_tag=debug_payload_root_tag,
+            debug_bind_trailing_args=debug_bind_trailing_args,
             disable_expensive_checks=disable_expensive_checks,
             entry_point=entry_point,
         )
@@ -4365,11 +4547,6 @@ class Pipeline:
         self.add_pass(
             "transform-preload-library", transform_library_paths=transform_library_paths
         )
-        return self
-
-    def vector_bufferize(self):
-        """Bufferize Vector dialect ops"""
-        self.add_pass("vector-bufferize")
         return self
 
     def view_op_graph(
@@ -4409,4 +4586,14 @@ class Pipeline:
             print_data_flow_edges=print_data_flow_edges,
             print_result_types=print_result_types,
         )
+        return self
+
+    def xegpu_fold_alias_ops(self):
+        """Fold alias ops into XeGPU ops
+
+        The pass folds aliasing ops into XeGPU ops that they operate on the original
+        source references.
+
+        """
+        self.add_pass("xegpu-fold-alias-ops")
         return self

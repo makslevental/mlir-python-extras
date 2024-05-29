@@ -501,7 +501,7 @@ def test_setting_memref_diagonal(ctx: MLIRContext, backend: LLVMJITBackend):
     @func
     @canonicalize(using=canonicalizer)
     def memfoo(mem: ranked_memref_kxk_f32):
-        for i, it_mem in range_(0, K, iter_args=[mem]):
+        for i, it_mem, _ in range_(0, K, iter_args=[mem]):
             it_mem[i, i] = it_mem[i, i] + it_mem[i, i] * sitofp(
                 T.f32(), index_cast(T.i32(), i)
             )
@@ -559,8 +559,8 @@ def test_memref_double_loop(ctx: MLIRContext, backend: LLVMJITBackend):
     @func
     @canonicalize(using=canonicalizer)
     def memfoo(mem: ranked_memref_kxk_f32):
-        for i, it_mem in range_(0, K, iter_args=[mem]):
-            for j, it_mem in range_(0, K, iter_args=[it_mem]):
+        for i, it_mem, _ in range_(0, K, iter_args=[mem]):
+            for j, it_mem, _ in range_(0, K, iter_args=[it_mem]):
                 it_mem[i, j] = (
                     it_mem[i, j]
                     + it_mem[i, j]
