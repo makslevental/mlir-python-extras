@@ -8,7 +8,12 @@ import numpy as np
 from ._shaped_value import ShapedValue
 from .arith import ArithValue, Scalar, constant
 from ... import types as T
-from ...util import _unpack_sizes_element_type, _update_caller_vars, get_user_code_loc
+from ...util import (
+    _unpack_sizes_element_type,
+    _update_caller_vars,
+    get_user_code_loc,
+    mlir_type_to_np_dtype,
+)
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import tensor
 from ....dialects._ods_common import _dispatch_mixed_values, get_op_result_or_op_results
@@ -185,8 +190,12 @@ class Tensor(ShapedValue, ArithValue):
                     f"can't coerce {other=} because {self=} doesn't have static shape"
                 )
             if isinstance(other, (int, float)):
+                np_dtype = mlir_type_to_np_dtype(self.dtype)
                 other = Tensor(
-                    np.full(self.shape, other), dtype=self.dtype, loc=loc, ip=ip
+                    np.full(self.shape, other, dtype=np_dtype),
+                    dtype=self.dtype,
+                    loc=loc,
+                    ip=ip,
                 )
                 return self, other
             elif isinstance(other, Scalar):
