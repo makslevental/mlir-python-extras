@@ -166,9 +166,7 @@ class GPUModuleOp(GPUModuleOp):
             if isinstance(t, str):
                 targets[i] = Attribute.parse(t)
         _ods_context = get_default_loc_context(loc)
-        super().__init__(targets=ArrayAttr.get(targets), loc=loc, ip=ip)
-        self.regions[0].blocks.append()
-        self.operation.attributes["sym_name"] = (
+        sym_name = (
             sym_name
             if (
                 issubclass(type(sym_name), Attribute)
@@ -176,6 +174,10 @@ class GPUModuleOp(GPUModuleOp):
             )
             else AttrBuilder.get("SymbolNameAttr")(sym_name, context=_ods_context)
         )
+        super().__init__(
+            sym_name=sym_name, targets=ArrayAttr.get(targets), loc=loc, ip=ip
+        )
+        self.regions[0].blocks.append()
 
     @property
     def body(self):
