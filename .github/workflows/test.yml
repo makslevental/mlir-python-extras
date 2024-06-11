@@ -58,7 +58,13 @@ jobs:
         with:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
-
+          
+      - uses: Jimver/cuda-toolkit@v0.2.15
+        if: contains(matrix.os, 'ubuntu')
+        id: cuda-toolkit
+        with:
+          cuda: '12.4.1'
+          
       - name: Install and configure
         shell: bash
         run: |
