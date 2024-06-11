@@ -1,4 +1,5 @@
 import re
+import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -8,12 +9,12 @@ from mlir.dialects import builtin
 from mlir.dialects.memref import cast
 from mlir.dialects.nvgpu import (
     TensorMapDescriptorType,
-    TensorMapSwizzleKind,
+    TensorMapInterleaveKind,
     TensorMapL2PromoKind,
     TensorMapOOBKind,
-    TensorMapInterleaveKind,
+    TensorMapSwizzleKind,
+    tma_create_descriptor,
 )
-from mlir.dialects.nvgpu import tma_create_descriptor
 from mlir.dialects.transform import any_op_t
 from mlir.dialects.transform.extras import named_sequence
 from mlir.dialects.transform.structured import MatchInterfaceEnum
@@ -21,15 +22,15 @@ from mlir.ir import StringAttr, UnitAttr
 
 from mlir import _mlir_libs
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import arith, memref, scf, gpu, linalg, transform, nvgpu
+from mlir.extras.dialects.ext import arith, gpu, linalg, memref, nvgpu, scf, transform
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import smem_space
 from mlir.extras.dialects.ext.llvm import llvm_ptr_t
-from mlir.extras.runtime.passes import run_pipeline, Pipeline
+from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import MLIRContext, filecheck, mlir_ctx as ctx
 from mlir.extras.util import find_ops
 
 # needed since the fix isn't defined here nor conftest.py
@@ -200,7 +201,8 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())): ...
+        def printMemrefF32(x: T.memref(T.f32())):
+            ...
 
         printMemrefF32_.append(printMemrefF32)
 
@@ -421,8 +423,15 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
 CUDA_RUNTIME_LIB_PATH = Path(_mlir_libs.__file__).parent / f"libmlir_cuda_runtime.so"
 
 
+NVIDIA_GPU = False
+try:
+    subprocess.check_output("nvidia-smi")
+    NVIDIA_GPU = True
+except Exception:
+    print("No Nvidia GPU in system!")
+
 # based on https://github.com/llvm/llvm-project/blob/9cc2122bf5a81f7063c2a32b2cb78c8d615578a1/mlir/test/Integration/GPU/CUDA/TensorCore/sm80/transform-mma-sync-matmul-f16-f16-accum.mlir#L6
-@pytest.mark.skipif(not CUDA_RUNTIME_LIB_PATH.exists(), reason="no cuda library")
+@pytest.mark.skipif(not NVIDIA_GPU, reason="no cuda library")
 def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
     range_ = scf.range_
 
@@ -549,7 +558,8 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())): ...
+        def printMemrefF32(x: T.memref(T.f32())):
+            ...
 
         printMemrefF32_.append(printMemrefF32)
 

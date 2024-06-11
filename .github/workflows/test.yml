@@ -59,6 +59,25 @@ jobs:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
 
+      - name: Free disk space
+        if: contains(matrix.os, 'ubuntu')
+        uses: descriptinc/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: false # This frees space on the wrong partition.
+
+      - uses: Jimver/cuda-toolkit@v0.2.15
+        if: contains(matrix.os, 'ubuntu')
+        id: cuda-toolkit
+        with:
+          cuda: '12.4.1'
+          linux-local-args: '["--toolkit"]'
+          log-file-suffix: "${{ matrix.os }}-${{ matrix.py_version }}.txt"
+
       - name: Install and configure
         shell: bash
         run: |
