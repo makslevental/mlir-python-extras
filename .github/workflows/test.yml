@@ -76,6 +76,8 @@ jobs:
         with:
           cuda: '12.4.1'
           linux-local-args: '["--toolkit"]'
+          use-local-cache: false
+          use-github-cache: false
 
       - name: Install and configure
         shell: bash
