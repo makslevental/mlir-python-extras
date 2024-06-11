@@ -75,6 +75,7 @@ jobs:
         id: cuda-toolkit
         with:
           cuda: '12.4.1'
+          linux-local-args: '["--toolkit"]'
 
       - name: Install and configure
         shell: bash
