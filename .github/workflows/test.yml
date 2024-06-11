@@ -76,8 +76,7 @@ jobs:
         with:
           cuda: '12.4.1'
           linux-local-args: '["--toolkit"]'
-          use-local-cache: false
-          use-github-cache: false
+          log-file-suffix: "${{ matrix.os }}-${{ matrix.py_version }}.txt"
 
       - name: Install and configure
         shell: bash
