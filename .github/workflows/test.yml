@@ -186,7 +186,7 @@ jobs:
             
             cd /workspace
             
-            pip install -q .[test,mlir] -f https://makslevental.github.io/wheels
+            pip install -v .[test,mlir] -f https://makslevental.github.io/wheels
             
             pytest --capture=tee-sys tests
             python examples/mwe.py
