@@ -3,7 +3,7 @@ PyYAML
 black
 bytecode
 inflection
-numpy
+numpy~=1.0
 astunparse
 cloudpickle>=3.0.0
 einspect==0.5.16
