@@ -104,6 +104,8 @@ def transfer_read(
         padding = 0
     if isinstance(padding, int):
         padding = constant(padding, type=source.type.element_type)
+    if in_bounds is None:
+        in_bounds = [None] * len(permutation_map.results)
 
     return _transfer_read(
         vector=vector_t,
