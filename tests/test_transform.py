@@ -186,8 +186,8 @@ def test_basic_tile(ctx):
     module {
       func.func @pad_tensor_3_4(%arg0: tensor<4x16xf32>, %arg1: f32) -> tensor<12x23xf32> {
         %c3 = arith.constant 3 : index
-        %c23 = arith.constant 23 : index
         %c2 = arith.constant 2 : index
+        %c23 = arith.constant 23 : index
         %c12 = arith.constant 12 : index
         %c0 = arith.constant 0 : index
         %0 = tensor.empty() : tensor<12x23xf32>
@@ -231,6 +231,13 @@ def test_basic_tile(ctx):
           scf.yield %2 : tensor<12x23xf32>
         }
         return %1 : tensor<12x23xf32>
+      }
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["tensor.pad"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
@@ -286,11 +293,11 @@ def test_linalg_tile(ctx: MLIRContext):
     #map = affine_map<(d0) -> (-d0 + 8, 3)>
     module {
       func.func @matmul(%arg0: tensor<4x16xf32>, %arg1: tensor<16x8xf32>, %arg2: tensor<4x8xf32>) -> tensor<4x8xf32> {
-        %c3 = arith.constant 3 : index
-        %c8 = arith.constant 8 : index
         %c0 = arith.constant 0 : index
         %c4 = arith.constant 4 : index
+        %c8 = arith.constant 8 : index
         %c2 = arith.constant 2 : index
+        %c3 = arith.constant 3 : index
         %0 = scf.for %arg3 = %c0 to %c4 step %c2 iter_args(%arg4 = %arg2) -> (tensor<4x8xf32>) {
           %1 = scf.for %arg5 = %c0 to %c8 step %c3 iter_args(%arg6 = %arg4) -> (tensor<4x8xf32>) {
             %2 = affine.min #map(%arg5)
@@ -304,6 +311,13 @@ def test_linalg_tile(ctx: MLIRContext):
           scf.yield %1 : tensor<4x8xf32>
         }
         return %0 : tensor<4x8xf32>
+      }
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_linalg_op, %loops:2 = transform.structured.tile_using_for %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
@@ -356,28 +370,31 @@ def test_simple_matmul_tile_foreach_thread(ctx: MLIRContext):
 
     correct = dedent(
         """\
-    #map = affine_map<(d0) -> (d0 * -3 + 8, 3)>
-    #map1 = affine_map<(d0) -> (d0 * 2)>
-    #map2 = affine_map<(d0) -> (d0 * 3)>
+    #map = affine_map<(d0) -> (d0 * 2)>
+    #map1 = affine_map<(d0) -> (d0 * 3)>
+    #map2 = affine_map<(d0) -> (d0 * -3 + 8, 3)>
     module {
       func.func @matmul(%arg0: tensor<4x16xf32>, %arg1: tensor<16x8xf32>, %arg2: tensor<4x8xf32>) -> tensor<4x8xf32> {
         %0 = scf.forall (%arg3, %arg4) in (2, 3) shared_outs(%arg5 = %arg2) -> (tensor<4x8xf32>) {
-          %1 = affine.min #map(%arg4)
-          %2 = affine.apply #map1(%arg3)
-          %3 = affine.apply #map2(%arg4)
-          %4 = affine.apply #map1(%arg3)
-          %5 = affine.apply #map2(%arg4)
-          %extracted_slice = tensor.extract_slice %arg0[%2, 0] [2, 16] [1, 1] : tensor<4x16xf32> to tensor<2x16xf32>
-          %extracted_slice_0 = tensor.extract_slice %arg1[0, %3] [16, %1] [1, 1] : tensor<16x8xf32> to tensor<16x?xf32>
-          %extracted_slice_1 = tensor.extract_slice %arg5[%4, %5] [2, %1] [1, 1] : tensor<4x8xf32> to tensor<2x?xf32>
-          %6 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%extracted_slice, %extracted_slice_0 : tensor<2x16xf32>, tensor<16x?xf32>) outs(%extracted_slice_1 : tensor<2x?xf32>) -> tensor<2x?xf32>
-          %7 = affine.apply #map1(%arg3)
-          %8 = affine.apply #map2(%arg4)
+          %1 = affine.apply #map(%arg3)
+          %2 = affine.apply #map1(%arg4)
+          %3 = affine.min #map2(%arg4)
+          %extracted_slice = tensor.extract_slice %arg0[%1, 0] [2, 16] [1, 1] : tensor<4x16xf32> to tensor<2x16xf32>
+          %extracted_slice_0 = tensor.extract_slice %arg1[0, %2] [16, %3] [1, 1] : tensor<16x8xf32> to tensor<16x?xf32>
+          %extracted_slice_1 = tensor.extract_slice %arg5[%1, %2] [2, %3] [1, 1] : tensor<4x8xf32> to tensor<2x?xf32>
+          %4 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%extracted_slice, %extracted_slice_0 : tensor<2x16xf32>, tensor<16x?xf32>) outs(%extracted_slice_1 : tensor<2x?xf32>) -> tensor<2x?xf32>
           scf.forall.in_parallel {
-            tensor.parallel_insert_slice %6 into %arg5[%7, %8] [2, %1] [1, 1] : tensor<2x?xf32> into tensor<4x8xf32>
+            tensor.parallel_insert_slice %4 into %arg5[%1, %2] [2, %3] [1, 1] : tensor<2x?xf32> into tensor<4x8xf32>
           }
         }
         return %0 : tensor<4x8xf32>
+      }
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [2, 3] : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
@@ -512,21 +529,34 @@ def test_apply_cse(ctx: MLIRContext):
 
     correct = dedent(
         """\
-    #map = affine_map<(d0) -> (d0 * -2 + 3, 2)>
-    #map1 = affine_map<(d0) -> (d0 * 2)>
+    #map = affine_map<(d0) -> (d0 * 2)>
+    #map1 = affine_map<(d0) -> (d0 * -2 + 3, 2)>
     module {
       func.func @matmul(%arg0: tensor<3x5xf32>, %arg1: tensor<5x3xf32>, %arg2: tensor<3x3xf32>) -> tensor<3x3xf32> {
         %0 = scf.forall (%arg3) in (2) shared_outs(%arg4 = %arg2) -> (tensor<3x3xf32>) {
-          %1 = affine.min #map(%arg3)
-          %2 = affine.apply #map1(%arg3)
-          %extracted_slice = tensor.extract_slice %arg0[%2, 0] [%1, 5] [1, 1] : tensor<3x5xf32> to tensor<?x5xf32>
-          %extracted_slice_0 = tensor.extract_slice %arg4[%2, 0] [%1, 3] [1, 1] : tensor<3x3xf32> to tensor<?x3xf32>
+          %1 = affine.apply #map(%arg3)
+          %2 = affine.min #map1(%arg3)
+          %extracted_slice = tensor.extract_slice %arg0[%1, 0] [%2, 5] [1, 1] : tensor<3x5xf32> to tensor<?x5xf32>
+          %extracted_slice_0 = tensor.extract_slice %arg4[%1, 0] [%2, 3] [1, 1] : tensor<3x3xf32> to tensor<?x3xf32>
           %3 = linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%extracted_slice, %arg1 : tensor<?x5xf32>, tensor<5x3xf32>) outs(%extracted_slice_0 : tensor<?x3xf32>) -> tensor<?x3xf32>
           scf.forall.in_parallel {
-            tensor.parallel_insert_slice %3 into %arg4[%2, 0] [%1, 3] [1, 1] : tensor<?x3xf32> into tensor<3x3xf32>
+            tensor.parallel_insert_slice %3 into %arg4[%1, 0] [%2, 3] [1, 1] : tensor<?x3xf32> into tensor<3x3xf32>
           }
         } {mapping = [#gpu.block<x>]}
         return %0 : tensor<3x3xf32>
+      }
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @__transform_main(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [2](mapping = [#gpu.block<x>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          %1 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          transform.apply_patterns to %1 {
+            transform.apply_patterns.canonicalization
+          } : !transform.any_op
+          %2 = transform.structured.match ops{["func.func"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          transform.apply_cse to %2 : !transform.any_op
+          transform.yield 
+        }
       }
     }
     """
@@ -618,27 +648,35 @@ def test_two_schedules(ctx: MLIRContext):
         %0 = scf.forall (%arg3, %arg4, %arg5) in (3, 8, 8) shared_outs(%arg6 = %arg2) -> (tensor<1x3x64x64xf32>) {
           %1 = affine.apply #map(%arg4)
           %2 = affine.apply #map(%arg5)
-          %3 = affine.apply #map(%arg4)
-          %4 = affine.apply #map(%arg5)
           %extracted_slice = tensor.extract_slice %arg0[0, 0, %1, %2] [1, 1, 10, 10] [1, 1, 1, 1] : tensor<1x1x66x66xf32> to tensor<1x1x10x10xf32>
           %extracted_slice_0 = tensor.extract_slice %arg1[%arg3, 0, 0, 0] [1, 1, 3, 3] [1, 1, 1, 1] : tensor<3x1x3x3xf32> to tensor<1x1x3x3xf32>
-          %extracted_slice_1 = tensor.extract_slice %arg6[0, %arg3, %3, %4] [1, 1, 8, 8] [1, 1, 1, 1] : tensor<1x3x64x64xf32> to tensor<1x1x8x8xf32>
-          %5 = scf.forall (%arg7, %arg8, %arg9) in (1, 8, 8) shared_outs(%arg10 = %extracted_slice_1) -> (tensor<1x1x8x8xf32>) {
+          %extracted_slice_1 = tensor.extract_slice %arg6[0, %arg3, %1, %2] [1, 1, 8, 8] [1, 1, 1, 1] : tensor<1x3x64x64xf32> to tensor<1x1x8x8xf32>
+          %3 = scf.forall (%arg7, %arg8, %arg9) in (1, 8, 8) shared_outs(%arg10 = %extracted_slice_1) -> (tensor<1x1x8x8xf32>) {
             %extracted_slice_2 = tensor.extract_slice %extracted_slice[0, 0, %arg8, %arg9] [1, 1, 3, 3] [1, 1, 1, 1] : tensor<1x1x10x10xf32> to tensor<1x1x3x3xf32>
             %extracted_slice_3 = tensor.extract_slice %extracted_slice_0[%arg7, 0, 0, 0] [1, 1, 3, 3] [1, 1, 1, 1] : tensor<1x1x3x3xf32> to tensor<1x1x3x3xf32>
             %extracted_slice_4 = tensor.extract_slice %arg10[0, %arg7, %arg8, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x8x8xf32> to tensor<1x1x1x1xf32>
-            %8 = linalg.conv_2d_nchw_fchw ins(%extracted_slice_2, %extracted_slice_3 : tensor<1x1x3x3xf32>, tensor<1x1x3x3xf32>) outs(%extracted_slice_4 : tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
+            %4 = linalg.conv_2d_nchw_fchw ins(%extracted_slice_2, %extracted_slice_3 : tensor<1x1x3x3xf32>, tensor<1x1x3x3xf32>) outs(%extracted_slice_4 : tensor<1x1x1x1xf32>) -> tensor<1x1x1x1xf32>
             scf.forall.in_parallel {
-              tensor.parallel_insert_slice %8 into %arg10[0, %arg7, %arg8, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x8x8xf32>
+              tensor.parallel_insert_slice %4 into %arg10[0, %arg7, %arg8, %arg9] [1, 1, 1, 1] [1, 1, 1, 1] : tensor<1x1x1x1xf32> into tensor<1x1x8x8xf32>
             }
           } {mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]}
-          %6 = affine.apply #map(%arg4)
-          %7 = affine.apply #map(%arg5)
           scf.forall.in_parallel {
-            tensor.parallel_insert_slice %5 into %arg6[0, %arg3, %6, %7] [1, 1, 8, 8] [1, 1, 1, 1] : tensor<1x1x8x8xf32> into tensor<1x3x64x64xf32>
+            tensor.parallel_insert_slice %3 into %arg6[0, %arg3, %1, %2] [1, 1, 8, 8] [1, 1, 1, 1] : tensor<1x1x8x8xf32> into tensor<1x3x64x64xf32>
           }
         } {mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]}
         return %0 : tensor<1x3x64x64xf32>
+      }
+      module attributes {transform.with_named_sequence} {
+        transform.named_sequence @tile_outer(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [0, 1, 8, 8](mapping = [#gpu.block<x>, #gpu.block<y>, #gpu.block<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          transform.yield 
+        }
+        transform.named_sequence @tile_inner(%arg0: !transform.any_op) {
+          %0 = transform.structured.match ops{["linalg.conv_2d_nchw_fchw"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+          %tiled_op, %forall_op = transform.structured.tile_using_forall %0 tile_sizes [0, 1, 1, 1](mapping = [#gpu.thread<x>, #gpu.thread<y>, #gpu.thread<z>]) : (!transform.any_op) -> (!transform.any_op, !transform.any_op)
+          transform.yield 
+        }
       }
     }
     """
