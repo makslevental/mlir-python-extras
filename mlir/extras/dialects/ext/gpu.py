@@ -184,7 +184,7 @@ class GPUModuleOp(GPUModuleOp):
         return self.regions[0].blocks[0]
 
 
-module = region_op(GPUModuleOp, terminator=lambda *_args: module_end())
+module = region_op(GPUModuleOp)
 
 
 class GPUModuleMeta(ModuleMeta):
@@ -202,12 +202,7 @@ class GPUModuleMeta(ModuleMeta):
         )
         ip = InsertionPoint(gpu_module_op.body)
         ip.__enter__()
-        return {
-            "ip": ip,
-            "loc": loc,
-            "gpu_module_op": gpu_module_op,
-            "module_terminator": module_end,
-        }
+        return {"ip": ip, "gpu_module_op": gpu_module_op}
 
 
 class GPUFuncOp(GPUFuncOp):
