@@ -352,11 +352,7 @@ def region_adder(terminator=None):
 class ModuleMeta(type):
     def __new__(cls, name, bases, classdict, **kwargs):
         ip = classdict.pop("ip")
-        loc = classdict.pop("loc")
-        module_terminator = classdict.pop("module_terminator", None)
         new = super().__new__(cls, name, bases, classdict)
-        if module_terminator is not None:
-            module_terminator(loc=loc, ip=ip)
         for k, v in classdict.items():
             if callable(v):
                 v.qualname = name
