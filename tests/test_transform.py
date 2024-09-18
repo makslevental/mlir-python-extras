@@ -981,7 +981,8 @@ def test_matmul_schedule_run(ctx: MLIRContext):
             entry_point="main", debug_payload_root_tag="payload"
         ),
     )
-    correct = """\
+    correct = dedent(
+        """\
         #map = affine_map<(d0) -> (d0 * 16)>
         #map1 = affine_map<(d0) -> (d0 * 64)>
         #map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d3, d5)>
@@ -995,16 +996,16 @@ def test_matmul_schedule_run(ctx: MLIRContext):
               %1 = tensor.empty() : tensor<1x4x16x64xi8>
               %2 = tensor.empty() : tensor<4x1x64x64xi8>
               %3 = tensor.empty() : tensor<1x1x16x64xi8>
-              %4 = scf.forall (%arg2, %arg3) in (1, 4) shared_outs(%arg4 = %0) -> (tensor<16x256xi8>) {
-                %5 = affine.apply #map(%arg2)
-                %6 = affine.apply #map1(%arg3)
-                %extracted_slice = tensor.extract_slice %arg0[%5, 0] [16, 256] [1, 1] : tensor<16x256xi8> to tensor<16x256xi8>
-                %extracted_slice_0 = tensor.extract_slice %arg1[0, %6] [256, 64] [1, 1] : tensor<256x256xi8> to tensor<256x64xi8>
-                %extracted_slice_1 = tensor.extract_slice %arg4[%5, %6] [16, 64] [1, 1] : tensor<16x256xi8> to tensor<16x64xi8>
+              %4 = linalg.fill ins(%c0_i32 : i32) outs(%3 : tensor<1x1x16x64xi8>) -> tensor<1x1x16x64xi8>
+              %5 = scf.forall (%arg2, %arg3) in (1, 4) shared_outs(%arg4 = %0) -> (tensor<16x256xi8>) {
+                %6 = affine.apply #map(%arg2)
+                %7 = affine.apply #map1(%arg3)
+                %extracted_slice = tensor.extract_slice %arg0[%6, 0] [16, 256] [1, 1] : tensor<16x256xi8> to tensor<16x256xi8>
+                %extracted_slice_0 = tensor.extract_slice %arg1[0, %7] [256, 64] [1, 1] : tensor<256x256xi8> to tensor<256x64xi8>
+                %extracted_slice_1 = tensor.extract_slice %arg4[%6, %7] [16, 64] [1, 1] : tensor<16x256xi8> to tensor<16x64xi8>
                 %pack = tensor.pack %extracted_slice inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %1 : tensor<16x256xi8> -> tensor<1x4x16x64xi8>
                 %pack_2 = tensor.pack %extracted_slice_0 outer_dims_perm = [0, 1] inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %2 : tensor<256x64xi8> -> tensor<4x1x64x64xi8>
-                %7 = linalg.fill ins(%c0_i32 : i32) outs(%3 : tensor<1x1x16x64xi8>) -> tensor<1x1x16x64xi8>
-                %8 = linalg.generic {indexing_maps = [#map2, #map3, #map4], iterator_types = ["parallel", "parallel", "reduction", "parallel", "parallel", "reduction"]} ins(%pack, %pack_2 : tensor<1x4x16x64xi8>, tensor<4x1x64x64xi8>) outs(%7 : tensor<1x1x16x64xi8>) {
+                %8 = linalg.generic {indexing_maps = [#map2, #map3, #map4], iterator_types = ["parallel", "parallel", "reduction", "parallel", "parallel", "reduction"]} ins(%pack, %pack_2 : tensor<1x4x16x64xi8>, tensor<4x1x64x64xi8>) outs(%4 : tensor<1x1x16x64xi8>) {
                 ^bb0(%in: i8, %in_3: i8, %out: i8):
                   %9 = arith.muli %in, %in_3 : i8
                   %10 = arith.addi %out, %9 : i8
@@ -1012,10 +1013,10 @@ def test_matmul_schedule_run(ctx: MLIRContext):
                 } -> tensor<1x1x16x64xi8>
                 %unpack = tensor.unpack %8 inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %extracted_slice_1 : tensor<1x1x16x64xi8> -> tensor<16x64xi8>
                 scf.forall.in_parallel {
-                  tensor.parallel_insert_slice %unpack into %arg4[%5, %6] [16, 64] [1, 1] : tensor<16x64xi8> into tensor<16x256xi8>
+                  tensor.parallel_insert_slice %unpack into %arg4[%6, %7] [16, 64] [1, 1] : tensor<16x64xi8> into tensor<16x256xi8>
                 }
               } {mapping = [#gpu.thread<y>, #gpu.thread<x>]}
-              return %4 : tensor<16x256xi8>
+              return %5 : tensor<16x256xi8>
             }
           }
           module attributes {transform.with_named_sequence} {
@@ -1045,6 +1046,7 @@ def test_matmul_schedule_run(ctx: MLIRContext):
           }
         }
     """
+    )
     filecheck(correct, mod)
 
 
