@@ -172,7 +172,9 @@ class MemRef(Value, ShapedValue):
                 idx[i] = constant(d, index=True, loc=loc)
 
         if all(isinstance(d, Scalar) for d in idx) and len(idx) == len(self.shape):
-            assert isinstance(val, Scalar), "coordinate insert requires scalar element"
+            if isinstance(val, (int, float)):
+                # TODO: this is an unchecked conversion
+                val = Scalar(val, dtype=self.dtype)
             store(val, self, idx, loc=loc)
         else:
             _copy_to_subview(self, val, tuple(idx), loc=loc)
