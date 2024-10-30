@@ -142,7 +142,6 @@ class Pipeline:
         return (
             self.Func(
                 Pipeline()
-                .scf_bufferize()
                 .empty_tensor_to_alloc_tensor()
             )
             .func_bufferize()
