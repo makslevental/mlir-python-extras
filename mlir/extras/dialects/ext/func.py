@@ -17,6 +17,7 @@ from ....ir import (
     InsertionPoint,
     OpView,
     Operation,
+    OpResultList,
     Type,
     TypeAttr,
     Value,
@@ -255,7 +256,7 @@ class FuncBase:
             def grab_results(*args):
                 nonlocal return_types
                 results = self.body_builder(*args)
-                if isinstance(results, (tuple, list)):
+                if isinstance(results, (tuple, list, OpResultList)):
                     return_types.extend([r.type for r in results])
                 elif results is not None:
                     return_types.append(results.type)
