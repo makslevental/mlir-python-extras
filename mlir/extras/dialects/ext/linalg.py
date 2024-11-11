@@ -1,9 +1,11 @@
 from . import arith
 from ...util import get_user_code_loc
 from ....dialects import linalg
+
 # noinspection PyUnresolvedReferences
 from ....dialects.linalg import *
 from ....extras import types as T
+from .... import ir
 
 
 def abs(I, O, *, loc=None, ip=None):
@@ -297,10 +299,57 @@ def log(I, O, *, loc=None, ip=None):
     return linalg.log(I, loc=loc, ip=ip, outs=[O])
 
 
+@linalg.linalg_structured_op
+def _matmul_generic(
+    A=linalg.TensorDef(linalg.T1, linalg.S.M, linalg.S.K),
+    B=linalg.TensorDef(linalg.T2, linalg.S.K, linalg.S.N),
+    C=linalg.TensorDef(linalg.U, linalg.S.M, linalg.S.N, output=True),
+    cast=linalg.TypeFnAttrDef(default=linalg.TypeFn.cast_signed),
+):
+    linalg.domain(linalg.D.m, linalg.D.n, linalg.D.k)
+    linalg.implements(linalg.ContractionOpInterface)
+    C[linalg.D.m, linalg.D.n] += cast(linalg.U, A[linalg.D.m, linalg.D.k]) * cast(
+        linalg.U, B[linalg.D.k, linalg.D.n]
+    )
+
+
+_matmul_generic.op_name = "matmul"
+
+
 def matmul(A, B, C, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-    return linalg.matmul(A, B, loc=loc, ip=ip, outs=[C])
+
+    op_configs = linalg.LinalgOpConfig.from_linalg_op_def(
+        _matmul_generic.op_def, context=ir.Context.current
+    )
+    op_config = op_configs[0]
+    (
+        _all_arg_defs,
+        _in_arg_defs,
+        _out_arg_defs,
+        _outs,
+        result_types,
+        _type_mapping,
+        indexing_maps_attr,
+        _iterator_types_attr,
+        _index_attrs,
+        _fn_attr_mapping,
+        _block_arg_types,
+    ) = linalg.opdsl.lang.emitter.prepare_common_structured_op(
+        op_config.structured_op, A, B, outs=[C], loc=loc, ip=ip
+    )
+    named_op = linalg.MatmulOp(
+        result_types,
+        inputs=[A, B],
+        outputs=[C],
+        indexing_maps=indexing_maps_attr,
+        cast=linalg.TypeFn.cast_signed,
+        loc=loc,
+        ip=ip,
+    )
+    linalg.fill_builtin_region(named_op.operation)
+    return named_op.results
 
 
 def matmul_transpose_a(A, B, C, *, loc=None, ip=None):
