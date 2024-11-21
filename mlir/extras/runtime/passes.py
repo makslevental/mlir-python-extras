@@ -140,17 +140,9 @@ class Pipeline:
 
     def bufferize(self):
         return (
-            self.Func(
-                Pipeline()
-                .empty_tensor_to_alloc_tensor()
-            )
-            .func_bufferize()
+            self.Func(Pipeline().empty_tensor_to_alloc_tensor())
             .one_shot_bufferize()
-            .Func(
-                Pipeline()
-                .finalizing_bufferize()
-                .buffer_deallocation()
-            )
+            .Func(Pipeline().finalizing_bufferize().buffer_deallocation())
         )
 
     def lower_to_llvm(self):
@@ -690,18 +682,20 @@ class Pipeline:
         self.add_pass("arith-expand", include_bf16=include_bf16)
         return self
 
-    def arith_int_narrowing(self, int_bitwidths_supported: List[int] = None):
-        """Reduce integer operation bitwidth
+    def arith_int_range_narrowing(self, int_bitwidths_supported: List[int] = None):
+        """Reduce integer operations bitwidth based on integer range analysis
 
-        Reduce bitwidths of integer types used in arith operations. This pass
-        prefers the narrowest available integer bitwidths that are guaranteed to
-        produce the same results.
+        This pass runs integer range analysis and tries to narrow arith ops to the
+        specified bitwidth based on its results.
+
+        `bitwidthsSupported` assumed to be not wider than `index` type.
+        TODO: get index width from DLTI.
 
         Args:
             int-bitwidths-supported: Integer bitwidths supported
         """
         self.add_pass(
-            "arith-int-narrowing", int_bitwidths_supported=int_bitwidths_supported
+            "arith-int-range-narrowing", int_bitwidths_supported=int_bitwidths_supported
         )
         return self
 
@@ -747,8 +741,8 @@ class Pipeline:
         Becomes:
 
         ```mlir
-        %a_packed = "llvm.intr.experimental.vector.interleave2"(%a0, %a1) : (vector<[4]xf16>, vector<[4]xf16>) -> vector<[8]xf16>
-        %b_packed = "llvm.intr.experimental.vector.interleave2"(%b0, %b1) : (vector<[4]xf16>, vector<[4]xf16>) -> vector<[8]xf16>
+        %a_packed = vector.interleave %a0, %a1 : vector<[4]xf16> -> vector<[8]xf16>
+        %b_packed = vector.interleave %b0, %b1 : vector<[4]xf16> -> vector<[8]xf16>
         %0 = arm_sme.fmopa_2way %a_packed, %b_packed : vector<[8]xf16>, vector<[8]xf16> into vector<[4]x[4]xf32>
         ```
 
@@ -929,8 +923,6 @@ class Pipeline:
           ^bb2:
             %0 = memref.alloc() : memref<2xf32>
             linalg.generic {
-              args_in = 1 : i64,
-              args_out = 1 : i64,
               indexing_maps = [#map0, #map0],
               iterator_types = ["parallel"]} %arg1, %0 {
             ^bb0(%gen1_arg0: f32, %gen1_arg1: f32):
@@ -960,8 +952,6 @@ class Pipeline:
           ^bb2:  // pred: ^bb0
             %1 = memref.alloc() : memref<2xf32>
             linalg.generic {
-              args_in = 1 : i64,
-              args_out = 1 : i64,
               indexing_maps = [#map0, #map0],
               iterator_types = ["parallel"]} %arg1, %1 {
             ^bb0(%arg3: f32, %arg4: f32):
@@ -1077,7 +1067,7 @@ class Pipeline:
     def canonicalize(
         self,
         top_down: bool = None,
-        region_simplify: bool = None,
+        region_simplify: "mlir::GreedySimplifyRegionLevel" = None,
         max_iterations: int = None,
         max_num_rewrites: int = None,
         test_convergence: bool = None,
@@ -1169,7 +1159,12 @@ class Pipeline:
         self.add_pass("convert-amdgpu-to-rocdl", chipset=chipset)
         return self
 
-    def convert_arith_to_amdgpu(self, saturate_fp8_truncf: bool = None):
+    def convert_arith_to_amdgpu(
+        self,
+        chipset: str = None,
+        saturate_fp8_truncf: bool = None,
+        allow_packed_f16_round_to_zero: bool = None,
+    ):
         """Convert Arith operations to AMDGPU-specific implementations
 
         Convert `arith` operations (currently extf and truncf on 8-bit floats)
@@ -1178,10 +1173,15 @@ class Pipeline:
         simultaniously.
 
         Args:
+            chipset: Chipset that these operations will run on
             saturate-fp8-truncf: Use saturating truncation for 8-bit float types
+            allow-packed-f16-round-to-zero: Whether we should allow f32->f16 packed round-to-zero conversion
         """
         self.add_pass(
-            "convert-arith-to-amdgpu", saturate_fp8_truncf=saturate_fp8_truncf
+            "convert-arith-to-amdgpu",
+            chipset=chipset,
+            saturate_fp8_truncf=saturate_fp8_truncf,
+            allow_packed_f16_round_to_zero=allow_packed_f16_round_to_zero,
         )
         return self
 
@@ -1398,6 +1398,14 @@ class Pipeline:
         self.add_pass("convert-gpu-launch-to-vulkan-launch")
         return self
 
+    def convert_gpu_to_llvm_spv(self, index_bitwidth: int = None):
+        """Generate LLVM operations to be ingested by a SPIR-V backend for gpu operations
+        Args:
+            index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
+        """
+        self.add_pass("convert-gpu-to-llvm-spv", index_bitwidth=index_bitwidth)
+        return self
+
     def convert_gpu_to_nvvm(
         self,
         index_bitwidth: int = None,
@@ -1553,6 +1561,15 @@ class Pipeline:
             approximate-log1p: Enable approximation of Log1p.
         """
         self.add_pass("convert-math-to-llvm", approximate_log1p=approximate_log1p)
+        return self
+
+    def convert_math_to_rocdl(self):
+        """Convert Math dialect to ROCDL library calls
+
+        This pass converts supported Math ops to ROCDL library calls.
+
+        """
+        self.add_pass("convert-math-to-rocdl")
         return self
 
     def convert_math_to_spirv(self):
@@ -1711,6 +1728,29 @@ class Pipeline:
         self.add_pass("convert-to-llvm", filter_dialects=filter_dialects)
         return self
 
+    def convert_to_spirv(
+        self,
+        run_signature_conversion: bool = None,
+        run_vector_unrolling: bool = None,
+        convert_gpu_modules: bool = None,
+    ):
+        """Convert to SPIR-V
+
+        This is a generic pass to convert to SPIR-V.
+
+        Args:
+            run-signature-conversion: Run function signature conversion to convert vector types
+            run-vector-unrolling: Run vector unrolling to convert vector types in function bodies
+            convert-gpu-modules: Clone and convert GPU modules
+        """
+        self.add_pass(
+            "convert-to-spirv",
+            run_signature_conversion=run_signature_conversion,
+            run_vector_unrolling=run_vector_unrolling,
+            convert_gpu_modules=convert_gpu_modules,
+        )
+        return self
+
     def convert_ub_to_llvm(self, index_bitwidth: int = None):
         """Convert UB dialect to LLVM dialect
 
@@ -1793,24 +1833,32 @@ class Pipeline:
         full_unroll: bool = None,
         target_rank: int = None,
         lower_tensors: bool = None,
+        lower_scalable: bool = None,
     ):
         """Lower the operations from the vector dialect into the SCF dialect
         Args:
             full-unroll: Perform full unrolling when converting vector transfers to SCF
             target-rank: Target vector rank to which transfer ops should be lowered
             lower-tensors: Lower transfer ops that operate on tensors
+            lower-scalable: Add scalable vector specific lowerings (that introduce loops)
         """
         self.add_pass(
             "convert-vector-to-scf",
             full_unroll=full_unroll,
             target_rank=target_rank,
             lower_tensors=lower_tensors,
+            lower_scalable=lower_scalable,
         )
         return self
 
     def convert_vector_to_spirv(self):
         """Convert Vector dialect to SPIR-V dialect"""
         self.add_pass("convert-vector-to-spirv")
+        return self
+
+    def convert_vector_to_xegpu(self):
+        """Lower the operations from the vector dialect into the XeGPU dialect"""
+        self.add_pass("convert-vector-to-xegpu")
         return self
 
     def cse(self):
@@ -1875,7 +1923,7 @@ class Pipeline:
         ```
         %0 = tensor.empty() : tensor<10xf32>
         %1 = linalg.fill ... outs(%0 : tensor<10xf32>)
-        %2 = tensor.insert_slice %0 into %t ...
+        %2 = tensor.insert_slice %1 into %t ...
         ```
 
         In the above example, the subset op is "tensor.insert_slice". When tracing
@@ -1902,7 +1950,8 @@ class Pipeline:
         self,
         streaming_mode: "mlir::arm_sme::ArmStreamingMode" = None,
         za_mode: "mlir::arm_sme::ArmZaMode" = None,
-        only_if_required_by_ops: bool = None,
+        if_required_by_ops: bool = None,
+        if_scalable_and_supported: bool = None,
     ):
         """Enable Armv9 Streaming SVE mode
 
@@ -1914,17 +1963,21 @@ class Pipeline:
         Args:
             streaming-mode: Select how streaming-mode is managed at the function-level.
             za-mode: Select how ZA-storage is managed at the function-level.
-            only-if-required-by-ops: Only apply the selected streaming/ZA modes if the function  contains ops that require them.
+            if-required-by-ops: Only apply the selected streaming/ZA modes if the function contains ops that implement the ArmSMETileOpInterface.
+            if-scalable-and-supported: Only apply the selected streaming/ZA modes if the function contains supported scalable vector operations.
         """
         self.add_pass(
             "enable-arm-streaming",
             streaming_mode=streaming_mode,
             za_mode=za_mode,
-            only_if_required_by_ops=only_if_required_by_ops,
+            if_required_by_ops=if_required_by_ops,
+            if_scalable_and_supported=if_scalable_and_supported,
         )
         return self
 
-    def ensure_debug_info_scope_on_llvm_func(self):
+    def ensure_debug_info_scope_on_llvm_func(
+        self, emission_kind: "mlir::LLVM::DIEmissionKind" = None
+    ):
         """Materialize LLVM debug info subprogram attribute on every LLVMFuncOp
 
         Having a debug info subprogram attribute on a function is required for
@@ -1935,8 +1988,12 @@ class Pipeline:
         tables for debugging purposes. This allow to step trough in a debugger
         line-by-line or get a backtrace with line numbers.
 
+        Args:
+            emission-kind: Emission kind to generate debug info.
         """
-        self.add_pass("ensure-debug-info-scope-on-llvm-func")
+        self.add_pass(
+            "ensure-debug-info-scope-on-llvm-func", emission_kind=emission_kind
+        )
         return self
 
     def expand_realloc(self, emit_deallocs: bool = None):
@@ -2076,34 +2133,6 @@ class Pipeline:
         self.add_pass("form-expressions")
         return self
 
-    def func_bufferize(self):
-        """Bufferize func/call/return ops
-
-        A bufferize pass that bufferizes func.func and func.call ops.
-
-        Because this pass updates func.func ops, it must be a module pass. It is
-        useful to keep this pass separate from other bufferizations so that the
-        other ones can be run at function-level in parallel.
-
-        This pass must be done atomically because it changes func op signatures,
-        which requires atomically updating calls as well throughout the entire
-        module.
-
-        This pass also changes the type of block arguments, which requires that all
-        successor arguments of predecessors be converted. This is achieved by
-        rewriting terminators based on the information provided by the
-        `BranchOpInterface`.
-        As this pass rewrites function operations, it also rewrites the
-        corresponding return operations. Other return-like operations that
-        implement the `ReturnLike` trait are not rewritten in general, as they
-        require that the corresponding parent operation is also rewritten.
-        Finally, this pass fails for unknown terminators, as we cannot decide
-        whether they need rewriting.
-
-        """
-        self.add_pass("func-bufferize")
-        return self
-
     def generate_runtime_verification(self):
         """Generate additional runtime op verification checks
 
@@ -2200,7 +2229,6 @@ class Pipeline:
         self,
         use_bare_pointers_for_host: bool = None,
         use_bare_pointers_for_kernels: bool = None,
-        gpu_binary_annotation: str = None,
     ):
         """Convert GPU dialect to LLVM dialect with GPU runtime calls
 
@@ -2214,13 +2242,11 @@ class Pipeline:
         Args:
             use-bare-pointers-for-host: Use bare pointers to pass memref arguments to host functions. All memrefs must have static shape.
             use-bare-pointers-for-kernels: Use bare pointers to pass memref arguments to kernels. The kernel must use the same setting for this option.
-            gpu-binary-annotation: Annotation attribute string for GPU binary
         """
         self.add_pass(
             "gpu-to-llvm",
             use_bare_pointers_for_host=use_bare_pointers_for_host,
             use_bare_pointers_for_kernels=use_bare_pointers_for_kernels,
-            gpu_binary_annotation=gpu_binary_annotation,
         )
         return self
 
@@ -2251,8 +2277,8 @@ class Pipeline:
         """Do optimizations based on integer range analysis
 
         This pass runs integer range analysis and apllies optimizations based on its
-        results. e.g. replace arith.cmpi with const if it can be inferred from
-        args ranges.
+        results. It replaces operations with known-constant results with said constants,
+        rewrites `(0 <= %x < D) mod D` to `%x`.
 
         """
         self.add_pass("int-range-optimizations")
@@ -2386,6 +2412,11 @@ class Pipeline:
         self.add_pass("linalg-named-op-conversion")
         return self
 
+    def linalg_specialize_generic_ops(self):
+        """Convert generic ops back to named ops"""
+        self.add_pass("linalg-specialize-generic-ops")
+        return self
+
     def llvm_add_comdats(self):
         """Add comdats to linkonce and linkonce_odr functions
 
@@ -2503,6 +2534,21 @@ class Pipeline:
         self.add_pass("lower-host-to-llvm")
         return self
 
+    def lower_quant_ops(self):
+        """Lower quant.dcast and quant.qcast ops
+
+        Lower quantization (`quant.qcast`) and dequantization (`quant.dcast`) ops
+        into other core dialects.
+
+        The lowering process generates storage type casts in the form of
+        `quant.scast` ops to act as an interface between the original quantized
+        types of operands and results and their corresponding storage types used in
+        the generated arithmetic computations.
+
+        """
+        self.add_pass("lower-quant-ops")
+        return self
+
     def lower_sparse_foreach_to_scf(self):
         """Decompose a complex sparse operation into multiple stages
 
@@ -2510,6 +2556,16 @@ class Pipeline:
 
         """
         self.add_pass("lower-sparse-foreach-to-scf")
+        return self
+
+    def lower_sparse_iteration_to_scf(self):
+        """lower sparse_tensor.iterate/coiterate into scf loops
+
+        This pass lowers `sparse_tensor.iterate` operations into `scf.for/while` operations.
+        The pass is not yet stabilized.
+
+        """
+        self.add_pass("lower-sparse-iteration-to-scf")
         return self
 
     def lower_sparse_ops_to_foreach(
@@ -2555,7 +2611,9 @@ class Pipeline:
         self.add_pass("map-memref-spirv-storage-class", client_api=client_api)
         return self
 
-    def math_legalize_to_f32(self):
+    def math_extend_to_supported_types(
+        self, extra_types: List[str] = None, target_type: str = None
+    ):
         """Legalize floating-point math ops on low-precision floats
 
         On many targets, the math functions are not implemented for floating-point
@@ -2564,13 +2622,22 @@ class Pipeline:
 
         This pass explicitly legalizes these math functions by inserting
         `arith.extf` and `arith.truncf` pairs around said op, which preserves
-        the original semantics while enabling lowering.
+        the original semantics while enabling lowering. The extra supported floating-point
+        types for the target are passed as arguments. Types f64 and f32 are implicitly
+        supported.
 
         As an exception, this pass does not legalize `math.fma`, because
         that is an operation frequently implemented at low precisions.
 
+        Args:
+            extra-types: MLIR types with arithmetic support on a given target (f64 and f32 are implicitly supported)
+            target-type: MLIR type to convert the unsupported source types to
         """
-        self.add_pass("math-legalize-to-f32")
+        self.add_pass(
+            "math-extend-to-supported-types",
+            extra_types=extra_types,
+            target_type=target_type,
+        )
         return self
 
     def math_uplift_to_fma(self):
@@ -2819,6 +2886,7 @@ class Pipeline:
         analysis_fuzzer_seed: int = None,
         analysis_heuristic: str = None,
         bufferize_function_boundaries: bool = None,
+        check_parallel_regions: bool = None,
         copy_before_write: bool = None,
         dialect_filter: List[str] = None,
         dump_alias_sets: bool = None,
@@ -2828,6 +2896,7 @@ class Pipeline:
         test_analysis_only: bool = None,
         print_conflicts: bool = None,
         unknown_type_conversion: str = None,
+        buffer_alignment: int = None,
     ):
         """One-Shot Bufferize
 
@@ -2941,6 +3010,7 @@ class Pipeline:
             analysis-fuzzer-seed: Test only: Analyze ops in random order with a given seed (fuzzer)
             analysis-heuristic: Heuristic that control the IR traversal during analysis
             bufferize-function-boundaries: Bufferize function boundaries (experimental).
+            check-parallel-regions: Account for parallel regions in RaW analysis.
             copy-before-write: Skip the analysis. Make a buffer copy on every write.
             dialect-filter: Restrict bufferization to ops from these dialects.
             dump-alias-sets: Test only: Annotate tensor IR with alias sets
@@ -2950,6 +3020,7 @@ class Pipeline:
             test-analysis-only: Test only: Only run inplaceability analysis and annotate IR
             print-conflicts: Test only: Annotate IR with RaW conflicts. Requires test-analysis-only.
             unknown-type-conversion: Controls layout maps for non-inferrable memref types.
+            buffer-alignment: Sets the alignment of newly allocated buffers.
         """
         self.add_pass(
             "one-shot-bufferize",
@@ -2958,6 +3029,7 @@ class Pipeline:
             analysis_fuzzer_seed=analysis_fuzzer_seed,
             analysis_heuristic=analysis_heuristic,
             bufferize_function_boundaries=bufferize_function_boundaries,
+            check_parallel_regions=check_parallel_regions,
             copy_before_write=copy_before_write,
             dialect_filter=dialect_filter,
             dump_alias_sets=dump_alias_sets,
@@ -2967,19 +3039,27 @@ class Pipeline:
             test_analysis_only=test_analysis_only,
             print_conflicts=print_conflicts,
             unknown_type_conversion=unknown_type_conversion,
+            buffer_alignment=buffer_alignment,
         )
         return self
 
-    def openacc_legalize_data(self, host_to_device: bool = None):
-        """Legalize the data in the compute region
+    def openacc_legalize_data_values(
+        self, host_to_device: bool = None, apply_to_acc_data_construct: bool = None
+    ):
+        """Legalizes SSA values in compute regions with results from data clause operations
 
-        This pass replace uses of varPtr in the compute region with their accPtr
-        gathered from the data clause operands.
+        This pass replace uses of the `varPtr` in compute regions (kernels,
+        parallel, serial) with the result of data clause operations (`accPtr`).
 
         Args:
             host-to-device: Replace varPtr uses with accPtr if true. Replace accPtr uses with varPtr if false
+            apply-to-acc-data-construct: Replaces varPtr uses with accPtr for acc compute regions contained within acc.data or acc.declare region.
         """
-        self.add_pass("openacc-legalize-data", host_to_device=host_to_device)
+        self.add_pass(
+            "openacc-legalize-data-values",
+            host_to_device=host_to_device,
+            apply_to_acc_data_construct=apply_to_acc_data_construct,
+        )
         return self
 
     def opt_reduction_pass(
@@ -2994,6 +3074,18 @@ class Pipeline:
         self.add_pass(
             "opt-reduction-pass", opt_pass=opt_pass, test=test, test_arg=test_arg
         )
+        return self
+
+    def optimize_allocation_liveness(self):
+        """This pass optimizes the liveness of temp allocations in the input function
+        This pass will find all operations that have a memory allocation effect.
+               It will search for the corresponding deallocation and move it right after
+               the last user of the allocation.
+               This will optimize the liveness of the allocations.
+
+               The pass is expected to run after the deallocation pipeline.
+        """
+        self.add_pass("optimize-allocation-liveness")
         return self
 
     def outline_shape_computation(self):
@@ -3133,8 +3225,6 @@ class Pipeline:
           ^bb2:
             %0 = memref.alloc() : memref<2xf32>
             linalg.generic {
-              args_in = 1 : i64,
-              args_out = 1 : i64,
               indexing_maps = [#map0, #map0],
               iterator_types = ["parallel"]}
             outs(%arg1, %0 : memref<2xf32>, memref<2xf32>) {
@@ -3169,7 +3259,6 @@ class Pipeline:
               indexing_maps = [#map, #map],
               iterator_types = ["parallel"]}
             outs(%arg1, %alloc : memref<2xf32>, memref<2xf32>)
-            attrs =  {args_in = 1 : i64, args_out = 1 : i64} {
             ^bb0(%out: f32, %out_0: f32):
               %2 = math.exp %out : f32
               linalg.yield %2, %out_0 : f32, f32
@@ -3577,11 +3666,6 @@ class Pipeline:
         self.add_pass("sccp")
         return self
 
-    def scf_bufferize(self):
-        """Bufferize the scf dialect."""
-        self.add_pass("scf-bufferize")
-        return self
-
     def scf_for_loop_canonicalization(self):
         """Canonicalize operations within scf.for loop bodies"""
         self.add_pass("scf-for-loop-canonicalization")
@@ -3646,6 +3730,11 @@ class Pipeline:
     def scf_forall_to_for(self):
         """Convert SCF forall loops to SCF for loops"""
         self.add_pass("scf-forall-to-for")
+        return self
+
+    def scf_forall_to_parallel(self):
+        """Convert SCF forall loops to SCF parallel loops"""
+        self.add_pass("scf-forall-to-parallel")
         return self
 
     def scf_parallel_loop_fusion(self):
@@ -3736,7 +3825,17 @@ class Pipeline:
     def sparse_assembler(self, direct_out: bool = None):
         """Add [dis]assemble operations on external sparse tensors
 
-        A pass that converts public entry methods that use sparse tensors as
+        Unlike dense tensors, MLIR does **not** provide a direct `_mlir_ciface_`
+        ABI for passing sparse tensors as arguments from and to external methods
+        (within MLIR-generated methods, sparse tensors can be freely passed
+        around, but this eventually uses a bespoke parameter passing format
+        that is subject to change; like opaque pointers when the sparse runtime
+        support library is used or the constituent arrays and structs for
+        direct IR codegen). The sparse assembler pass, however, can be used
+        to obtain a stable `_mlir_ciface_` API for passing sparse tensors
+        from and to an external environment, such as Python, PyTorch, or JAX.
+
+        The pass converts public entry methods that use sparse tensors as
         input parameters and/or output return values into wrapper methods
         that [dis]assemble the individual tensors that constitute the actual
         storage used externally into MLIR sparse tensors. This pass can be used
@@ -3749,6 +3848,8 @@ class Pipeline:
         By default, the pass uses the [dis]assemble operations to input and output
         sparse tensors. When the direct-out option is set, however, the output
         directly returns the MLIR allocated buffers to the external runtime.
+
+        The pass should always run before the actual sparsification passes.
 
         Args:
             direct-out: Directly returns buffers externally
@@ -3807,6 +3908,16 @@ class Pipeline:
             scope: Set the reiterpretation scope
         """
         self.add_pass("sparse-reinterpret-map", scope=scope)
+        return self
+
+    def sparse_space_collapse(self):
+        """sparse space collapsing pass
+
+        This pass collapses consecutive sparse spaces (extracted from the same tensor)
+        into one multi-dimensional space. The pass is not yet stabilized.
+
+        """
+        self.add_pass("sparse-space-collapse")
         return self
 
     def sparse_storage_specifier_to_llvm(self):
@@ -4029,13 +4140,36 @@ class Pipeline:
         )
         return self
 
-    def sparsification_and_bufferization(self):
+    def sparsification_and_bufferization(
+        self,
+        vl: int = None,
+        enable_vla_vectorization: bool = None,
+        enable_simd_index32: bool = None,
+        enable_gpu_libgen: bool = None,
+        sparse_emit_strategy: "mlir::SparseEmitStrategy" = None,
+        parallelization_strategy: "SparseParallelizationStrategy" = None,
+    ):
         """Mini-pipeline that combines bufferization and sparsifiation
 
-        This pass forms a mini-pipeline that combines bufferization and sparsifiation.
+         This pass forms a mini-pipeline that combines bufferization and sparsifiation.
 
+        Args:
+            vl: Set the vector length (use 0 to disable vectorization)
+            enable-vla-vectorization: Enable vector length agnostic vectorization
+            enable-simd-index32: Enable i32 indexing into vectors (for efficient gather/scatter)
+            enable-gpu-libgen: Enable GPU acceleration by means of direct library calls
+            sparse-emit-strategy: Emit functional code or interfaces (to debug) for sparse loops
+            parallelization-strategy: Set the parallelization strategy
         """
-        self.add_pass("sparsification-and-bufferization")
+        self.add_pass(
+            "sparsification-and-bufferization",
+            vl=vl,
+            enable_vla_vectorization=enable_vla_vectorization,
+            enable_simd_index32=enable_simd_index32,
+            enable_gpu_libgen=enable_gpu_libgen,
+            sparse_emit_strategy=sparse_emit_strategy,
+            parallelization_strategy=parallelization_strategy,
+        )
         return self
 
     def spirv_attach_target(
@@ -4183,6 +4317,19 @@ class Pipeline:
 
         """
         self.add_pass("strip-debuginfo")
+        return self
+
+    def strip_func_quant_types(self):
+        """Strip quantized types from function headers
+
+        Identify occurrences of function arguments using a quantized type and
+        replace them with a new value of the corresponding storage (signless
+        integer) type. For each converted argument, a `quant.scast` op is introduced
+        at the head of the function's entry block converting the new integer
+        argument into the original quantized value.
+
+        """
+        self.add_pass("strip-func-quant-types")
         return self
 
     def symbol_dce(self):
@@ -4375,6 +4522,29 @@ class Pipeline:
         self.add_pass("tosa-optional-decompositions")
         return self
 
+    def tosa_reduce_transposes(self):
+        """Reduce transposes through other operators
+
+        Pass that identifies and reduces tosa.TRANSPOSE operations through chains
+        of operators.
+
+        The pass traverses dependencies of tosa.TRANSPOSE operations until they
+        terminate in either a tosa.RESHAPE that we can fold the hoisted
+        tosa.TRANSPOSE into, a tosa.TRANSPOSE that forms the identity with the
+        hoisted one, or a tosa.CONST with a dense elements attribute. It then
+        propagates the hoisted transform upward through the intervening operators
+        if the support is implemented. Finally, it observes that no duplication
+        will occur of both the chain that was hoisted through and the new chain
+        that results, and if so, it replaces the hoisted tosa.TRANSPOSE.
+
+        The pass has an important use-case in cleaning up the results of frameworks
+        that introduce a lot of data-layout transformations when legalizing to TOSA,
+        a common one being transformations between NHWC and NCHW layouts.
+
+        """
+        self.add_pass("tosa-reduce-transposes")
+        return self
+
     def tosa_to_arith(
         self, include_apply_rescale: bool = None, use_32_bit: bool = None
     ):
@@ -4427,7 +4597,7 @@ class Pipeline:
 
     def tosa_validate(
         self,
-        profile: "mlir::tosa::TosaProfileEnum" = None,
+        profile: List[str] = None,
         strict_op_spec_alignment: bool = None,
         level: "mlir::tosa::TosaLevelEnum" = None,
     ):
@@ -4437,7 +4607,7 @@ class Pipeline:
         criteria, e.g. TOSA profile.
 
         Args:
-            profile: Validate if operations match for the given profile
+            profile: Validate if operations match for the given profile set
             strict-op-spec-alignment: Verify if the properties of certain operations align the spec requirement
             level: Validate if operator parameters are within specfication for the given level
         """
