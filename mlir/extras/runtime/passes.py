@@ -142,7 +142,7 @@ class Pipeline:
         return (
             self.Func(Pipeline().empty_tensor_to_alloc_tensor())
             .one_shot_bufferize()
-            .Func(Pipeline().finalizing_bufferize().buffer_deallocation())
+            .Func(Pipeline().buffer_deallocation())
         )
 
     def lower_to_llvm(self):
