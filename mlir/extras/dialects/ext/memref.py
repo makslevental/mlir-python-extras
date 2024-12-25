@@ -1,6 +1,5 @@
 import inspect
-from functools import cached_property, reduce
-from typing import Sequence, Union, Tuple
+from typing import Sequence, Union
 
 import numpy as np
 
@@ -130,40 +129,8 @@ def store(
 
 
 @register_value_caster(MemRefType.static_typeid)
+@ShapedValue
 class MemRef(Value):
-    @cached_property
-    def literal_value(self) -> np.ndarray:
-        if not self.is_constant:
-            raise ValueError("Can't build literal from non-constant value")
-        return np.array(DenseElementsAttr(self.owner.opview.value), copy=False)
-
-    @cached_property
-    def _shaped_type(self) -> ShapedType:
-        return ShapedType(self.type)
-
-    def has_static_shape(self) -> bool:
-        return self._shaped_type.has_static_shape
-
-    def has_rank(self) -> bool:
-        return self._shaped_type.has_rank
-
-    @cached_property
-    def rank(self) -> int:
-        return self._shaped_type.rank
-
-    @cached_property
-    def shape(self) -> Tuple[int, ...]:
-        return tuple(self._shaped_type.shape)
-
-    @cached_property
-    def n_elements(self) -> int:
-        assert self.has_static_shape()
-        return reduce(lambda acc, v: acc * v, self._shaped_type.shape, 1)
-
-    @cached_property
-    def dtype(self) -> Type:
-        return self._shaped_type.element_type
-
     def __str__(self):
         return f"{self.__class__.__name__}({self.get_name()}, {self.type})"
 

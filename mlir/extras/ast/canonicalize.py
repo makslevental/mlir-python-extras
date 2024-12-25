@@ -98,7 +98,7 @@ def transform_ast(
     module_code_o = compile(module, f.__code__.co_filename, "exec")
     new_f_code_o = find_func_in_code_object(module_code_o, f.__name__)
     n_lines = len(inspect.getsource(f).splitlines())
-    line_starts = list(findlinestarts(new_f_code_o))
+    line_starts = list(filter(lambda el: el[1], findlinestarts(new_f_code_o)))
     if (
         max([l for _, l in line_starts]) - min([l for _, l in line_starts]) + 1
         > n_lines
