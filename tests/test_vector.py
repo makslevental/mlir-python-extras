@@ -138,6 +138,8 @@ def test_e2e(ctx: MLIRContext):
         .finalize_memref_to_llvm()
         # Convert Func to LLVM (always needed).
         .convert_func_to_llvm()
+        .convert_arith_to_llvm()
+        .convert_cf_to_llvm()
         # Convert Index to LLVM (always needed).
         .convert_index_to_llvm()
         # Convert remaining unrealized_casts (always needed).
@@ -176,7 +178,7 @@ def test_np_constructor(ctx: MLIRContext):
 def test_vector_wrappers(ctx: MLIRContext):
     M, K, N = 2, 4, 6
     mem = memref.alloc((M, K, N), T.i32())
-    vec = vector.transfer_read(T.vector(M, K, T.i32()), mem, [0, 0, 0], padding=5)
+    vec = vector.transfer_read(T.vector(M, K, T.i32()), mem, [0, 0, 0], padding=5, in_bounds=[True, True])
     e_vec = vector.extract(vec, [0])
     vector.transfer_write(e_vec, mem, [0, 0, 0], in_bounds=[True])
 
@@ -198,7 +200,7 @@ def test_vector_wrappers(ctx: MLIRContext):
       %c0_0 = arith.constant 0 : index
       %c0_1 = arith.constant 0 : index
       %c5_i32 = arith.constant 5 : i32
-      %0 = vector.transfer_read %alloc[%c0, %c0_0, %c0_1], %c5_i32 : memref<2x4x6xi32>, vector<2x4xi32>
+      %0 = vector.transfer_read %alloc[%c0, %c0_0, %c0_1], %c5_i32 {in_bounds = [true, true]} : memref<2x4x6xi32>, vector<2x4xi32>
       %1 = vector.extract %0[0] : vector<4xi32> from vector<2x4xi32>
       %c0_2 = arith.constant 0 : index
       %c0_3 = arith.constant 0 : index

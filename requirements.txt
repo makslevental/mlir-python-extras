@@ -6,4 +6,4 @@ inflection
 numpy~=1.0
 astunparse
 cloudpickle>=3.0.0
-einspect==0.5.16
+einspect @ git+https://github.com/makslevental/einspect@makslevental/bump-py.3.13

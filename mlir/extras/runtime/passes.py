@@ -252,6 +252,11 @@ class Pipeline:
         self.add_pass("affine-expand-index-ops")
         return self
 
+    def affine_expand_index_ops_as_affine(self):
+        """Lower affine operations operating on indices into affine.apply operations"""
+        self.add_pass("affine-expand-index-ops-as-affine")
+        return self
+
     def affine_loop_coalescing(self):
         """Coalesce nested loops with independent bounds into a single loop"""
         self.add_pass("affine-loop-coalescing")
@@ -1363,10 +1368,6 @@ class Pipeline:
         returns are updated accordingly. Block argument types are updated to use
         LLVM IR types.
 
-        Note that until https://github.com/llvm/llvm-project/issues/70982 is resolved,
-        this pass includes patterns that lower `arith` and `cf` to LLVM. This is legacy
-        code due to when they were all converted in the same pass.
-
         Args:
             use-bare-ptr-memref-call-conv: Replace FuncOp's MemRef arguments with bare pointers to the MemRef element types
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
@@ -1398,12 +1399,12 @@ class Pipeline:
         self.add_pass("convert-gpu-launch-to-vulkan-launch")
         return self
 
-    def convert_gpu_to_llvm_spv(self, index_bitwidth: int = None):
+    def convert_gpu_to_llvm_spv(self, use_64bit_index: bool = None):
         """Generate LLVM operations to be ingested by a SPIR-V backend for gpu operations
         Args:
-            index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
+            use-64bit-index: Use 64-bit integers to convert index types
         """
-        self.add_pass("convert-gpu-to-llvm-spv", index_bitwidth=index_bitwidth)
+        self.add_pass("convert-gpu-to-llvm-spv", use_64bit_index=use_64bit_index)
         return self
 
     def convert_gpu_to_nvvm(
@@ -1597,6 +1598,20 @@ class Pipeline:
         )
         return self
 
+    def convert_mesh_to_mpi(self):
+        """Convert Mesh dialect to MPI dialect.
+
+        This pass converts communication operations from the Mesh dialect to the
+        MPI dialect.
+        If it finds a global named "static_mpi_rank" it will use that splat value
+        instead of calling MPI_Comm_rank. This allows optimizations like constant
+        shape propagation and fusion because shard/partition sizes depend on the
+        rank.
+
+        """
+        self.add_pass("convert-mesh-to-mpi")
+        return self
+
     def convert_nvgpu_to_nvvm(self):
         """Convert NVGPU dialect to NVVM dialect
 
@@ -1715,17 +1730,26 @@ class Pipeline:
         )
         return self
 
-    def convert_to_llvm(self, filter_dialects: List[str] = None):
+    def convert_to_llvm(self, filter_dialects: List[str] = None, dynamic: bool = None):
         """Convert to LLVM via dialect interfaces found in the input IR
 
         This is a generic pass to convert to LLVM, it uses the
         `ConvertToLLVMPatternInterface` dialect interface to delegate to dialects
         the injection of conversion patterns.
 
+        If `dynamic` is set to `true`, the pass will look for
+        `ConvertToLLVMAttrInterface` attributes and use them to further configure
+        the conversion process. This option also uses the `DataLayoutAnalysis`
+        analysis to configure the type converter. Enabling this option incurs in
+        extra overhead.
+
         Args:
             filter-dialects: Test conversion patterns of only the specified dialects
+            dynamic: Use op conversion attributes to configure the conversion
         """
-        self.add_pass("convert-to-llvm", filter_dialects=filter_dialects)
+        self.add_pass(
+            "convert-to-llvm", filter_dialects=filter_dialects, dynamic=dynamic
+        )
         return self
 
     def convert_to_spirv(
@@ -2082,23 +2106,6 @@ class Pipeline:
         )
         return self
 
-    def finalizing_bufferize(self):
-        """Finalize a partial bufferization
-
-        A bufferize pass that finalizes a partial bufferization by removing
-        remaining `bufferization.to_tensor` and `bufferization.to_buffer` operations.
-
-        The removal of those operations is only possible if the operations only
-        exist in pairs, i.e., all uses of `bufferization.to_tensor` operations are
-        `bufferization.to_buffer` operations.
-
-        This pass will fail if not all operations can be removed or if any operation
-        with tensor typed operands remains.
-
-        """
-        self.add_pass("finalizing-bufferize")
-        return self
-
     def fold_memref_alias_ops(self):
         """Fold memref alias ops into consumer load/store ops
 
@@ -2201,6 +2208,7 @@ class Pipeline:
         l: List[str] = None,
         opts: str = None,
         format: str = None,
+        section: str = None,
     ):
         """Transforms a GPU module into a GPU binary.
 
@@ -2219,9 +2227,15 @@ class Pipeline:
             l: Extra files to link to.
             opts: Command line options to pass to the tools.
             format: The target representation of the compilation process.
+            section: ELF section where binary is to be located.
         """
         self.add_pass(
-            "gpu-module-to-binary", toolkit=toolkit, l=l, opts=opts, format=format
+            "gpu-module-to-binary",
+            toolkit=toolkit,
+            l=l,
+            opts=opts,
+            format=format,
+            section=section,
         )
         return self
 
@@ -2893,6 +2907,7 @@ class Pipeline:
         no_analysis_func_filter: List[str] = None,
         function_boundary_type_conversion: str = None,
         must_infer_memory_space: bool = None,
+        use_encoding_for_memory_space: bool = None,
         test_analysis_only: bool = None,
         print_conflicts: bool = None,
         unknown_type_conversion: str = None,
@@ -3017,6 +3032,7 @@ class Pipeline:
             no-analysis-func-filter: Skip analysis of functions with these symbol names.Set copyBeforeWrite to true when bufferizing them.
             function-boundary-type-conversion: Controls layout maps when bufferizing function signatures.
             must-infer-memory-space: The memory space of an memref types must always be inferred. If unset, a default memory space of 0 is used otherwise.
+            use-encoding-for-memory-space: Use the Tensor encoding attribute for the memory space. Exclusive to the 'must-infer-memory-space' option
             test-analysis-only: Test only: Only run inplaceability analysis and annotate IR
             print-conflicts: Test only: Annotate IR with RaW conflicts. Requires test-analysis-only.
             unknown-type-conversion: Controls layout maps for non-inferrable memref types.
@@ -3036,6 +3052,7 @@ class Pipeline:
             no_analysis_func_filter=no_analysis_func_filter,
             function_boundary_type_conversion=function_boundary_type_conversion,
             must_infer_memory_space=must_infer_memory_space,
+            use_encoding_for_memory_space=use_encoding_for_memory_space,
             test_analysis_only=test_analysis_only,
             print_conflicts=print_conflicts,
             unknown_type_conversion=unknown_type_conversion,

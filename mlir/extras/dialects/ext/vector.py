@@ -1,5 +1,8 @@
 import inspect
-from typing import List
+from functools import cached_property, reduce
+from typing import List, Tuple, Type
+
+import numpy as np
 
 from ._shaped_value import ShapedValue
 from .arith import ArithValue, FastMathFlags, constant, Scalar
@@ -10,11 +13,45 @@ from ....dialects._ods_common import _dispatch_mixed_values
 # noinspection PyUnresolvedReferences
 from ....dialects.vector import *
 from ....extras import types as T
-from ....ir import AffineMap, VectorType, Value
+from ....ir import AffineMap, VectorType, Value, DenseElementsAttr, ShapedType
 
 
 @register_value_caster(VectorType.static_typeid)
-class Vector(ShapedValue, ArithValue):
+class Vector(ArithValue):
+
+    @cached_property
+    def literal_value(self) -> np.ndarray:
+        if not self.is_constant:
+            raise ValueError("Can't build literal from non-constant value")
+        return np.array(DenseElementsAttr(self.owner.opview.value), copy=False)
+
+    @cached_property
+    def _shaped_type(self) -> ShapedType:
+        return ShapedType(self.type)
+
+    def has_static_shape(self) -> bool:
+        return self._shaped_type.has_static_shape
+
+    def has_rank(self) -> bool:
+        return self._shaped_type.has_rank
+
+    @cached_property
+    def rank(self) -> int:
+        return self._shaped_type.rank
+
+    @cached_property
+    def shape(self) -> Tuple[int, ...]:
+        return tuple(self._shaped_type.shape)
+
+    @cached_property
+    def n_elements(self) -> int:
+        assert self.has_static_shape()
+        return reduce(lambda acc, v: acc * v, self._shaped_type.shape, 1)
+
+    @cached_property
+    def dtype(self) -> Type:
+        return self._shaped_type.element_type
+
     def __getitem__(self, idx: tuple) -> "Vector":
         loc = get_user_code_loc()
 
@@ -105,7 +142,7 @@ def transfer_read(
     if isinstance(padding, int):
         padding = constant(padding, type=source.type.element_type)
     if in_bounds is None:
-        in_bounds = [None] * len(permutation_map.results)
+        raise ValueError("in_bounds cannot be None")
 
     return _transfer_read(
         vector=vector_t,

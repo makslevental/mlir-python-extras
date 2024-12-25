@@ -67,6 +67,7 @@ def test_simple_parfor(ctx: MLIRContext, backend: LLVMJITBackend):
         .convert_arith_to_llvm()
         .finalize_memref_to_llvm()
         .convert_func_to_llvm()
+        .convert_cf_to_llvm()
         .reconcile_unrealized_casts(),
         generate_kernel_wrapper=True,
         generate_return_consumer=True,
