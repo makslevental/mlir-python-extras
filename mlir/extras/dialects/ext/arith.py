@@ -7,6 +7,7 @@ from functools import cached_property, partialmethod
 from typing import Optional, Tuple, Union
 
 from bytecode import ConcreteBytecode
+from einspect.structs import PyTypeObject
 
 from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
 from ...ast.util import ast_call
@@ -138,7 +139,13 @@ def index_cast(
     )
 
 
-class ArithValueMeta(type(Value)):
+nb_meta_cls = type(Value)
+
+_Py_TPFLAGS_BASETYPE = 1 << 10
+PyTypeObject.from_object(nb_meta_cls).tp_flags |= _Py_TPFLAGS_BASETYPE
+
+
+class ArithValueMeta(nb_meta_cls):
     """Metaclass that orchestrates the Python object protocol
     (i.e., calling __new__ and __init__) for Indexing dialect extension values
     (created using `mlir_value_subclass`).

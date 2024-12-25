@@ -175,14 +175,14 @@ def test_basic_tile(ctx):
     #map1 = affine_map<(d0) -> (-d0 + 3, 0)>
     #map2 = affine_map<(d0) -> (0, d0 - 3)>
     #map3 = affine_map<(d0) -> (4, d0)>
-    #map4 = affine_map<(d0) -> (0, d0 - 1)>
-    #map5 = affine_map<(d0, d1) -> (d0 - d1)>
-    #map6 = affine_map<(d0, d1, d2) -> (-d0 - d1 + d2 + 2)>
+    #map4 = affine_map<(d0, d1) -> (-d0 + 4, -d1 + 2)>
+    #map5 = affine_map<(d0) -> (0, d0)>
+    #map6 = affine_map<(d0, d1) -> (-d0 - d1 + 2)>
     #map7 = affine_map<(d0) -> (-d0 + 4, 0)>
     #map8 = affine_map<(d0) -> (0, d0 - 4)>
     #map9 = affine_map<(d0) -> (16, d0)>
-    #map10 = affine_map<(d0, d1) -> (0, d0 + d1 - 4)>
-    #map11 = affine_map<(d0, d1, d2, d3) -> (-d0 + d1 - d2 + d3)>
+    #map10 = affine_map<(d0, d1, d2) -> (-d0 + 16, d1 - d2)>
+    #map11 = affine_map<(d0, d1, d2) -> (-d0 + d1 - d2)>
     module {
       func.func @pad_tensor_3_4(%arg0: tensor<4x16xf32>, %arg1: f32) -> tensor<12x23xf32> {
         %c3 = arith.constant 3 : index
@@ -197,35 +197,33 @@ def test_basic_tile(ctx):
             %4 = affine.max #map1(%arg2)
             %5 = affine.max #map2(%arg2)
             %6 = affine.min #map3(%5)
-            %7 = affine.max #map4(%arg2)
-            %8 = affine.min #map3(%7)
-            %9 = affine.apply #map5(%8, %6)
-            %10 = arith.cmpi eq, %9, %c0 : index
-            %11 = affine.apply #map6(%4, %8, %6)
-            %12 = affine.max #map7(%arg4)
-            %13 = affine.max #map8(%arg4)
-            %14 = affine.min #map9(%13)
-            %15 = affine.max #map10(%3, %arg4)
-            %16 = affine.min #map9(%15)
-            %17 = affine.apply #map5(%16, %14)
-            %18 = arith.cmpi eq, %17, %c0 : index
-            %19 = arith.ori %18, %10 : i1
-            %20 = affine.apply #map11(%12, %3, %16, %14)
-            %21 = scf.if %19 -> (tensor<2x?xf32>) {
+            %7 = affine.min #map4(%6, %4)
+            %8 = affine.max #map5(%7)
+            %9 = arith.cmpi eq, %8, %c0 : index
+            %10 = affine.apply #map6(%4, %8)
+            %11 = affine.max #map7(%arg4)
+            %12 = affine.max #map8(%arg4)
+            %13 = affine.min #map9(%12)
+            %14 = affine.min #map10(%13, %3, %11)
+            %15 = affine.max #map5(%14)
+            %16 = arith.cmpi eq, %15, %c0 : index
+            %17 = arith.ori %16, %9 : i1
+            %18 = affine.apply #map11(%11, %3, %15)
+            %19 = scf.if %17 -> (tensor<2x?xf32>) {
               %generated = tensor.generate %3 {
               ^bb0(%arg6: index, %arg7: index):
                 tensor.yield %arg1 : f32
               } : tensor<2x?xf32>
               scf.yield %generated : tensor<2x?xf32>
             } else {
-              %extracted_slice = tensor.extract_slice %arg0[%6, %14] [%9, %17] [1, 1] : tensor<4x16xf32> to tensor<?x?xf32>
-              %padded = tensor.pad %extracted_slice low[%4, %12] high[%11, %20] {
+              %extracted_slice = tensor.extract_slice %arg0[%6, %13] [%8, %15] [1, 1] : tensor<4x16xf32> to tensor<?x?xf32>
+              %padded = tensor.pad %extracted_slice low[%4, %11] high[%10, %18] {
               ^bb0(%arg6: index, %arg7: index):
                 tensor.yield %arg1 : f32
               } : tensor<?x?xf32> to tensor<2x?xf32>
               scf.yield %padded : tensor<2x?xf32>
             }
-            %inserted_slice = tensor.insert_slice %21 into %arg5[%arg2, %arg4] [2, %3] [1, 1] : tensor<2x?xf32> into tensor<12x23xf32>
+            %inserted_slice = tensor.insert_slice %19 into %arg5[%arg2, %arg4] [2, %3] [1, 1] : tensor<2x?xf32> into tensor<12x23xf32>
             scf.yield %inserted_slice : tensor<12x23xf32>
           }
           scf.yield %2 : tensor<12x23xf32>

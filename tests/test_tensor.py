@@ -1,3 +1,4 @@
+import platform
 from textwrap import dedent
 
 import numpy as np
@@ -419,6 +420,10 @@ def test_promotion_int_arr(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+@pytest.mark.skipif(
+    platform.system() == "Windows",
+    reason="windows has index here whereas linux/mac has i64",
+)
 def test_promotion_python_constant(ctx: MLIRContext):
     ten_arr_int = np.random.randint(0, 10, (10, 10)).astype(int)
     ten = Tensor(ten_arr_int)
@@ -453,6 +458,59 @@ def test_promotion_python_constant(ctx: MLIRContext):
       %3 = arith.floordivsi %cst, %cst_3 : tensor<10x10xi{bits}>
       %cst_4 = arith.constant dense<1> : tensor<10x10xi{bits}>
       %4 = arith.remsi %cst, %cst_4 : tensor<10x10xi{bits}>
+      %cst_5 = arith.constant dense<{ten_arr_float.tolist()}> : tensor<10x10xf64>
+      %cst_6 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %5 = arith.addf %cst_5, %cst_6 : tensor<10x10xf64>
+      %cst_7 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %6 = arith.subf %cst_5, %cst_7 : tensor<10x10xf64>
+      %cst_8 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %7 = arith.divf %cst_5, %cst_8 : tensor<10x10xf64>
+      %cst_9 = arith.constant dense<1.0> : tensor<10x10xf64>
+      %8 = arith.remf %cst_5, %cst_9 : tensor<10x10xf64>
+    }}
+    """
+    )
+    filecheck(correct, str(ctx.module).replace("00000e+00", ""))
+
+
+@pytest.mark.skipif(
+    platform.system() != "Windows",
+    reason="windows has index here whereas linux/mac has i64",
+)
+def test_promotion_python_constant_win(ctx: MLIRContext):
+    ten_arr_int = np.random.randint(0, 10, (10, 10)).astype(int)
+    ten = Tensor(ten_arr_int)
+
+    x = ten + 1
+    y = ten - 1
+    z = ten / 1
+    w = ten // 1
+    v = ten % 1
+
+    ten_arr_float = np.random.randint(0, 10, (10, 10)).astype(float)
+    ten = Tensor(ten_arr_float)
+    xx = ten + 1.0
+    yy = ten - 1.0
+    zz = ten / 1.0
+    vv = ten % 1.0
+
+    ctx.module.operation.verify()
+    # windows in CI...
+    bits = np.dtype(int).itemsize * 8
+    correct = dedent(
+        f"""\
+    module {{
+      %cst = arith.constant dense<{ten_arr_int.tolist()}> : tensor<10x10xindex>
+      %cst_0 = arith.constant dense<1> : tensor<10x10xindex>
+      %0 = arith.addi %cst, %cst_0 : tensor<10x10xindex>
+      %cst_1 = arith.constant dense<1> : tensor<10x10xindex>
+      %1 = arith.subi %cst, %cst_1 : tensor<10x10xindex>
+      %cst_2 = arith.constant dense<1> : tensor<10x10xindex>
+      %2 = arith.divsi %cst, %cst_2 : tensor<10x10xindex>
+      %cst_3 = arith.constant dense<1> : tensor<10x10xindex>
+      %3 = arith.floordivsi %cst, %cst_3 : tensor<10x10xindex>
+      %cst_4 = arith.constant dense<1> : tensor<10x10xindex>
+      %4 = arith.remsi %cst, %cst_4 : tensor<10x10xindex>
       %cst_5 = arith.constant dense<{ten_arr_float.tolist()}> : tensor<10x10xf64>
       %cst_6 = arith.constant dense<1.0> : tensor<10x10xf64>
       %5 = arith.addf %cst_5, %cst_6 : tensor<10x10xf64>

@@ -129,7 +129,8 @@ def store(
 
 
 @register_value_caster(MemRefType.static_typeid)
-class MemRef(Value, ShapedValue):
+@ShapedValue
+class MemRef(Value):
     def __str__(self):
         return f"{self.__class__.__name__}({self.get_name()}, {self.type})"
 

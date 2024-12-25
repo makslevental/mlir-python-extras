@@ -34,17 +34,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022 ]
-        py_version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
         exclude:
           - os: macos-13
-            py_version: "3.8"
-
-          - os: macos-13
             py_version: "3.9"
-
-          - os: macos-14
-            py_version: "3.8"
 
           - os: macos-14
             py_version: "3.9"
@@ -174,7 +168,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04 ]
-        py_version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
+        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
     steps:
       - name: Checkout
@@ -189,7 +183,7 @@ jobs:
           install: |
             
             apt-get update -q -y
-            apt-get install -y wget build-essential
+            apt-get install -y wget build-essential git
             
             mkdir -p ~/miniconda3
             wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh -O miniconda.sh

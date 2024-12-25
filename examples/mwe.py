@@ -131,6 +131,8 @@ lower_to_llvm = (
     .finalize_memref_to_llvm()
     # Convert Func to LLVM (always needed).
     .convert_func_to_llvm()
+    .convert_arith_to_llvm()
+    .convert_cf_to_llvm()
     # Convert Index to LLVM (always needed).
     .convert_index_to_llvm()
     # Convert remaining unrealized_casts (always needed).

@@ -14,7 +14,8 @@ from ....ir import AffineMap, VectorType, Value
 
 
 @register_value_caster(VectorType.static_typeid)
-class Vector(ShapedValue, ArithValue):
+@ShapedValue
+class Vector(ArithValue):
     def __getitem__(self, idx: tuple) -> "Vector":
         loc = get_user_code_loc()
 
@@ -105,7 +106,7 @@ def transfer_read(
     if isinstance(padding, int):
         padding = constant(padding, type=source.type.element_type)
     if in_bounds is None:
-        in_bounds = [None] * len(permutation_map.results)
+        raise ValueError("in_bounds cannot be None")
 
     return _transfer_read(
         vector=vector_t,
