@@ -1,5 +1,6 @@
 import inspect
 import sys
+import threading
 from textwrap import dedent
 from typing import TypeVar
 
@@ -8,7 +9,7 @@ import pytest
 import mlir.extras.types as T
 
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.context import mlir_mod_ctx
+from mlir.extras.context import mlir_mod_ctx, RAIIMLIRContextModule
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext import linalg, arith, scf, memref
@@ -294,3 +295,28 @@ def test_generics_with_canonicalizations(ctx: MLIRContext):
     """
     )
     filecheck(correct, ctx.module)
+
+
+def test_raii_mlir_context_module():
+    tls = threading.local()
+    tls.ctx = RAIIMLIRContextModule()
+
+    @func
+    def demo_fun1():
+        one = constant(1)
+        return one
+
+    assert hasattr(demo_fun1, "emit")
+    assert inspect.ismethod(demo_fun1.emit)
+    demo_fun1.emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @demo_fun1() -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
+      }
+    }
+    """
+    )
+    filecheck(correct, tls.ctx.module)

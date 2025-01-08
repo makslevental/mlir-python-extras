@@ -45,8 +45,12 @@ class RAIIMLIRContext:
     context: ir.Context
     location: ir.Location
 
-    def __init__(self, location: Optional[ir.Location] = None):
+    def __init__(
+        self, location: Optional[ir.Location] = None, allow_unregistered_dialects=False
+    ):
         self.context = ir.Context()
+        if allow_unregistered_dialects:
+            self.context.allow_unregistered_dialects = True
         self.context.__enter__()
         if location is None:
             location = ir.Location.unknown()
@@ -54,6 +58,36 @@ class RAIIMLIRContext:
         self.location.__enter__()
 
     def __del__(self):
+        self.location.__exit__(None, None, None)
+        self.context.__exit__(None, None, None)
+        # i guess the extension gets destroyed before this object sometimes?
+        if ir is not None:
+            assert ir.Context is not self.context
+
+
+class RAIIMLIRContextModule:
+    context: ir.Context
+    location: ir.Location
+    insertion_point: ir.InsertionPoint
+    module: ir.Module
+
+    def __init__(
+        self, location: Optional[ir.Location] = None, allow_unregistered_dialects=False
+    ):
+        self.context = ir.Context()
+        if allow_unregistered_dialects:
+            self.context.allow_unregistered_dialects = True
+        self.context.__enter__()
+        if location is None:
+            location = ir.Location.unknown()
+        self.location = location
+        self.location.__enter__()
+        self.module = ir.Module.create()
+        self.insertion_point = ir.InsertionPoint(self.module.body)
+        self.insertion_point.__enter__()
+
+    def __del__(self):
+        self.insertion_point.__exit__(None, None, None)
         self.location.__exit__(None, None, None)
         self.context.__exit__(None, None, None)
         # i guess the extension gets destroyed before this object sometimes?
