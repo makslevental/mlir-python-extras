@@ -23,7 +23,6 @@ try:
 except:
     warnings.warn("no execution engine in mlir bindings; refbackend won't work")
 
-
 from .. import types as T
 from ...dialects.memref import cast
 from ..runtime.passes import Pipeline, run_pipeline
@@ -113,9 +112,11 @@ def convert_arg_to_ctype(arg, unranked=True):
 
 def convert_returns_from_ctype(args, mlir_types):
     return tuple(
-        arg
-        if mlir_type_to_ctype(type)
-        else unranked_memref_to_numpy(arg, memref_type_to_np_dtype(type))
+        (
+            arg
+            if mlir_type_to_ctype(type)
+            else unranked_memref_to_numpy(arg, memref_type_to_np_dtype(type))
+        )
         for arg, type in zip(args, mlir_types)
     )
 
@@ -294,8 +295,10 @@ class LLVMJITBackend:
             verify=verify,
         )
 
+    # python: /project/llvm-project/llvm/lib/Transforms/Vectorize/SLPVectorizer.cpp:821:
+    # llvm::Instruction* {anonymous}::InstructionsState::getMainOp() const: Assertion `valid() && "InstructionsState is invalid."' failed.
     def load(
-        self, module, consume_return_callback=None, opt_level=2
+        self, module, consume_return_callback=None, opt_level=0
     ) -> LLVMJITBackendInvoker:
         return LLVMJITBackendInvoker(
             module,
