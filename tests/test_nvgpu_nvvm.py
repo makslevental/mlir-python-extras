@@ -236,185 +236,185 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
 
     correct = dedent(
         """\
-    #map = affine_map<(d0) -> (d0 floordiv 4)>
-    #map1 = affine_map<(d0) -> (d0 * 2 - (d0 floordiv 4) * 8)>
-    #map2 = affine_map<(d0) -> (d0 * 2 - (d0 floordiv 4) * 8 + 1)>
-    #map3 = affine_map<(d0) -> (d0 floordiv 4 + 8)>
-    #map4 = affine_map<(d0) -> (d0 * 2 - (d0 floordiv 4) * 8 + 8)>
-    #map5 = affine_map<(d0) -> (d0 * 2 - (d0 floordiv 4) * 8 + 9)>
-    module {
-      module attributes {transform.target_tag = "payload"} {
-        func.func @compute_linspace_val(%arg0: index, %arg1: index, %arg2: index) -> f16 {
-          %0 = arith.index_cast %arg0 : index to i32
-          %1 = arith.index_cast %arg1 : index to i32
-          %2 = arith.index_cast %arg2 : index to i32
-          %3 = arith.muli %0, %2 : i32
-          %4 = arith.addi %1, %3 : i32
-          %5 = arith.sitofp %4 : i32 to f16
-          %cst = arith.constant 6.400000e+01 : f16
-          %6 = arith.divf %5, %cst : f16
-          return %6 : f16
-        }
-        func.func private @printMemrefF32(memref<*xf32>)
-        func.func @print_lhs_as_memref_32(%arg0: memref<16x16xf16>) {
-          %c0 = arith.constant 0 : index
-          %dim = memref.dim %arg0, %c0 : memref<16x16xf16>
-          %c1 = arith.constant 1 : index
-          %dim_0 = memref.dim %arg0, %c1 : memref<16x16xf16>
-          %alloc = memref.alloc(%dim, %dim_0) : memref<?x?xf32>
-          scf.for %arg1 = %c0 to %dim step %c1 {
-            scf.for %arg2 = %c0 to %dim_0 step %c1 {
-              %0 = memref.load %arg0[%arg1, %arg2] : memref<16x16xf16>
-              %1 = arith.extf %0 : f16 to f32
-              memref.store %1, %alloc[%arg1, %arg2] : memref<?x?xf32>
+        #map = affine_map<()[s0] -> (s0 floordiv 4)>
+        #map1 = affine_map<()[s0] -> (s0 * 2 - (s0 floordiv 4) * 8)>
+        #map2 = affine_map<()[s0] -> (s0 * 2 - (s0 floordiv 4) * 8 + 1)>
+        #map3 = affine_map<()[s0] -> (s0 floordiv 4 + 8)>
+        #map4 = affine_map<()[s0] -> (s0 * 2 - (s0 floordiv 4) * 8 + 8)>
+        #map5 = affine_map<()[s0] -> (s0 * 2 - (s0 floordiv 4) * 8 + 9)>
+        module {
+          module attributes {transform.target_tag = "payload"} {
+            func.func @compute_linspace_val(%arg0: index, %arg1: index, %arg2: index) -> f16 {
+              %0 = arith.index_cast %arg0 : index to i32
+              %1 = arith.index_cast %arg1 : index to i32
+              %2 = arith.index_cast %arg2 : index to i32
+              %3 = arith.muli %0, %2 : i32
+              %4 = arith.addi %1, %3 : i32
+              %5 = arith.sitofp %4 : i32 to f16
+              %cst = arith.constant 6.400000e+01 : f16
+              %6 = arith.divf %5, %cst : f16
+              return %6 : f16
+            }
+            func.func private @printMemrefF32(memref<*xf32>)
+            func.func @print_lhs_as_memref_32(%arg0: memref<16x16xf16>) {
+              %c0 = arith.constant 0 : index
+              %dim = memref.dim %arg0, %c0 : memref<16x16xf16>
+              %c1 = arith.constant 1 : index
+              %dim_0 = memref.dim %arg0, %c1 : memref<16x16xf16>
+              %alloc = memref.alloc(%dim, %dim_0) : memref<?x?xf32>
+              scf.for %arg1 = %c0 to %dim step %c1 {
+                scf.for %arg2 = %c0 to %dim_0 step %c1 {
+                  %0 = memref.load %arg0[%arg1, %arg2] : memref<16x16xf16>
+                  %1 = arith.extf %0 : f16 to f32
+                  memref.store %1, %alloc[%arg1, %arg2] : memref<?x?xf32>
+                }
+              }
+              %cast = memref.cast %alloc : memref<?x?xf32> to memref<*xf32>
+              call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
+              memref.dealloc %alloc : memref<?x?xf32>
+              return
+            }
+            func.func @print_rhs_as_memref_32(%arg0: memref<16x8xf16>) {
+              %c0 = arith.constant 0 : index
+              %dim = memref.dim %arg0, %c0 : memref<16x8xf16>
+              %c1 = arith.constant 1 : index
+              %dim_0 = memref.dim %arg0, %c1 : memref<16x8xf16>
+              %alloc = memref.alloc(%dim, %dim_0) : memref<?x?xf32>
+              scf.for %arg1 = %c0 to %dim step %c1 {
+                scf.for %arg2 = %c0 to %dim_0 step %c1 {
+                  %0 = memref.load %arg0[%arg1, %arg2] : memref<16x8xf16>
+                  %1 = arith.extf %0 : f16 to f32
+                  memref.store %1, %alloc[%arg1, %arg2] : memref<?x?xf32>
+                }
+              }
+              %cast = memref.cast %alloc : memref<?x?xf32> to memref<*xf32>
+              call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
+              memref.dealloc %alloc : memref<?x?xf32>
+              return
+            }
+            func.func @print_res_as_memref_32(%arg0: memref<16x8xf16>) {
+              %c0 = arith.constant 0 : index
+              %c1 = arith.constant 1 : index
+              %dim = memref.dim %arg0, %c0 : memref<16x8xf16>
+              %dim_0 = memref.dim %arg0, %c1 : memref<16x8xf16>
+              %alloc = memref.alloc(%dim, %dim_0) : memref<?x?xf32>
+              scf.for %arg1 = %c0 to %dim step %c1 {
+                scf.for %arg2 = %c0 to %dim_0 step %c1 {
+                  %0 = memref.load %arg0[%arg1, %arg2] : memref<16x8xf16>
+                  %1 = arith.extf %0 : f16 to f32
+                  memref.store %1, %alloc[%arg1, %arg2] : memref<?x?xf32>
+                }
+              }
+              %cast = memref.cast %alloc : memref<?x?xf32> to memref<*xf32>
+              call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
+              memref.dealloc %alloc : memref<?x?xf32>
+              return
+            }
+            func.func @main() {
+              %alloc = memref.alloc() : memref<16x16xf16>
+              %alloc_0 = memref.alloc() : memref<16x8xf16>
+              %alloc_1 = memref.alloc() : memref<16x8xf16>
+              %c0 = arith.constant 0 : index
+              %dim = memref.dim %alloc_1, %c0 : memref<16x8xf16>
+              %c1 = arith.constant 1 : index
+              %dim_2 = memref.dim %alloc_1, %c1 : memref<16x8xf16>
+              %dim_3 = memref.dim %alloc, %c1 : memref<16x16xf16>
+              scf.for %arg0 = %c0 to %dim step %c1 {
+                scf.for %arg1 = %c0 to %dim_3 step %c1 {
+                  %0 = func.call @compute_linspace_val(%arg0, %arg1, %dim_3) : (index, index, index) -> f16
+                  memref.store %0, %alloc[%arg0, %arg1] : memref<16x16xf16>
+                }
+              }
+              scf.for %arg0 = %c0 to %dim_3 step %c1 {
+                scf.for %arg1 = %c0 to %dim_2 step %c1 {
+                  %0 = func.call @compute_linspace_val(%arg0, %arg1, %dim_2) : (index, index, index) -> f16
+                  memref.store %0, %alloc_0[%arg0, %arg1] : memref<16x8xf16>
+                }
+              }
+              scf.for %arg0 = %c0 to %dim step %c1 {
+                scf.for %arg1 = %c0 to %dim_2 step %c1 {
+                  %0 = func.call @compute_linspace_val(%arg0, %arg1, %dim_2) : (index, index, index) -> f16
+                  memref.store %0, %alloc_1[%arg0, %arg1] : memref<16x8xf16>
+                }
+              }
+              %cast = memref.cast %alloc : memref<16x16xf16> to memref<*xf16>
+              %cast_4 = memref.cast %alloc_0 : memref<16x8xf16> to memref<*xf16>
+              %cast_5 = memref.cast %alloc_1 : memref<16x8xf16> to memref<*xf16>
+              gpu.host_register %cast : memref<*xf16>
+              gpu.host_register %cast_4 : memref<*xf16>
+              gpu.host_register %cast_5 : memref<*xf16>
+              call @print_lhs_as_memref_32(%alloc) : (memref<16x16xf16>) -> ()
+              call @print_rhs_as_memref_32(%alloc_0) : (memref<16x8xf16>) -> ()
+              %c32 = arith.constant 32 : index
+              gpu.launch blocks(%arg0, %arg1, %arg2) in (%arg6 = %c1, %arg7 = %c1, %arg8 = %c1) threads(%arg3, %arg4, %arg5) in (%arg9 = %c32, %arg10 = %c1, %arg11 = %c1) {
+                %thread_id_x = gpu.thread_id  x
+                %0 = affine.apply #map()[%thread_id_x]
+                %1 = affine.apply #map1()[%thread_id_x]
+                %2 = memref.load %alloc[%0, %1] : memref<16x16xf16>
+                %3 = affine.apply #map2()[%thread_id_x]
+                %4 = memref.load %alloc[%0, %3] : memref<16x16xf16>
+                %5 = affine.apply #map3()[%thread_id_x]
+                %6 = memref.load %alloc[%5, %1] : memref<16x16xf16>
+                %7 = memref.load %alloc[%5, %3] : memref<16x16xf16>
+                %8 = affine.apply #map4()[%thread_id_x]
+                %9 = memref.load %alloc[%0, %8] : memref<16x16xf16>
+                %10 = affine.apply #map5()[%thread_id_x]
+                %11 = memref.load %alloc[%0, %10] : memref<16x16xf16>
+                %12 = memref.load %alloc[%5, %8] : memref<16x16xf16>
+                %13 = memref.load %alloc[%5, %10] : memref<16x16xf16>
+                %14 = vector.splat %2 : vector<4x2xf16>
+                %15 = vector.insert %2, %14 [0, 0] : f16 into vector<4x2xf16>
+                %16 = vector.insert %4, %15 [0, 1] : f16 into vector<4x2xf16>
+                %17 = vector.insert %6, %16 [1, 0] : f16 into vector<4x2xf16>
+                %18 = vector.insert %7, %17 [1, 1] : f16 into vector<4x2xf16>
+                %19 = vector.insert %9, %18 [2, 0] : f16 into vector<4x2xf16>
+                %20 = vector.insert %11, %19 [2, 1] : f16 into vector<4x2xf16>
+                %21 = vector.insert %12, %20 [3, 0] : f16 into vector<4x2xf16>
+                %22 = vector.insert %13, %21 [3, 1] : f16 into vector<4x2xf16>
+                %23 = memref.load %alloc_0[%1, %0] : memref<16x8xf16>
+                %24 = memref.load %alloc_0[%3, %0] : memref<16x8xf16>
+                %25 = memref.load %alloc_0[%8, %0] : memref<16x8xf16>
+                %26 = memref.load %alloc_0[%10, %0] : memref<16x8xf16>
+                %27 = vector.splat %23 : vector<2x2xf16>
+                %28 = vector.insert %23, %27 [0, 0] : f16 into vector<2x2xf16>
+                %29 = vector.insert %24, %28 [0, 1] : f16 into vector<2x2xf16>
+                %30 = vector.insert %25, %29 [1, 0] : f16 into vector<2x2xf16>
+                %31 = vector.insert %26, %30 [1, 1] : f16 into vector<2x2xf16>
+                %32 = memref.load %alloc_1[%0, %1] : memref<16x8xf16>
+                %33 = memref.load %alloc_1[%0, %3] : memref<16x8xf16>
+                %34 = memref.load %alloc_1[%5, %1] : memref<16x8xf16>
+                %35 = memref.load %alloc_1[%5, %3] : memref<16x8xf16>
+                %36 = vector.splat %32 : vector<2x2xf16>
+                %37 = vector.insert %32, %36 [0, 0] : f16 into vector<2x2xf16>
+                %38 = vector.insert %33, %37 [0, 1] : f16 into vector<2x2xf16>
+                %39 = vector.insert %34, %38 [1, 0] : f16 into vector<2x2xf16>
+                %40 = vector.insert %35, %39 [1, 1] : f16 into vector<2x2xf16>
+                %41 = nvgpu.mma.sync(%22, %31, %40) {mmaShape = [16, 8, 16]} : (vector<4x2xf16>, vector<2x2xf16>, vector<2x2xf16>) -> vector<2x2xf16>
+                %42 = vector.extract %41[0, 0] : f16 from vector<2x2xf16>
+                %43 = vector.extract %41[0, 1] : f16 from vector<2x2xf16>
+                %44 = vector.extract %41[1, 0] : f16 from vector<2x2xf16>
+                %45 = vector.extract %41[1, 1] : f16 from vector<2x2xf16>
+                memref.store %42, %alloc_1[%0, %1] : memref<16x8xf16>
+                memref.store %43, %alloc_1[%0, %3] : memref<16x8xf16>
+                memref.store %44, %alloc_1[%5, %1] : memref<16x8xf16>
+                memref.store %45, %alloc_1[%5, %3] : memref<16x8xf16>
+                gpu.terminator
+              }
+              call @print_res_as_memref_32(%alloc_1) : (memref<16x8xf16>) -> ()
+              return
             }
           }
-          %cast = memref.cast %alloc : memref<?x?xf32> to memref<*xf32>
-          call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
-          memref.dealloc %alloc : memref<?x?xf32>
-          return
-        }
-        func.func @print_rhs_as_memref_32(%arg0: memref<16x8xf16>) {
-          %c0 = arith.constant 0 : index
-          %dim = memref.dim %arg0, %c0 : memref<16x8xf16>
-          %c1 = arith.constant 1 : index
-          %dim_0 = memref.dim %arg0, %c1 : memref<16x8xf16>
-          %alloc = memref.alloc(%dim, %dim_0) : memref<?x?xf32>
-          scf.for %arg1 = %c0 to %dim step %c1 {
-            scf.for %arg2 = %c0 to %dim_0 step %c1 {
-              %0 = memref.load %arg0[%arg1, %arg2] : memref<16x8xf16>
-              %1 = arith.extf %0 : f16 to f32
-              memref.store %1, %alloc[%arg1, %arg2] : memref<?x?xf32>
+          module attributes {transform.with_named_sequence} {
+            transform.named_sequence @main(%arg0: !transform.any_op {transform.readonly}) {
+              %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
+              transform.nvgpu.rewrite_matmul_as_mma_sync %0 : (!transform.any_op) -> ()
+              %1 = transform.structured.match interface{LoopLikeInterface} in %arg0 : (!transform.any_op) -> !transform.any_op
+              transform.apply_licm to %1 : !transform.any_op
+              transform.apply_cse to %arg0 : !transform.any_op
+              transform.yield 
             }
           }
-          %cast = memref.cast %alloc : memref<?x?xf32> to memref<*xf32>
-          call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
-          memref.dealloc %alloc : memref<?x?xf32>
-          return
         }
-        func.func @print_res_as_memref_32(%arg0: memref<16x8xf16>) {
-          %c0 = arith.constant 0 : index
-          %c1 = arith.constant 1 : index
-          %dim = memref.dim %arg0, %c0 : memref<16x8xf16>
-          %dim_0 = memref.dim %arg0, %c1 : memref<16x8xf16>
-          %alloc = memref.alloc(%dim, %dim_0) : memref<?x?xf32>
-          scf.for %arg1 = %c0 to %dim step %c1 {
-            scf.for %arg2 = %c0 to %dim_0 step %c1 {
-              %0 = memref.load %arg0[%arg1, %arg2] : memref<16x8xf16>
-              %1 = arith.extf %0 : f16 to f32
-              memref.store %1, %alloc[%arg1, %arg2] : memref<?x?xf32>
-            }
-          }
-          %cast = memref.cast %alloc : memref<?x?xf32> to memref<*xf32>
-          call @printMemrefF32(%cast) : (memref<*xf32>) -> ()
-          memref.dealloc %alloc : memref<?x?xf32>
-          return
-        }
-        func.func @main() {
-          %alloc = memref.alloc() : memref<16x16xf16>
-          %alloc_0 = memref.alloc() : memref<16x8xf16>
-          %alloc_1 = memref.alloc() : memref<16x8xf16>
-          %c0 = arith.constant 0 : index
-          %dim = memref.dim %alloc_1, %c0 : memref<16x8xf16>
-          %c1 = arith.constant 1 : index
-          %dim_2 = memref.dim %alloc_1, %c1 : memref<16x8xf16>
-          %dim_3 = memref.dim %alloc, %c1 : memref<16x16xf16>
-          scf.for %arg0 = %c0 to %dim step %c1 {
-            scf.for %arg1 = %c0 to %dim_3 step %c1 {
-              %0 = func.call @compute_linspace_val(%arg0, %arg1, %dim_3) : (index, index, index) -> f16
-              memref.store %0, %alloc[%arg0, %arg1] : memref<16x16xf16>
-            }
-          }
-          scf.for %arg0 = %c0 to %dim_3 step %c1 {
-            scf.for %arg1 = %c0 to %dim_2 step %c1 {
-              %0 = func.call @compute_linspace_val(%arg0, %arg1, %dim_2) : (index, index, index) -> f16
-              memref.store %0, %alloc_0[%arg0, %arg1] : memref<16x8xf16>
-            }
-          }
-          scf.for %arg0 = %c0 to %dim step %c1 {
-            scf.for %arg1 = %c0 to %dim_2 step %c1 {
-              %0 = func.call @compute_linspace_val(%arg0, %arg1, %dim_2) : (index, index, index) -> f16
-              memref.store %0, %alloc_1[%arg0, %arg1] : memref<16x8xf16>
-            }
-          }
-          %cast = memref.cast %alloc : memref<16x16xf16> to memref<*xf16>
-          %cast_4 = memref.cast %alloc_0 : memref<16x8xf16> to memref<*xf16>
-          %cast_5 = memref.cast %alloc_1 : memref<16x8xf16> to memref<*xf16>
-          gpu.host_register %cast : memref<*xf16>
-          gpu.host_register %cast_4 : memref<*xf16>
-          gpu.host_register %cast_5 : memref<*xf16>
-          call @print_lhs_as_memref_32(%alloc) : (memref<16x16xf16>) -> ()
-          call @print_rhs_as_memref_32(%alloc_0) : (memref<16x8xf16>) -> ()
-          %c32 = arith.constant 32 : index
-          gpu.launch blocks(%arg0, %arg1, %arg2) in (%arg6 = %c1, %arg7 = %c1, %arg8 = %c1) threads(%arg3, %arg4, %arg5) in (%arg9 = %c32, %arg10 = %c1, %arg11 = %c1) {
-            %0 = gpu.thread_id  x
-            %1 = affine.apply #map(%0)
-            %2 = affine.apply #map1(%0)
-            %3 = memref.load %alloc[%1, %2] : memref<16x16xf16>
-            %4 = affine.apply #map2(%0)
-            %5 = memref.load %alloc[%1, %4] : memref<16x16xf16>
-            %6 = affine.apply #map3(%0)
-            %7 = memref.load %alloc[%6, %2] : memref<16x16xf16>
-            %8 = memref.load %alloc[%6, %4] : memref<16x16xf16>
-            %9 = affine.apply #map4(%0)
-            %10 = memref.load %alloc[%1, %9] : memref<16x16xf16>
-            %11 = affine.apply #map5(%0)
-            %12 = memref.load %alloc[%1, %11] : memref<16x16xf16>
-            %13 = memref.load %alloc[%6, %9] : memref<16x16xf16>
-            %14 = memref.load %alloc[%6, %11] : memref<16x16xf16>
-            %15 = vector.splat %3 : vector<4x2xf16>
-            %16 = vector.insert %3, %15 [0, 0] : f16 into vector<4x2xf16>
-            %17 = vector.insert %5, %16 [0, 1] : f16 into vector<4x2xf16>
-            %18 = vector.insert %7, %17 [1, 0] : f16 into vector<4x2xf16>
-            %19 = vector.insert %8, %18 [1, 1] : f16 into vector<4x2xf16>
-            %20 = vector.insert %10, %19 [2, 0] : f16 into vector<4x2xf16>
-            %21 = vector.insert %12, %20 [2, 1] : f16 into vector<4x2xf16>
-            %22 = vector.insert %13, %21 [3, 0] : f16 into vector<4x2xf16>
-            %23 = vector.insert %14, %22 [3, 1] : f16 into vector<4x2xf16>
-            %24 = memref.load %alloc_0[%2, %1] : memref<16x8xf16>
-            %25 = memref.load %alloc_0[%4, %1] : memref<16x8xf16>
-            %26 = memref.load %alloc_0[%9, %1] : memref<16x8xf16>
-            %27 = memref.load %alloc_0[%11, %1] : memref<16x8xf16>
-            %28 = vector.splat %24 : vector<2x2xf16>
-            %29 = vector.insert %24, %28 [0, 0] : f16 into vector<2x2xf16>
-            %30 = vector.insert %25, %29 [0, 1] : f16 into vector<2x2xf16>
-            %31 = vector.insert %26, %30 [1, 0] : f16 into vector<2x2xf16>
-            %32 = vector.insert %27, %31 [1, 1] : f16 into vector<2x2xf16>
-            %33 = memref.load %alloc_1[%1, %2] : memref<16x8xf16>
-            %34 = memref.load %alloc_1[%1, %4] : memref<16x8xf16>
-            %35 = memref.load %alloc_1[%6, %2] : memref<16x8xf16>
-            %36 = memref.load %alloc_1[%6, %4] : memref<16x8xf16>
-            %37 = vector.splat %33 : vector<2x2xf16>
-            %38 = vector.insert %33, %37 [0, 0] : f16 into vector<2x2xf16>
-            %39 = vector.insert %34, %38 [0, 1] : f16 into vector<2x2xf16>
-            %40 = vector.insert %35, %39 [1, 0] : f16 into vector<2x2xf16>
-            %41 = vector.insert %36, %40 [1, 1] : f16 into vector<2x2xf16>
-            %42 = nvgpu.mma.sync(%23, %32, %41) {mmaShape = [16, 8, 16]} : (vector<4x2xf16>, vector<2x2xf16>, vector<2x2xf16>) -> vector<2x2xf16>
-            %43 = vector.extract %42[0, 0] : f16 from vector<2x2xf16>
-            %44 = vector.extract %42[0, 1] : f16 from vector<2x2xf16>
-            %45 = vector.extract %42[1, 0] : f16 from vector<2x2xf16>
-            %46 = vector.extract %42[1, 1] : f16 from vector<2x2xf16>
-            memref.store %43, %alloc_1[%1, %2] : memref<16x8xf16>
-            memref.store %44, %alloc_1[%1, %4] : memref<16x8xf16>
-            memref.store %45, %alloc_1[%6, %2] : memref<16x8xf16>
-            memref.store %46, %alloc_1[%6, %4] : memref<16x8xf16>
-            gpu.terminator
-          }
-          call @print_res_as_memref_32(%alloc_1) : (memref<16x8xf16>) -> ()
-          return
-        }
-      }
-      module attributes {transform.with_named_sequence} {
-        transform.named_sequence @main(%arg0: !transform.any_op {transform.readonly}) {
-          %0 = transform.structured.match ops{["linalg.matmul"]} in %arg0 : (!transform.any_op) -> !transform.any_op
-          transform.nvgpu.rewrite_matmul_as_mma_sync %0 : (!transform.any_op) -> ()
-          %1 = transform.structured.match interface{LoopLikeInterface} in %arg0 : (!transform.any_op) -> !transform.any_op
-          transform.apply_licm to %1 : !transform.any_op
-          transform.apply_cse to %arg0 : !transform.any_op
-          transform.yield 
-        }
-      }
-    }
     """
     )
     filecheck(correct, mod)
