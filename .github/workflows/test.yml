@@ -23,6 +23,7 @@ concurrency:
 
 env:
   SYSTEM_VERSION_COMPAT: 0
+  PIP_FIND_LINKS: https://github.com/llvm/eudsl/releases/expanded_assets/latest
 
 jobs:
 
