@@ -57,7 +57,7 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[test,mlir] -v -f https://makslevental.github.io/wheels 
+          pip install .[test,mlir] -v -f https://makslevental.github.io/wheels -f https://github.com/llvm/eudsl/releases/expanded_assets/latest  
 
       - name: Test
         shell: bash
