@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-22.04, macos-13, macos-14, windows-2022 ]
+        os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
         py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
         exclude:
@@ -52,25 +52,6 @@ jobs:
         with:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
-
-      - name: Free disk space
-        if: contains(matrix.os, 'ubuntu')
-        uses: descriptinc/free-disk-space@main
-        with:
-          tool-cache: true
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: false # This frees space on the wrong partition.
-
-      - uses: Jimver/cuda-toolkit@v0.2.15
-        if: contains(matrix.os, 'ubuntu')
-        id: cuda-toolkit
-        with:
-          cuda: '12.4.1'
-          linux-local-args: '["--toolkit"]'
-          log-file-suffix: "${{ matrix.os }}-${{ matrix.py_version }}.txt"
 
       - name: Install and configure
         shell: bash
@@ -159,47 +140,3 @@ jobs:
           
           jupyter execute examples/mlir_python_extras.ipynb
           jupyter execute examples/vectorization_e2e.ipynb
-
-  mlir-bindings-aarch64:
-
-    runs-on: ${{ matrix.os }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-22.04 ]
-        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Install, configure, and test
-        uses: uraimo/run-on-arch-action@v2
-        with:
-          arch: aarch64
-          distro: ubuntu20.04
-          dockerRunArgs: --volume "${{ github.workspace }}:/workspace"
-          install: |
-            
-            apt-get update -q -y
-            apt-get install -y wget build-essential git
-            
-            mkdir -p ~/miniconda3
-            wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh -O miniconda.sh
-            bash miniconda.sh -b -u -p /root/miniconda3
-            eval "$(/root/miniconda3/bin/conda shell.bash hook)"
-            conda init
-
-          run: |
-            
-            eval "$(/root/miniconda3/bin/conda shell.bash hook)"
-            conda create -n env -q -y -c conda-forge/label/python_rc python=${{ matrix.py_version }} 
-            conda activate env
-            
-            cd /workspace
-            
-            pip install -q .[test,mlir] -f https://makslevental.github.io/wheels
-            
-            pytest --capture=tee-sys tests
-            python examples/mwe.py
