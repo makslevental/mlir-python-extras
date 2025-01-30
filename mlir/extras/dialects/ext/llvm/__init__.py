@@ -1,9 +1,17 @@
+import warnings
+
 # noinspection PyUnresolvedReferences
 from .....dialects.llvm import *
 from .....ir import Type, F16Type, F32Type, F64Type, BF16Type, IntegerType
-from llvm import intrinsic_is_overloaded, intrinsic_get_type, print_type_to_string
-from llvm import types_
-from llvm.context import context as llvm_context
+
+try:
+    from llvm import intrinsic_is_overloaded, intrinsic_get_type, print_type_to_string
+    from llvm import types_
+    from llvm.context import context as llvm_context
+except ImportError:
+    warnings.warn(
+        "llvm bindings not installed; call_intrinsic won't work without supplying return type explicitly"
+    )
 
 
 def llvm_ptr_t():
@@ -39,6 +47,10 @@ _call_intrinsic = call_intrinsic
 def call_intrinsic(*args, **kwargs):
     intr_id = kwargs.pop("intr_id")
     intr_name = kwargs.pop("intr_name")
+    mlir_ret_type = kwargs.pop("return_type", None)
+    if mlir_ret_type:
+        return _call_intrinsic(mlir_ret_type, intr_name, args, [], [])
+
     is_overloaded = kwargs.pop("is_overloaded", None)
     if is_overloaded is None:
         is_overloaded = intrinsic_is_overloaded(intr_id)

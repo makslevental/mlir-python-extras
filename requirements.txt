@@ -9,4 +9,4 @@ inflection
 ml_dtypes>=0.1.0, <=0.5.0   # provides several NumPy dtype extensions, including the bf16
 numpy>=1.19.5, <=2.1.2
 -f https://github.com/llvm/eudsl/releases/expanded_assets/latest
-eudsl-llvmpy
+eudsl-llvmpy ; sys_platform != 'win32' and python_version > '3.9'

@@ -44,6 +44,8 @@ jobs:
           - os: macos-14
             py_version: "3.9"
 
+    name: "${{ matrix.os }}-${{ matrix.py_version }}"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2

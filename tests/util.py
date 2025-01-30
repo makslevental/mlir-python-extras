@@ -20,3 +20,15 @@ def mlir_bindings_not_installed():
     except ImportError:
         # skip
         return True
+
+
+def llvm_bindings_not_installed():
+    try:
+        import llvm
+
+        # don't skip
+        return False
+
+    except ImportError:
+        # skip
+        return True
