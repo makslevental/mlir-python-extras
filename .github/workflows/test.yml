@@ -96,6 +96,7 @@ jobs:
         shell: bash
         run: |
           export PIP_FIND_LINKS=https://makslevental.github.io/wheels
+          pip install .[test,mlir] -v
           HOST_MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[test,jax] -v
 
       - name: Test
