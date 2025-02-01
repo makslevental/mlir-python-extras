@@ -23,7 +23,7 @@ concurrency:
 
 env:
   SYSTEM_VERSION_COMPAT: 0
-  PIP_FIND_LINKS: "https://github.com/llvm/eudsl/releases/expanded_assets/latest https://makslevental.github.io/wheels"
+  PIP_FIND_LINKS: "https://github.com/llvm/eudsl/releases/expanded_assets/latest https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
 
 jobs:
 
