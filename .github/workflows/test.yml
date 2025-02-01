@@ -23,6 +23,7 @@ concurrency:
 
 env:
   SYSTEM_VERSION_COMPAT: 0
+  PIP_FIND_LINKS: "https://github.com/llvm/eudsl/releases/expanded_assets/latest https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
 
 jobs:
 
@@ -43,6 +44,8 @@ jobs:
           - os: macos-14
             py_version: "3.9"
 
+    name: "${{ matrix.os }}-${{ matrix.py_version }}"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -56,7 +59,7 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[test,mlir] -v -f https://makslevental.github.io/wheels 
+          pip install .[test,mlir] -v
 
       - name: Test
         shell: bash
@@ -95,7 +98,6 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          export PIP_FIND_LINKS=https://makslevental.github.io/wheels
           pip install .[test,mlir] -v
           HOST_MLIR_PYTHON_PACKAGE_PREFIX=jaxlib.mlir pip install .[test,jax] -v
 
@@ -133,7 +135,7 @@ jobs:
         run: |
           
           pip install jupyter
-          pip install -q mlir-python-bindings -f https://makslevental.github.io/wheels
+          pip install -q mlir-python-bindings
           pip install -q .
           
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 100/g' \
