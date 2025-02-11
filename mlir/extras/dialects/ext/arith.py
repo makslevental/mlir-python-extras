@@ -367,9 +367,10 @@ def _binary_op(
                 if signedness is not None:
                     predicate = signedness + predicate
                 else:
-                    if lhs.dtype.is_signed:
+                    if lhs.dtype.is_signed or lhs.dtype.is_signless:
                         predicate = "s" + predicate
                     else:
+                        assert lhs.dtype.is_unsigned
                         predicate = "u" + predicate
         return lhs.__class__(op(predicate, lhs, rhs, loc=loc), dtype=lhs.dtype)
     else:

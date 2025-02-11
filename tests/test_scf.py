@@ -2685,7 +2685,7 @@ def test_while_2(ctx: MLIRContext):
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
       %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        %1 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
         scf.condition(%1) %arg0, %arg1 : i32, i32
       } do {
       ^bb0(%arg0: i32, %arg1: i32):
@@ -2715,7 +2715,7 @@ def test_while_canonicalize(ctx: MLIRContext):
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
       %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        %1 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
         scf.condition(%1) %arg0, %arg1 : i32, i32
       } do {
       ^bb0(%arg0: i32, %arg1: i32):
@@ -2745,7 +2745,7 @@ def test_while_canonicalize_2(ctx: MLIRContext):
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
       %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        %1 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
         scf.condition(%1) %arg0, %arg1 : i32, i32
       } do {
       ^bb0(%arg0: i32, %arg1: i32):
@@ -2775,10 +2775,10 @@ def test_while_canonicalize_with_if(ctx: MLIRContext):
     module {
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
-      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %0 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
       scf.if %0 {
         %1:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %2 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %2 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%2) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -2815,20 +2815,20 @@ def test_while_canonicalize_with_elif(ctx: MLIRContext):
     module {
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
-      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %0 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
       scf.if %0 {
         %1:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %2 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %2 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%2) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
           scf.yield %c1_i32, %c2_i32 : i32, i32
         }
       } else {
-        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        %1 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
         scf.if %1 {
           %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-            %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+            %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
             scf.condition(%3) %arg0, %arg1 : i32, i32
           } do {
           ^bb0(%arg0: i32, %arg1: i32):
@@ -2836,7 +2836,7 @@ def test_while_canonicalize_with_elif(ctx: MLIRContext):
           }
         } else {
           %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-            %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+            %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
             scf.condition(%3) %arg0, %arg1 : i32, i32
           } do {
           ^bb0(%arg0: i32, %arg1: i32):
@@ -2873,10 +2873,10 @@ def test_while_canonicalize_with_if_with_results(ctx: MLIRContext):
     module {
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
-      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %0 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
       %1:2 = scf.if %0 -> (i32, i32) {
         %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%3) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -2885,7 +2885,7 @@ def test_while_canonicalize_with_if_with_results(ctx: MLIRContext):
         scf.yield %2#0, %2#1 : i32, i32
       } else {
         %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%3) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -2922,10 +2922,10 @@ def test_while_canonicalize_with_if_with_results_2(ctx: MLIRContext):
     module {
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
-      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %0 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
       %1:2 = scf.if %0 -> (i32, i32) {
         %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%3) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -2934,7 +2934,7 @@ def test_while_canonicalize_with_if_with_results_2(ctx: MLIRContext):
         scf.yield %2#0, %2#1 : i32, i32
       } else {
         %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%3) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -2971,10 +2971,10 @@ def test_while_canonicalize_with_if_with_results_3(ctx: MLIRContext):
     module {
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
-      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+      %0 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
       %1:2 = scf.if %0 -> (i32, i32) {
         %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%3) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -2983,7 +2983,7 @@ def test_while_canonicalize_with_if_with_results_3(ctx: MLIRContext):
         scf.yield %2#0, %2#1 : i32, i32
       } else {
         %2:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-          %3 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+          %3 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
           scf.condition(%3) %arg0, %arg1 : i32, i32
         } do {
         ^bb0(%arg0: i32, %arg1: i32):
@@ -3017,11 +3017,11 @@ def test_while_canonicalize_nested_if(ctx: MLIRContext):
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
       %0:2 = scf.while (%arg0 = %c1_i32, %arg1 = %c2_i32) : (i32, i32) -> (i32, i32) {
-        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        %1 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
         scf.condition(%1) %arg0, %arg1 : i32, i32
       } do {
       ^bb0(%arg0: i32, %arg1: i32):
-        %1 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
+        %1 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
         scf.if %1 {
           %c3_i32 = arith.constant 3 : i32
         }

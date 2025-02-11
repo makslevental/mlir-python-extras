@@ -405,7 +405,7 @@ def test_bbs_cond_br(ctx: MLIRContext):
       ^bb1:  // no predecessors
         %c2_i32 = arith.constant 2 : i32
         %c3_i32 = arith.constant 3 : i32
-        %0 = arith.cmpi ult, %c2_i32, %c3_i32 : i32
+        %0 = arith.cmpi slt, %c2_i32, %c3_i32 : i32
         cf.cond_br %0, ^bb2, ^bb3
       ^bb2:  // pred: ^bb1
         %c4_i32 = arith.constant 4 : i32
@@ -448,7 +448,7 @@ def test_bbs_cond_br_operands(ctx: MLIRContext):
       ^bb1:  // no predecessors
         %c2_i32 = arith.constant 2 : i32
         %c3_i32 = arith.constant 3 : i32
-        %0 = arith.cmpi ult, %c2_i32, %c3_i32 : i32
+        %0 = arith.cmpi slt, %c2_i32, %c3_i32 : i32
         cf.cond_br %0, ^bb2(%c2_i32, %c3_i32 : i32, i32), ^bb3(%c2_i32, %c3_i32 : i32, i32)
       ^bb2(%1: i32, %2: i32):  // pred: ^bb1
         %c4_i32 = arith.constant 4 : i32
@@ -583,7 +583,7 @@ def test_successor_ctx_manager(ctx: MLIRContext):
       ^bb1:  // no predecessors
         %c2_i32 = arith.constant 2 : i32
         %c3_i32 = arith.constant 3 : i32
-        %0 = arith.cmpi ult, %c2_i32, %c3_i32 : i32
+        %0 = arith.cmpi slt, %c2_i32, %c3_i32 : i32
         cf.cond_br %0, ^bb2, ^bb3
       ^bb2:  // pred: ^bb1
         %c4_i32 = arith.constant 4 : i32

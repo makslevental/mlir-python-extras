@@ -148,10 +148,10 @@ def test_arith_cmp(ctx: MLIRContext):
     module {
       %c1_i32 = arith.constant 1 : i32
       %c2_i32 = arith.constant 2 : i32
-      %0 = arith.cmpi ult, %c1_i32, %c2_i32 : i32
-      %1 = arith.cmpi ule, %c1_i32, %c2_i32 : i32
-      %2 = arith.cmpi ugt, %c1_i32, %c2_i32 : i32
-      %3 = arith.cmpi uge, %c1_i32, %c2_i32 : i32
+      %0 = arith.cmpi slt, %c1_i32, %c2_i32 : i32
+      %1 = arith.cmpi sle, %c1_i32, %c2_i32 : i32
+      %2 = arith.cmpi sgt, %c1_i32, %c2_i32 : i32
+      %3 = arith.cmpi sge, %c1_i32, %c2_i32 : i32
       %4 = arith.cmpi eq, %c1_i32, %c2_i32 : i32
       %5 = arith.cmpi ne, %c1_i32, %c2_i32 : i32
       %6 = arith.andi %c1_i32, %c2_i32 : i32
