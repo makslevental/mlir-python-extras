@@ -27,10 +27,10 @@ packages = [
 class MyInstallData(install):
     def run(self):
         from llvm import amdgcn
-
+        self.mkpath(self.install_dir)
         shutil.copy(
             amdgcn.__file__,
-            Path(__file__).parent
+            Path(self.install_dir)
             / HOST_MLIR_PYTHON_PACKAGE_PREFIX
             / "extras"
             / "dialects"
