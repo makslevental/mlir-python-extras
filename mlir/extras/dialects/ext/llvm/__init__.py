@@ -7,4 +7,7 @@ ValueRef = Value
 def llvm_ptr_t():
     return Type.parse("!llvm.ptr")
 
-from . import amdgcn
+try:
+    from . import amdgcn
+except ImportError:
+    pass

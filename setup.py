@@ -26,19 +26,19 @@ packages = [
 
 class MyInstallData(build_py):
     def run(self):
-        from llvm import amdgcn
-        shutil.copy(
-            amdgcn.__file__,
-            Path(self.build_lib)
-            / HOST_MLIR_PYTHON_PACKAGE_PREFIX
-            / "extras"
-            / "dialects"
-            / "ext"
-            / "llvm"
-            / "amdgcn.py",
-        )
-        
         build_py.run(self)
+        try:
+            from llvm import amdgcn
+
+            build_dir = os.path.join(
+                *([self.build_lib] + HOST_MLIR_PYTHON_PACKAGE_PREFIX.split("."))
+            )
+            shutil.copy(
+                amdgcn.__file__,
+                Path(build_dir) / "extras" / "dialects" / "ext" / "llvm" / "amdgcn.py",
+            )
+        except ImportError:
+            pass
 
 
 setup(
