@@ -1,7 +1,10 @@
 import os
+import shutil
+from pathlib import Path
 
 from pip._internal.req import parse_requirements
 from setuptools import setup, find_namespace_packages
+from distutils.command.install_data import install_data
 
 # TODO: find from extras maybe
 HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
@@ -19,6 +22,22 @@ packages = [
     f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras.{p}"
     for p in find_namespace_packages(where="mlir/extras")
 ] + [f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras"]
+
+
+class MyInstallData(install_data):
+    def run(self):
+        from llvm import amdgcn
+
+        shutil.copy(
+            amdgcn.__file__,
+            Path(__file__).parent
+            / "mlir"
+            / "extras"
+            / "dialects"
+            / "ext"
+            / "llvm"
+            / "amdgcn.py",
+        )
 
 
 setup(
@@ -39,4 +58,5 @@ setup(
     package_dir={
         f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX}.extras": "mlir/extras",
     },
+    cmdclass={"install_data": MyInstallData},
 )
