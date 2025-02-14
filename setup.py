@@ -52,6 +52,7 @@ setup(
         "torch-mlir": ["torch-mlir-core"],
         "jax": ["jax[cpu]"],
         "mlir": ["mlir-python-bindings"],
+        "eudsl": ["eudsl-llvmpy"],
     },
     python_requires=">=3.8",
     packages=packages,

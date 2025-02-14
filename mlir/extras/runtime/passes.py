@@ -142,7 +142,7 @@ class Pipeline:
         return (
             self.Func(Pipeline().empty_tensor_to_alloc_tensor())
             .one_shot_bufferize()
-            .Func(Pipeline().buffer_deallocation())
+            .Func(Pipeline().buffer_deallocation_simplification())
         )
 
     def lower_to_llvm(self):
@@ -428,35 +428,6 @@ class Pipeline:
             separate=separate,
             tile_size=tile_size,
             tile_sizes=tile_sizes,
-        )
-        return self
-
-    def affine_loop_unroll(
-        self,
-        unroll_factor: int = None,
-        unroll_up_to_factor: bool = None,
-        unroll_full: bool = None,
-        unroll_num_reps: int = None,
-        unroll_full_threshold: int = None,
-        cleanup_unroll: bool = None,
-    ):
-        """Unroll affine loops
-        Args:
-            unroll-factor: Use this unroll factor for all loops being unrolled
-            unroll-up-to-factor: Allow unrolling up to the factor specified
-            unroll-full: Fully unroll loops
-            unroll-num-reps: Unroll innermost loops repeatedly this many times
-            unroll-full-threshold: Unroll all loops with trip count less than or equal to this
-            cleanup-unroll: Fully unroll the cleanup loop when possible.
-        """
-        self.add_pass(
-            "affine-loop-unroll",
-            unroll_factor=unroll_factor,
-            unroll_up_to_factor=unroll_up_to_factor,
-            unroll_full=unroll_full,
-            unroll_num_reps=unroll_num_reps,
-            unroll_full_threshold=unroll_full_threshold,
-            cleanup_unroll=cleanup_unroll,
         )
         return self
 
@@ -908,79 +879,6 @@ class Pipeline:
         self.add_pass("async-to-async-runtime")
         return self
 
-    def buffer_deallocation(self):
-        """Adds all required dealloc operations for all allocations in the input program
-
-        This pass implements an algorithm to automatically introduce all required
-        deallocation operations for all buffers in the input program. This ensures
-        that the resulting program does not have any memory leaks.
-
-
-        Input
-
-        ```mlir
-        #map0 = affine_map<(d0) -> (d0)>
-        module {
-          func.func @condBranch(%arg0: i1, %arg1: memref<2xf32>, %arg2: memref<2xf32>) {
-            cf.cond_br %arg0, ^bb1, ^bb2
-          ^bb1:
-            cf.br ^bb3(%arg1 : memref<2xf32>)
-          ^bb2:
-            %0 = memref.alloc() : memref<2xf32>
-            linalg.generic {
-              indexing_maps = [#map0, #map0],
-              iterator_types = ["parallel"]} %arg1, %0 {
-            ^bb0(%gen1_arg0: f32, %gen1_arg1: f32):
-              %tmp1 = exp %gen1_arg0 : f32
-              linalg.yield %tmp1 : f32
-            }: memref<2xf32>, memref<2xf32>
-            cf.br ^bb3(%0 : memref<2xf32>)
-          ^bb3(%1: memref<2xf32>):
-            "memref.copy"(%1, %arg2) : (memref<2xf32>, memref<2xf32>) -> ()
-            return
-          }
-        }
-
-        ```
-
-        Output
-
-        ```mlir
-        #map0 = affine_map<(d0) -> (d0)>
-        module {
-          func.func @condBranch(%arg0: i1, %arg1: memref<2xf32>, %arg2: memref<2xf32>) {
-            cf.cond_br %arg0, ^bb1, ^bb2
-          ^bb1:  // pred: ^bb0
-            %0 = memref.alloc() : memref<2xf32>
-            memref.copy(%arg1, %0) : memref<2xf32>, memref<2xf32>
-            cf.br ^bb3(%0 : memref<2xf32>)
-          ^bb2:  // pred: ^bb0
-            %1 = memref.alloc() : memref<2xf32>
-            linalg.generic {
-              indexing_maps = [#map0, #map0],
-              iterator_types = ["parallel"]} %arg1, %1 {
-            ^bb0(%arg3: f32, %arg4: f32):
-              %4 = exp %arg3 : f32
-              linalg.yield %4 : f32
-            }: memref<2xf32>, memref<2xf32>
-            %2 = memref.alloc() : memref<2xf32>
-            memref.copy(%1, %2) : memref<2xf32>, memref<2xf32>
-            dealloc %1 : memref<2xf32>
-            cf.br ^bb3(%2 : memref<2xf32>)
-          ^bb3(%3: memref<2xf32>):  // 2 preds: ^bb1, ^bb2
-            memref.copy(%3, %arg2) : memref<2xf32>, memref<2xf32>
-            dealloc %3 : memref<2xf32>
-            return
-          }
-
-        }
-        ```
-
-
-        """
-        self.add_pass("buffer-deallocation")
-        return self
-
     def buffer_deallocation_simplification(self):
         """Optimizes `bufferization.dealloc` operation for more efficient codegen
 
@@ -1304,9 +1202,14 @@ class Pipeline:
         self.add_pass("convert-complex-to-libm")
         return self
 
-    def convert_complex_to_llvm(self):
-        """Convert Complex dialect to LLVM dialect"""
-        self.add_pass("convert-complex-to-llvm")
+    def convert_complex_to_llvm(
+        self, complex_range: "::mlir::complex::ComplexRangeFlags" = None
+    ):
+        """Convert Complex dialect to LLVM dialect
+        Args:
+            complex-range: Control the intermediate calculation of complex number division
+        """
+        self.add_pass("convert-complex-to-llvm", complex_range=complex_range)
         return self
 
     def convert_complex_to_spirv(self):
@@ -1314,9 +1217,14 @@ class Pipeline:
         self.add_pass("convert-complex-to-spirv")
         return self
 
-    def convert_complex_to_standard(self):
-        """Convert Complex dialect to standard dialect"""
-        self.add_pass("convert-complex-to-standard")
+    def convert_complex_to_standard(
+        self, complex_range: "::mlir::complex::ComplexRangeFlags" = None
+    ):
+        """Convert Complex dialect to standard dialect
+        Args:
+            complex-range: Control the intermediate calculation of complex number division
+        """
+        self.add_pass("convert-complex-to-standard", complex_range=complex_range)
         return self
 
     def convert_elementwise_to_linalg(self):
@@ -1390,15 +1298,6 @@ class Pipeline:
         )
         return self
 
-    def convert_gpu_launch_to_vulkan_launch(self):
-        """Convert gpu.launch_func to vulkanLaunch external call
-
-        This pass is only intended for the mlir-vulkan-runner.
-
-        """
-        self.add_pass("convert-gpu-launch-to-vulkan-launch")
-        return self
-
     def convert_gpu_to_llvm_spv(self, use_64bit_index: bool = None):
         """Generate LLVM operations to be ingested by a SPIR-V backend for gpu operations
         Args:
@@ -1412,18 +1311,21 @@ class Pipeline:
         index_bitwidth: int = None,
         has_redux: bool = None,
         use_bare_ptr_memref_call_conv: bool = None,
+        allowed_dialects: List[str] = None,
     ):
         """Generate NVVM operations for gpu operations
         Args:
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
             has-redux: Target gpu supports redux
             use-bare-ptr-memref-call-conv: Replace memref arguments in GPU functions with bare pointers. All memrefs must have static shape.
+            allowed-dialects: Run conversion patterns of only the specified dialects
         """
         self.add_pass(
             "convert-gpu-to-nvvm",
             index_bitwidth=index_bitwidth,
             has_redux=has_redux,
             use_bare_ptr_memref_call_conv=use_bare_ptr_memref_call_conv,
+            allowed_dialects=allowed_dialects,
         )
         return self
 
@@ -1433,13 +1335,15 @@ class Pipeline:
         index_bitwidth: int = None,
         use_bare_ptr_memref_call_conv: bool = None,
         runtime: "gpu::amd::Runtime" = None,
+        allowed_dialects: List[str] = None,
     ):
         """Generate ROCDL operations for gpu operations
         Args:
             chipset: Chipset that these operations will run on
             index-bitwidth: Bitwidth of the index type, 0 to use size of machine word
             use-bare-ptr-memref-call-conv: Replace memref arguments in GPU functions with bare pointers.All memrefs must have static shape
-            runtime: Runtime code will be run on (default is Unknown, can also use HIP or OpenCl)
+            runtime: Runtime code will be run on (default is Unknown, can also use HIP or OpenCL)
+            allowed-dialects: Run conversion patterns of only the specified dialects
         """
         self.add_pass(
             "convert-gpu-to-rocdl",
@@ -1447,6 +1351,7 @@ class Pipeline:
             index_bitwidth=index_bitwidth,
             use_bare_ptr_memref_call_conv=use_bare_ptr_memref_call_conv,
             runtime=runtime,
+            allowed_dialects=allowed_dialects,
         )
         return self
 
@@ -1525,6 +1430,21 @@ class Pipeline:
     def convert_linalg_to_std(self):
         """Convert the operations from the linalg dialect into the Standard dialect"""
         self.add_pass("convert-linalg-to-std")
+        return self
+
+    def convert_math_to_emitc(
+        self, language_target: "::mlir::emitc::LanguageTarget" = None
+    ):
+        """Convert some Math operations to EmitC call_opaque operations
+
+        This pass converts supported Math ops to `call_opaque` ops targeting libc/libm
+        functions. Unlike convert-math-to-funcs pass, converting to `call_opaque` ops
+        allows to overload the same function with different argument types.
+
+        Args:
+            language-target: Select the language standard target for callees (c99 or cpp11).
+        """
+        self.add_pass("convert-math-to-emitc", language_target=language_target)
         return self
 
     def convert_math_to_funcs(
@@ -1752,29 +1672,6 @@ class Pipeline:
         )
         return self
 
-    def convert_to_spirv(
-        self,
-        run_signature_conversion: bool = None,
-        run_vector_unrolling: bool = None,
-        convert_gpu_modules: bool = None,
-    ):
-        """Convert to SPIR-V
-
-        This is a generic pass to convert to SPIR-V.
-
-        Args:
-            run-signature-conversion: Run function signature conversion to convert vector types
-            run-vector-unrolling: Run vector unrolling to convert vector types in function bodies
-            convert-gpu-modules: Clone and convert GPU modules
-        """
-        self.add_pass(
-            "convert-to-spirv",
-            run_signature_conversion=run_signature_conversion,
-            run_vector_unrolling=run_vector_unrolling,
-            convert_gpu_modules=convert_gpu_modules,
-        )
-        return self
-
     def convert_ub_to_llvm(self, index_bitwidth: int = None):
         """Convert UB dialect to LLVM dialect
 
@@ -1821,6 +1718,7 @@ class Pipeline:
         enable_arm_neon: bool = None,
         enable_arm_sve: bool = None,
         enable_x86vector: bool = None,
+        vector_transform_options: "vector::VectorTransformsOptions" = None,
     ):
         """Lower the operations from the vector dialect into the LLVM dialect
 
@@ -1840,6 +1738,7 @@ class Pipeline:
             enable-arm-neon: Enables the use of ArmNeon dialect while lowering the vector dialect.
             enable-arm-sve: Enables the use of ArmSVE dialect while lowering the vector dialect.
             enable-x86vector: Enables the use of X86Vector dialect while lowering the vector dialect.
+            vector-transform-options: Options to lower some operations like contractions and transposes.
         """
         self.add_pass(
             "convert-vector-to-llvm",
@@ -1849,6 +1748,7 @@ class Pipeline:
             enable_arm_neon=enable_arm_neon,
             enable_arm_sve=enable_arm_sve,
             enable_x86vector=enable_x86vector,
+            vector_transform_options=vector_transform_options,
         )
         return self
 
@@ -2243,6 +2143,7 @@ class Pipeline:
         self,
         use_bare_pointers_for_host: bool = None,
         use_bare_pointers_for_kernels: bool = None,
+        intersperse_sizes_for_kernels: bool = None,
     ):
         """Convert GPU dialect to LLVM dialect with GPU runtime calls
 
@@ -2256,11 +2157,13 @@ class Pipeline:
         Args:
             use-bare-pointers-for-host: Use bare pointers to pass memref arguments to host functions. All memrefs must have static shape.
             use-bare-pointers-for-kernels: Use bare pointers to pass memref arguments to kernels. The kernel must use the same setting for this option.
+            intersperse-sizes-for-kernels: Inserts a size_t argument following each memref argument, containing the static size in bytes of the buffer. Incompatible arguments are rejected. This is intended for use by the Vulkan runtime with the kernel bare pointer calling convention, to enable dynamic binding of buffers as arguments without static type info.
         """
         self.add_pass(
             "gpu-to-llvm",
             use_bare_pointers_for_host=use_bare_pointers_for_host,
             use_bare_pointers_for_kernels=use_bare_pointers_for_kernels,
+            intersperse_sizes_for_kernels=intersperse_sizes_for_kernels,
         )
         return self
 
@@ -2296,15 +2199,6 @@ class Pipeline:
 
         """
         self.add_pass("int-range-optimizations")
-        return self
-
-    def launch_func_to_vulkan(self):
-        """Convert vulkanLaunch external call to Vulkan runtime external calls
-
-        This pass is only intended for the mlir-vulkan-runner.
-
-        """
-        self.add_pass("launch-func-to-vulkan")
         return self
 
     def lift_cf_to_scf(self):
@@ -2934,8 +2828,9 @@ class Pipeline:
         results in a new buffer allocation.
 
         One-Shot Bufferize does not deallocate any buffers that it allocates. The
-        `-buffer-deallocation` pass should be run after One-Shot Bufferize to insert
-        the deallocation operations necessary to eliminate memory leaks.
+        `-buffer-deallocation-pipeline` pipeline should be run after One-Shot
+        Bufferize to insert the deallocation operations necessary to eliminate
+        memory leaks.
 
         One-Shot Bufferize will by default reject IR that contains non-bufferizable
         op, i.e., ops that do not implemement BufferizableOpInterface. Such IR can
@@ -3797,7 +3692,15 @@ class Pipeline:
         self.add_pass("shape-to-shape-lowering")
         return self
 
-    def snapshot_op_locations(self, filename: str = None, tag: str = None):
+    def snapshot_op_locations(
+        self,
+        filename: str = None,
+        tag: str = None,
+        print_debuginfo: bool = None,
+        print_op_generic: bool = None,
+        print_local_scope: bool = None,
+        pretty_debuginfo: bool = None,
+    ):
         """Generate new locations from the current IR
 
         This pass allows for generating new locations from the IR during any stage
@@ -3835,8 +3738,20 @@ class Pipeline:
         Args:
             filename: The filename to print the generated IR
             tag: A tag to use when fusing the new locations with the original. If unset, the locations are replaced.
+            print-debuginfo: Print debug info in MLIR output
+            print-op-generic: Print the generic op form
+            print-local-scope: Print with local scope and inline information (eliding aliases for attributes, types, and locations
+            pretty-debuginfo: Print pretty debug info in MLIR output
         """
-        self.add_pass("snapshot-op-locations", filename=filename, tag=tag)
+        self.add_pass(
+            "snapshot-op-locations",
+            filename=filename,
+            tag=tag,
+            print_debuginfo=print_debuginfo,
+            print_op_generic=print_op_generic,
+            print_local_scope=print_local_scope,
+            pretty_debuginfo=pretty_debuginfo,
+        )
         return self
 
     def sparse_assembler(self, direct_out: bool = None):
