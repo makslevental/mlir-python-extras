@@ -8,8 +8,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    branches:
-      - main
   schedule:
     # At minute 0 past hour 6. (see https://crontab.guru)
     - cron: '00 06 * * *'
@@ -59,7 +57,11 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          pip install .[test,mlir] -v
+          if [ ${{ matrix.py_version }} == '3.9' ]; then
+            pip install .[test,mlir] -v
+          else
+            pip install .[test,mlir,eudsl] -v
+          fi
 
       - name: Test
         shell: bash
