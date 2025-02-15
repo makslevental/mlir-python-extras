@@ -184,7 +184,7 @@ def generate_pass_method(pass_: Pass):
 
 def gather_passes_from_td_json(j):
     passes = []
-    for pass_ in j["!instanceof"]["Pass"]:
+    for pass_ in j["!instanceof"]["Pass"] + j["!instanceof"]["InterfacePass"]:
         pass_ = j[pass_]
         options = []
         for o in pass_["options"]:

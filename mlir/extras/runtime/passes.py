@@ -431,6 +431,35 @@ class Pipeline:
         )
         return self
 
+    def affine_loop_unroll(
+        self,
+        unroll_factor: int = None,
+        unroll_up_to_factor: bool = None,
+        unroll_full: bool = None,
+        unroll_num_reps: int = None,
+        unroll_full_threshold: int = None,
+        cleanup_unroll: bool = None,
+    ):
+        """Unroll affine loops
+        Args:
+            unroll-factor: Use this unroll factor for all loops being unrolled
+            unroll-up-to-factor: Allow unrolling up to the factor specified
+            unroll-full: Fully unroll loops
+            unroll-num-reps: Unroll innermost loops repeatedly this many times
+            unroll-full-threshold: Unroll all loops with trip count less than or equal to this
+            cleanup-unroll: Fully unroll the cleanup loop when possible.
+        """
+        self.add_pass(
+            "affine-loop-unroll",
+            unroll_factor=unroll_factor,
+            unroll_up_to_factor=unroll_up_to_factor,
+            unroll_full=unroll_full,
+            unroll_num_reps=unroll_num_reps,
+            unroll_full_threshold=unroll_full_threshold,
+            cleanup_unroll=cleanup_unroll,
+        )
+        return self
+
     def affine_loop_unroll_jam(self, unroll_jam_factor: int = None):
         """Unroll and jam affine loops
         Args:
@@ -1051,6 +1080,21 @@ class Pipeline:
         self.add_pass("control-flow-sink")
         return self
 
+    def convert_affine_for_to_gpu(
+        self, gpu_block_dims: int = None, gpu_thread_dims: int = None
+    ):
+        """Convert top-level AffineFor Ops to GPU kernels
+        Args:
+            gpu-block-dims: Number of GPU block dimensions for mapping
+            gpu-thread-dims: Number of GPU thread dimensions for mapping
+        """
+        self.add_pass(
+            "convert-affine-for-to-gpu",
+            gpu_block_dims=gpu_block_dims,
+            gpu_thread_dims=gpu_thread_dims,
+        )
+        return self
+
     def convert_amdgpu_to_rocdl(self, chipset: str = None):
         """Convert AMDGPU dialect to ROCDL dialect
 
@@ -1117,6 +1161,16 @@ class Pipeline:
         self.add_pass(
             "convert-arith-to-spirv",
             emulate_lt_32_bit_scalar_types=emulate_lt_32_bit_scalar_types,
+        )
+        return self
+
+    def convert_arm_sme_to_llvm(self, dump_tile_live_ranges: bool = None):
+        """Lower the operations from the ArmSME dialect into the LLVM dialect
+        Args:
+            dump-tile-live-ranges: Dump the live ranges of SME tiles (for debugging)
+        """
+        self.add_pass(
+            "convert-arm-sme-to-llvm", dump_tile_live_ranges=dump_tile_live_ranges
         )
         return self
 
@@ -2287,6 +2341,39 @@ class Pipeline:
             rhs_transpose_outer_blocks=rhs_transpose_outer_blocks,
             rhs_transpose_inner_blocks=rhs_transpose_inner_blocks,
         )
+        return self
+
+    def linalg_detensorize(self, aggressive_mode: bool = None):
+        """Detensorize linalg ops
+
+        Detensoring is the process through which a tensor value is converted to one
+        or potentially more primitive value(s). During this process, operations with
+        such detensored operands are also converted to an equivalent form that works
+        on primitives.
+
+        The detensoring process is driven by linalg-on-tensor ops. In particular, a
+        linalg-on-tensor op is checked to see whether *all* its operands can be
+        detensored. If so, those operands are converted to their primitive
+        counterparts and the linalg op is replaced by an equivalent op that takes
+        those new primitive values as operands. Therefore, detensoring an op can be
+        divided into 2 main logical phases:
+
+        1. Detect/match an op that can be detensored.
+        2. Detensor the operands of the op and replace it with a primitive
+           equivalent.
+
+        In addition to detensoring individual ops, this pass detensors internal
+        control flow inside a function. All blocks except for the entry block are
+        detensored by converting their arguments whenever possible.
+
+        This can be run on any FunctionOpInterface op and must not be
+        run on others. This is because it performs specific legalization of the
+        blocks that make up the body, which it assumes has is a FunctionOpInterface.
+
+        Args:
+            aggressive-mode: Detensorize all ops that qualify for detensoring along with branch operands and basic-block arguments.
+        """
+        self.add_pass("linalg-detensorize", aggressive_mode=aggressive_mode)
         return self
 
     def linalg_fold_unit_extent_dims(self, use_rank_reducing_slices: bool = None):
@@ -4494,6 +4581,42 @@ class Pipeline:
             "tosa-to-arith",
             include_apply_rescale=include_apply_rescale,
             use_32_bit=use_32_bit,
+        )
+        return self
+
+    def tosa_to_linalg(
+        self,
+        disable_tosa_decompositions: bool = None,
+        aggressive_reduce_constant: bool = None,
+    ):
+        """Lower TOSA to LinAlg on tensors
+
+        Pass that converts TOSA operations to the equivalent operations using the
+        tensor operations in LinAlg.
+
+        Args:
+            disable-tosa-decompositions: Disable tosa decompositions pass
+            aggressive-reduce-constant: Always perform the reduce constant optimization
+        """
+        self.add_pass(
+            "tosa-to-linalg",
+            disable_tosa_decompositions=disable_tosa_decompositions,
+            aggressive_reduce_constant=aggressive_reduce_constant,
+        )
+        return self
+
+    def tosa_to_linalg_named(self, prefer_conv2d_kernel_layout_hwcf: bool = None):
+        """Lower TOSA to LinAlg named operations
+
+        Pass that converts TOSA operations to the equivalent operations using the
+        Linalg named operations.
+
+        Args:
+            prefer-conv2d-kernel-layout-hwcf: Prefer generating linalg.conv_2d_nhwc_hwcf over linalg.conv_2d_nhwc_fhwc
+        """
+        self.add_pass(
+            "tosa-to-linalg-named",
+            prefer_conv2d_kernel_layout_hwcf=prefer_conv2d_kernel_layout_hwcf,
         )
         return self
 
