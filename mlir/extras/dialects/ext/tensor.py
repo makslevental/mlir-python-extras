@@ -689,36 +689,3 @@ pad = region_op(pad_, terminator=lambda args: tensor.YieldOp(args[0]))
 generate = region_op(
     lambda result, dynamic_extents: tensor.GenerateOp(result, dynamic_extents)
 )
-
-_pack = pack
-
-
-def pack(
-    source,
-    dest,
-    inner_dims_pos,
-    inner_tiles,
-    *,
-    padding_value=None,
-    outer_dims_perm=None,
-    loc=None,
-    ip=None,
-):
-    (
-        dynamic_inner_tiles,
-        # packed here means %1:2 packing (results packing)
-        _inner_tiles,
-        static_inner_tiles,
-    ) = _dispatch_mixed_values(inner_tiles)
-
-    return _pack(
-        source=source,
-        dest=dest,
-        inner_dims_pos=inner_dims_pos,
-        inner_tiles=dynamic_inner_tiles,
-        static_inner_tiles=static_inner_tiles,
-        padding_value=padding_value,
-        outer_dims_perm=outer_dims_perm,
-        loc=loc,
-        ip=ip,
-    )

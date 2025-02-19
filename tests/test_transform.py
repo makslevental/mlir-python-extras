@@ -990,7 +990,7 @@ def test_matmul_schedule_run(ctx: MLIRContext):
               %c0_i32 = arith.constant 0 : i32
               %0 = tensor.empty() : tensor<16x256xi8>
               %1 = tensor.empty() : tensor<1x4x16x64xi8>
-              %pack = tensor.pack %arg0 inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %1 : tensor<16x256xi8> -> tensor<1x4x16x64xi8>
+              %pack = linalg.pack %arg0 inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %1 : tensor<16x256xi8> -> tensor<1x4x16x64xi8>
               %2 = tensor.empty() : tensor<4x1x64x64xi8>
               %3 = tensor.empty() : tensor<1x1x16x64xi8>
               %4 = linalg.fill ins(%c0_i32 : i32) outs(%3 : tensor<1x1x16x64xi8>) -> tensor<1x1x16x64xi8>
@@ -998,14 +998,14 @@ def test_matmul_schedule_run(ctx: MLIRContext):
                 %6 = affine.apply #map(%arg3)
                 %extracted_slice = tensor.extract_slice %arg1[0, %6] [256, 64] [1, 1] : tensor<256x256xi8> to tensor<256x64xi8>
                 %extracted_slice_0 = tensor.extract_slice %arg4[0, %6] [16, 64] [1, 1] : tensor<16x256xi8> to tensor<16x64xi8>
-                %pack_1 = tensor.pack %extracted_slice outer_dims_perm = [0, 1] inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %2 : tensor<256x64xi8> -> tensor<4x1x64x64xi8>
+                %pack_1 = linalg.pack %extracted_slice outer_dims_perm = [0, 1] inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %2 : tensor<256x64xi8> -> tensor<4x1x64x64xi8>
                 %7 = linalg.generic {indexing_maps = [#map1, #map2, #map3], iterator_types = ["parallel", "parallel", "reduction", "parallel", "parallel", "reduction"]} ins(%pack, %pack_1 : tensor<1x4x16x64xi8>, tensor<4x1x64x64xi8>) outs(%4 : tensor<1x1x16x64xi8>) {
                 ^bb0(%in: i8, %in_2: i8, %out: i8):
                   %8 = arith.muli %in, %in_2 : i8
                   %9 = arith.addi %out, %8 : i8
                   linalg.yield %9 : i8
                 } -> tensor<1x1x16x64xi8>
-                %unpack = tensor.unpack %7 inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %extracted_slice_0 : tensor<1x1x16x64xi8> -> tensor<16x64xi8>
+                %unpack = linalg.unpack %7 inner_dims_pos = [0, 1] inner_tiles = [16, 64] into %extracted_slice_0 : tensor<1x1x16x64xi8> -> tensor<16x64xi8>
                 scf.forall.in_parallel {
                   tensor.parallel_insert_slice %unpack into %arg4[0, %6] [16, 64] [1, 1] : tensor<16x64xi8> into tensor<16x256xi8>
                 }
@@ -1050,7 +1050,7 @@ def test_tensor_pack_schedule_lower_pack_run(ctx: MLIRContext):
         src: T.tensor(129, 47, 16, 16, T.f32()),
         dst: T.tensor(17, 2, 16, 16, 32, 8, T.f32()),
     ):
-        return tensor.pack(
+        return linalg.pack(
             src,
             dst,
             inner_dims_pos=[1, 0],
@@ -1068,8 +1068,8 @@ def test_tensor_pack_schedule_lower_pack_run(ctx: MLIRContext):
         def main(variant_op: any_op_t()):
             packed = match(
                 variant_op,
-                ops=["tensor.pack"],
-                matched_op=transform_op_t("tensor.pack"),
+                ops=["linalg.pack"],
+                matched_op=transform_op_t("linalg.pack"),
             )
             lowered_pack = transform.structured.lower_pack(packed)
 
@@ -1097,8 +1097,8 @@ def test_tensor_pack_schedule_lower_pack_run(ctx: MLIRContext):
           }
           module attributes {transform.with_named_sequence} {
             transform.named_sequence @main(%arg0: !transform.any_op) {
-              %0 = transform.structured.match ops{["tensor.pack"]} in %arg0 : (!transform.any_op) -> !transform.op<"tensor.pack">
-              %pad_op, %expand_shape_op, %transpose_op = transform.structured.lower_pack %0 : (!transform.op<"tensor.pack">) -> (!transform.op<"tensor.pad">, !transform.op<"tensor.expand_shape">, !transform.op<"linalg.transpose">)
+              %0 = transform.structured.match ops{["linalg.pack"]} in %arg0 : (!transform.any_op) -> !transform.op<"linalg.pack">
+              %pad_op, %expand_shape_op, %transpose_op = transform.structured.lower_pack %0 : (!transform.op<"linalg.pack">) -> (!transform.op<"tensor.pad">, !transform.op<"tensor.expand_shape">, !transform.op<"linalg.transpose">)
               transform.yield 
             }
           }
