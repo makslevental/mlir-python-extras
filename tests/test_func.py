@@ -13,6 +13,7 @@ from mlir.extras.context import mlir_mod_ctx, RAIIMLIRContextModule
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext import linalg, arith, scf, memref
+from mlir.ir import FunctionType
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
@@ -320,3 +321,27 @@ def test_raii_mlir_context_module():
     """
     )
     filecheck(correct, tls.ctx.module)
+
+
+def test_explicit_function_type(ctx: MLIRContext):
+    input_types = [T.i32(), T.i32()]
+    result_types = [T.i32()]
+    func_type = FunctionType.get(input_types, result_types)
+
+    @func(function_type=func_type)
+    def demo_fun1(a, b):
+        one = constant(1)
+        return one
+
+    demo_fun1.emit()
+    correct = dedent(
+        """\
+    module {
+      func.func @demo_fun1(%arg0: i32, %arg1: i32) -> i32 {
+        %c1_i32 = arith.constant 1 : i32
+        return %c1_i32 : i32
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)

@@ -244,6 +244,16 @@ def _arith_CmpIPredicateAttr(predicate: Union[str, Attribute], context: Context)
         "ule": CmpIPredicate.ule,
         "ugt": CmpIPredicate.ugt,
         "uge": CmpIPredicate.uge,
+        0: CmpIPredicate.eq,
+        1: CmpIPredicate.ne,
+        2: CmpIPredicate.slt,
+        3: CmpIPredicate.sle,
+        4: CmpIPredicate.sgt,
+        5: CmpIPredicate.sge,
+        6: CmpIPredicate.ult,
+        7: CmpIPredicate.ule,
+        8: CmpIPredicate.ugt,
+        9: CmpIPredicate.uge,
     }
     if isinstance(predicate, Attribute):
         return predicate
@@ -409,6 +419,9 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     @abstractmethod
     def coerce(self, other) -> Tuple["ArithValue", "ArithValue"]:
         pass
+
+    def __hash__(self):
+        return Value(self).__hash__()
 
     def fold(self) -> bool:
         return self.is_constant() and self._fold
