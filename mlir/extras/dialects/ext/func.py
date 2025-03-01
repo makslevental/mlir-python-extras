@@ -144,9 +144,11 @@ class FuncBase:
         *,
         return_types=None,
         sym_visibility=None,
+        sym_name=None,
         arg_attrs=None,
         res_attrs=None,
         func_attrs=None,
+        function_type=None,
         generics: List[Union[TypeVar, ReifiedTypeParams]] = None,
         qualname=None,
         loc=None,
@@ -154,11 +156,14 @@ class FuncBase:
     ):
         assert inspect.isfunction(body_builder), body_builder
         assert inspect.isclass(func_op_ctor), func_op_ctor
-        assert inspect.isclass(return_op_ctor), return_op_ctor
+        if return_op_ctor is not None:
+            assert inspect.isclass(return_op_ctor), return_op_ctor
         assert inspect.isclass(call_op_ctor), call_op_ctor
 
         self.body_builder = body_builder
-        self.func_name = self.body_builder.__name__
+        if sym_name is None:
+            sym_name = self.body_builder.__name__
+        self.func_name = sym_name
         self.func_op_ctor = func_op_ctor
         self.return_op_ctor = return_op_ctor
         self.call_op_ctor = call_op_ctor
@@ -175,6 +180,7 @@ class FuncBase:
         self.func_attrs = func_attrs
         if self.func_attrs is None:
             self.func_attrs = {}
+        self.function_type = function_type
 
         if return_types is None:
             return_types = []
@@ -208,32 +214,37 @@ class FuncBase:
 
     def emit(self, *call_args, decl=False, force=False) -> FuncOp:
         if self._func_op is None or decl or force:
-            if len(call_args) == 0:
-                input_types = self.input_types[:]
-                locals = {"T": T}
-                if self.generics is not None:
-                    for t in self.generics:
-                        if not isinstance(t, ReifiedTypeParams):
-                            raise RuntimeError(f"{t=} must reified")
-                        locals[t.name] = t.val
-                for i, v in enumerate(input_types):
-                    if isinstance(v, TypeVar):
-                        v = v.__name__
-                    if isinstance(v, str):
-                        input_types[i] = Type(
-                            eval(v, self.body_builder.__globals__, locals)
-                        )
-                    elif isalambda(v):
-                        input_types[i] = v()
-            else:
-                input_types = [a.type for a in call_args]
+            if self.function_type is None:
+                if len(call_args) == 0:
+                    input_types = self.input_types[:]
+                    locals = {"T": T}
+                    if self.generics is not None:
+                        for t in self.generics:
+                            if not isinstance(t, ReifiedTypeParams):
+                                raise RuntimeError(f"{t=} must reified")
+                            locals[t.name] = t.val
+                    for i, v in enumerate(input_types):
+                        if isinstance(v, TypeVar):
+                            v = v.__name__
+                        if isinstance(v, str):
+                            input_types[i] = Type(
+                                eval(v, self.body_builder.__globals__, locals)
+                            )
+                        elif isalambda(v):
+                            input_types[i] = v()
+                else:
+                    input_types = [a.type for a in call_args]
 
-            function_type = TypeAttr.get(
-                FunctionType.get(
-                    inputs=input_types,
-                    results=self.return_types,
+                function_type = TypeAttr.get(
+                    FunctionType.get(
+                        inputs=input_types,
+                        results=self.return_types,
+                    )
                 )
-            )
+            else:
+                input_types = self.function_type.inputs
+                function_type = TypeAttr.get(self.function_type)
+
             self._func_op = self.func_op_ctor(
                 self.func_name,
                 function_type,
@@ -264,10 +275,15 @@ class FuncBase:
                     return_types.append(results.type)
                 return results
 
-            builder_wrapper(grab_results)
+            if self.function_type is None:
+                builder_wrapper(grab_results)
+                function_type = FunctionType.get(
+                    inputs=input_types, results=return_types
+                )
+                self._func_op.attributes["function_type"] = TypeAttr.get(function_type)
+            else:
+                builder_wrapper(self.body_builder)
 
-            function_type = FunctionType.get(inputs=input_types, results=return_types)
-            self._func_op.attributes["function_type"] = TypeAttr.get(function_type)
         return self._func_op
 
     def __call__(self, *call_args):
@@ -345,9 +361,11 @@ def func(
     f,
     *,
     sym_visibility=None,
+    sym_name=None,
     arg_attrs=None,
     res_attrs=None,
     func_attrs=None,
+    function_type=None,
     emit=False,
     generics=None,
     loc=None,
@@ -363,9 +381,11 @@ def func(
         return_op_ctor=ReturnOp,
         call_op_ctor=CallOp.__base__,
         sym_visibility=sym_visibility,
+        sym_name=sym_name,
         arg_attrs=arg_attrs,
         res_attrs=res_attrs,
         func_attrs=func_attrs,
+        function_type=function_type,
         generics=generics,
         loc=loc,
         ip=ip,
