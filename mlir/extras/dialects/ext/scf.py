@@ -38,14 +38,33 @@ logger = logging.getLogger(__name__)
 
 opaque = lambda dialect_namespace, buffer: OpaqueType.get(dialect_namespace, buffer)
 
-range_ = for_
+
+def canonicalize_start_stop_step(start, stop, step):
+    if step is None:
+        step = 1
+    if stop is None:
+        stop = start
+        start = 0
+    params = [start, stop, step]
+    type = IndexType.get()
+    maybe_types = {p.type for p in params if isinstance(p, Value)}
+    if maybe_types:
+        if len(maybe_types) > 1:
+            raise ValueError(
+                f"all {start=} and {stop=} and {step=} ir.Value objects must have the same type"
+            )
+        type = maybe_types.pop()
+
+    for i, p in enumerate(params):
+        if isinstance(p, int):
+            p = _ext_arith_constant(p, type=type)
+        assert isinstance(p, Value)
+        params[i] = p
+
+    return params[0], params[1], params[2]
 
 
-def placeholder_opaque_t():
-    return opaque("scf", "placeholder")
-
-
-def _for(
+def _build_for(
     start,
     stop=None,
     step=None,
@@ -54,25 +73,39 @@ def _for(
     loc=None,
     ip=None,
 ):
-    if step is None:
-        step = 1
-    if stop is None:
-        stop = start
-        start = 0
-    params = [start, stop, step]
-    for i, p in enumerate(params):
-        if isinstance(p, int):
-            p = _ext_arith_constant(p, index=True)
-        if not _is_index_type(p.type):
-            p = index_cast(p)
-        params[i] = p
+    start, stop, step = canonicalize_start_stop_step(start, stop, step)
+    return ForOp(start, stop, step, iter_args, loc=loc, ip=ip)
 
+
+def range_(
+    start,
+    stop=None,
+    step=None,
+    iter_args: Optional[Sequence[Value]] = None,
+    *,
+    loc=None,
+    ip=None,
+):
     if loc is None:
         loc = get_user_code_loc()
-    return ForOp(*params, iter_args, loc=loc, ip=ip)
+
+    for_op = _build_for(start, stop, step, iter_args, loc=loc, ip=ip)
+    iv = for_op.induction_variable
+    iter_args = tuple(for_op.inner_iter_args)
+    with InsertionPoint(for_op.body):
+        if len(iter_args) > 1:
+            yield iv, iter_args, for_op.results
+        elif len(iter_args) == 1:
+            yield iv, iter_args[0], for_op.results[0]
+        else:
+            yield iv
 
 
-for_ = region_op(_for, terminator=yield__)
+def placeholder_opaque_t():
+    return opaque("scf", "placeholder")
+
+
+for_ = region_op(_build_for, terminator=yield__)
 
 
 @_cext.register_operation(_Dialect, replace=True)
