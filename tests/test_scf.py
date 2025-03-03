@@ -201,6 +201,31 @@ def test_for_bare(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+def test_mixed_start_stop_for(ctx: MLIRContext):
+    ten = constant(10)
+
+    for i in range_(0, ten):
+        three = constant(3.0)
+        four = constant(4.0)
+        yield_()
+
+    ctx.module.operation.verify()
+    correct = dedent(
+        """\
+    module {
+      %c10_i32 = arith.constant 10 : i32
+      %c0_i32 = arith.constant 0 : i32
+      %c1_i32 = arith.constant 1 : i32
+      scf.for %arg0 = %c0_i32 to %c10_i32 step %c1_i32  : i32 {
+        %cst = arith.constant 3.000000e+00 : f32
+        %cst_0 = arith.constant 4.000000e+00 : f32
+      }
+    }
+    """
+    )
+    filecheck(correct, ctx.module)
+
+
 def test_scf_canonicalizer_with_implicit_yield(ctx: MLIRContext):
     @canonicalize(using=canonicalizer)
     def foo():
