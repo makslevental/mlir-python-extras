@@ -48,8 +48,6 @@ else:
         Path(_mlir_libs.__file__).parent
         / f"{shlib_prefix()}mlir_async_runtime.{shlib_ext()}"
     )
-if not ASYNC_RUNTIME_LIB_PATH.exists():
-    warnings.warn(f"{ASYNC_RUNTIME_LIB_PATH=} doesn't exist")
 
 if C_RUNNER_UTILS_LIB_PATH := os.getenv("C_RUNNER_UTILS_LIB_PATH"):
     C_RUNNER_UTILS_LIB_PATH = Path(C_RUNNER_UTILS_LIB_PATH)
@@ -59,9 +57,6 @@ else:
         / f"{shlib_prefix()}mlir_c_runner_utils.{shlib_ext()}"
     )
 
-if not C_RUNNER_UTILS_LIB_PATH.exists():
-    warnings.warn(f"{C_RUNNER_UTILS_LIB_PATH=} doesn't exist")
-
 if RUNNER_UTILS_LIB_PATH := os.getenv("RUNNER_UTILS_LIB_PATH"):
     RUNNER_UTILS_LIB_PATH = Path(RUNNER_UTILS_LIB_PATH)
 else:
@@ -69,8 +64,6 @@ else:
         Path(_mlir_libs.__file__).parent
         / f"{shlib_prefix()}mlir_runner_utils.{shlib_ext()}"
     )
-if not RUNNER_UTILS_LIB_PATH.exists():
-    warnings.warn(f"{RUNNER_UTILS_LIB_PATH=} doesn't exist")
 
 
 def get_ctype_func(mlir_ret_types):
