@@ -112,6 +112,24 @@ class ExplicitlyManagedModule:
         return str(self.module)
 
 
+@contextmanager
+def mlir_mod(
+    src: Optional[str] = None,
+    location: ir.Location = None,
+) -> ir.Module:
+    with ExitStack() as stack:
+        if location is None:
+            location = ir.Location.unknown()
+        stack.enter_context(location)
+        if src is not None:
+            module = ir.Module.parse(src)
+        else:
+            module = ir.Module.create()
+        ip = ir.InsertionPoint(module.body)
+        stack.enter_context(ip)
+        yield module
+
+
 @contextlib.contextmanager
 def enable_multithreading(context=None):
     from ..ir import Context
