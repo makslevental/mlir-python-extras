@@ -20,8 +20,8 @@ try:
         unranked_memref_to_numpy,
         get_unranked_memref_descriptor,
     )
-except:
-    warnings.warn("no execution engine in mlir bindings; refbackend won't work")
+except ImportError:
+    pass
 
 from .. import types as T
 from ...dialects.memref import cast
