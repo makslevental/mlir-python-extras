@@ -201,8 +201,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())):
-            ...
+        def printMemrefF32(x: T.memref(T.f32())): ...
 
         printMemrefF32_.append(printMemrefF32)
 
@@ -430,6 +429,7 @@ try:
 except Exception:
     print("No Nvidia GPU in system!")
 
+
 # based on https://github.com/llvm/llvm-project/blob/9cc2122bf5a81f7063c2a32b2cb78c8d615578a1/mlir/test/Integration/GPU/CUDA/TensorCore/sm80/transform-mma-sync-matmul-f16-f16-accum.mlir#L6
 @pytest.mark.skipif(not NVIDIA_GPU, reason="no cuda library")
 def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
@@ -558,8 +558,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())):
-            ...
+        def printMemrefF32(x: T.memref(T.f32())): ...
 
         printMemrefF32_.append(printMemrefF32)
 

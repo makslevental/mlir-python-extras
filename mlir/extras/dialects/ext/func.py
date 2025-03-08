@@ -24,6 +24,9 @@ from ....ir import (
 )
 
 
+_call = call
+
+
 def call(
     callee_or_results: Union[FuncOp, List[Type]],
     arguments_or_callee: Union[List[Value], FlatSymbolRefAttr, str],

@@ -142,11 +142,13 @@ def extract(vector, position, *, loc=None, ip=None):
 _insert = insert
 
 
-def insert(vector, val, position, *, loc=None, ip=None):
+def insert(vector, val, positions, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
+    if len(positions) == 0:
+        raise ValueError("positions cannot be empty")
     dynamic_position, _packed_position, static_position = _dispatch_mixed_values(
-        position
+        positions
     )
     return _insert(
         val,

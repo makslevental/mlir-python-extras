@@ -105,7 +105,7 @@ def placeholder_opaque_t():
     return opaque("scf", "placeholder")
 
 
-for_ = region_op(_build_for, terminator=yield__)
+for__ = region_op(_build_for, terminator=yield__)
 
 
 @_cext.register_operation(_Dialect, replace=True)
@@ -365,7 +365,11 @@ def another_reduce(reduce_op):
             return r
 
 
-def yield_(*args):
+def yield_(*args, results_=None):
+    if len(args):
+        assert results_ is None, "must provide results_ or args"
+    if results_ is not None:
+        args = results_
     if len(args) == 1 and isinstance(args[0], (list, OpResultList)):
         args = list(args[0])
     y = yield__(args)

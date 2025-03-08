@@ -135,33 +135,48 @@ class Pipeline:
         self._pipeline.append(pass_str)
         return self
 
-    def lower_to_llvm_(self):
-        return any(["to-llvm" in p for p in self._pipeline])
+    def lower_to_llvm(self):
+        # https://github.com/makslevental/llvm-project/blob/f6643263631bcb0d191ef923963ac1a5ca9ac5fd/mlir/test/lib/Dialect/LLVM/TestLowerToLLVM.cpp#L44
+        return (
+            self.Func(
+                Pipeline()
+                # Blanket-convert any remaining high-level vector ops to loops if any remain.
+                .convert_vector_to_scf()
+                # Blanket-convert any remaining linalg ops to loops if any remain.
+                .convert_linalg_to_loops()
+            )
+            # Blanket-convert any remaining affine ops if any remain.
+            .lower_affine()
+            # Convert SCF to CF (always needed).
+            .convert_scf_to_cf()
+            # Sprinkle some cleanups.
+            .canonicalize()
+            .cse()
+            # Convert vector to LLVM (always needed).
+            .convert_vector_to_llvm(force_32bit_vector_indices=True)
+            # Convert Math to LLVM (always needed).
+            .Func(Pipeline().convert_math_to_llvm())
+            # Expand complicated MemRef operations before lowering them.
+            .expand_strided_metadata()
+            # The expansion may create affine expressions. Get rid of them.
+            .lower_affine()
+            # Convert MemRef to LLVM (always needed).
+            .finalize_memref_to_llvm()
+            # Convert Func to LLVM (always needed).
+            .convert_func_to_llvm()
+            .convert_arith_to_llvm()
+            .convert_cf_to_llvm()
+            # Convert Index to LLVM (always needed).
+            .convert_index_to_llvm()
+            # Convert remaining unrealized_casts (always needed).
+            .reconcile_unrealized_casts()
+        )
 
     def bufferize(self):
         return (
             self.Func(Pipeline().empty_tensor_to_alloc_tensor())
             .one_shot_bufferize()
             .Func(Pipeline().buffer_deallocation_simplification())
-        )
-
-    def lower_to_llvm(self):
-        return (
-            self.cse()
-            .Func(Pipeline().lower_affine().arith_expand().convert_math_to_llvm())
-            .convert_math_to_libm()
-            .expand_strided_metadata()
-            .finalize_memref_to_llvm()
-            .convert_scf_to_cf()
-            .convert_cf_to_llvm()
-            .cse()
-            .lower_affine()
-            .Func(Pipeline().convert_arith_to_llvm())
-            .convert_func_to_llvm()
-            .canonicalize()
-            .convert_openmp_to_llvm()
-            .cse()
-            .reconcile_unrealized_casts()
         )
 
     def lower_to_openmp(self):

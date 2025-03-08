@@ -8,7 +8,7 @@ from mlir.extras.dialects.ext import scf
 from mlir.extras.dialects.ext import tensor
 from mlir.extras.dialects.ext.arith import constant, Scalar
 from mlir.extras.dialects.ext.scf import (
-    for_,
+    for__,
     range_,
     yield_,
     canonicalizer,
@@ -38,7 +38,7 @@ pytest.mark.usefixtures("ctx")
 
 
 def test_for_simple(ctx: MLIRContext):
-    @for_(1, 2, 3)
+    @for__(1, 2, 3)
     def forfoo(i):
         one = constant(1.0)
         return
@@ -63,7 +63,7 @@ def test_for_iter_args(ctx: MLIRContext):
     one = constant(1.0)
     two = constant(1.0)
 
-    @for_(1, 2, 3, iter_args=[one, two])
+    @for__(1, 2, 3, iter_args=[one, two])
     def forfoo(i, *iter_args):
         assert isinstance(i, Scalar)
         assert repr(i) == "Scalar(<block argument> of type 'index' at index: 0)"

@@ -44,8 +44,7 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
     unranked_memref_f32 = T.memref(element_type=T.f32())
 
     @func
-    def printMemrefF32(x: unranked_memref_f32):
-        ...
+    def printMemrefF32(x: unranked_memref_f32): ...
 
     @func
     @canonicalize(using=canonicalizer)
@@ -67,7 +66,12 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
     module {
       llvm.func @printMemrefF32(i64, !llvm.ptr) attributes {sym_visibility = "private"}
       llvm.func @foo(%arg0: i64, %arg1: !llvm.ptr) attributes {llvm.emit_c_interface} {
-        llvm.call @printMemrefF32(%arg0, %arg1) : (i64, !llvm.ptr) -> ()
+        %0 = llvm.mlir.poison : !llvm.struct<(i64, ptr)>
+        %1 = llvm.insertvalue %arg0, %0[0] : !llvm.struct<(i64, ptr)> 
+        %2 = llvm.insertvalue %arg1, %1[1] : !llvm.struct<(i64, ptr)> 
+        %3 = llvm.extractvalue %2[0] : !llvm.struct<(i64, ptr)> 
+        %4 = llvm.extractvalue %2[1] : !llvm.struct<(i64, ptr)> 
+        llvm.call @printMemrefF32(%3, %4) : (i64, !llvm.ptr) -> ()
         llvm.return
       }
       llvm.func @_mlir_ciface_foo(%arg0: !llvm.ptr) attributes {llvm.emit_c_interface} {
@@ -114,8 +118,7 @@ def test_munge_calling_conventions(ctx: MLIRContext, backend: LLVMJITBackend, ca
             refback_cb_attr: UnitAttr.get(),
         }
     )
-    def refbackend_consume_return_callback_first(x: unranked_memref_f32):
-        ...
+    def refbackend_consume_return_callback_first(x: unranked_memref_f32): ...
 
     @func
     def foo_wrapper(x: unranked_memref_f32):
@@ -164,8 +167,7 @@ def test_munge_calling_conventions_setup(
             refback_cb_attr: UnitAttr.get(),
         }
     )
-    def cb(x: unranked_memref_f32):
-        ...
+    def cb(x: unranked_memref_f32): ...
 
     @func
     def foo_wrapper(x: unranked_memref_f32):
@@ -224,8 +226,7 @@ def test_munge_calling_conventions_setup_mutate(
             refback_cb_attr: UnitAttr.get(),
         }
     )
-    def cb(x: unranked_memref_f32):
-        ...
+    def cb(x: unranked_memref_f32): ...
 
     @func
     def foo_wrapper(x: unranked_memref_f32):
@@ -310,8 +311,7 @@ def test_munge_calling_conventions_setup_auto_cb(
             refback_cb_attr: UnitAttr.get(),
         }
     )
-    def cb(x: unranked_memref_f32):
-        ...
+    def cb(x: unranked_memref_f32): ...
 
     @func
     def foo_wrapper(x: unranked_memref_f32):
@@ -456,8 +456,7 @@ def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run_cast_np_array(
     unranked_memref_f32 = T.memref(element_type=T.f32())
 
     @func
-    def printMemrefF32(x: unranked_memref_f32):
-        ...
+    def printMemrefF32(x: unranked_memref_f32): ...
 
     @func
     def foo(x: ranked_memref_4x4_f32):
