@@ -437,3 +437,4 @@ class getitemproperty:
 
         # f is not a bound method since it was decorated...
         return self.f(self.instance, item, **kwargs)
+

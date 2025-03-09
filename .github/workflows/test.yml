@@ -66,15 +66,13 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -s tests
-          else
-            pytest --capture=tee-sys tests
-          fi
+          
+          pytest tests
 
       - name: Test mwe
         shell: bash
         run: |
+          
           python examples/mwe.py
 
   test-other-host-bindings:

@@ -6,6 +6,7 @@ from copy import deepcopy
 from functools import cached_property, partialmethod
 from typing import Optional, Tuple, Union
 
+import numpy as np
 from bytecode import ConcreteBytecode
 from einspect.structs import PyTypeObject
 
@@ -124,18 +125,21 @@ def constant(
 
 
 def index_cast(
-    value: Value,
+    in_: Value,
     *,
     to: Type = None,
+    out: Type = None,
     loc: Location = None,
     ip: InsertionPoint = None,
 ) -> Value:
     if loc is None:
         loc = get_user_code_loc()
-    if to is None:
-        to = IndexType.get()
+    assert bool(to) != bool(out), "either `to` or `out` must be set"
+    res_type = out or to
+    if res_type is None:
+        res_type = IndexType.get()
     return get_op_result_or_op_results(
-        arith_dialect.IndexCastOp(to, value, loc=loc, ip=ip)
+        arith_dialect.IndexCastOp(res_type, in_, loc=loc, ip=ip)
     )
 
 
@@ -234,26 +238,26 @@ class ArithValueMeta(nb_meta_cls):
 @register_attribute_builder("Arith_CmpIPredicateAttr", replace=True)
 def _arith_CmpIPredicateAttr(predicate: Union[str, Attribute], context: Context):
     predicates = {
-        "eq": CmpIPredicate.eq,
-        "ne": CmpIPredicate.ne,
-        "slt": CmpIPredicate.slt,
-        "sle": CmpIPredicate.sle,
-        "sgt": CmpIPredicate.sgt,
-        "sge": CmpIPredicate.sge,
-        "ult": CmpIPredicate.ult,
-        "ule": CmpIPredicate.ule,
-        "ugt": CmpIPredicate.ugt,
-        "uge": CmpIPredicate.uge,
-        0: CmpIPredicate.eq,
-        1: CmpIPredicate.ne,
-        2: CmpIPredicate.slt,
-        3: CmpIPredicate.sle,
-        4: CmpIPredicate.sgt,
-        5: CmpIPredicate.sge,
-        6: CmpIPredicate.ult,
-        7: CmpIPredicate.ule,
-        8: CmpIPredicate.ugt,
-        9: CmpIPredicate.uge,
+        "eq": arith_dialect.CmpIPredicate.eq,
+        "ne": arith_dialect.CmpIPredicate.ne,
+        "slt": arith_dialect.CmpIPredicate.slt,
+        "sle": arith_dialect.CmpIPredicate.sle,
+        "sgt": arith_dialect.CmpIPredicate.sgt,
+        "sge": arith_dialect.CmpIPredicate.sge,
+        "ult": arith_dialect.CmpIPredicate.ult,
+        "ule": arith_dialect.CmpIPredicate.ule,
+        "ugt": arith_dialect.CmpIPredicate.ugt,
+        "uge": arith_dialect.CmpIPredicate.uge,
+        0: arith_dialect.CmpIPredicate.eq,
+        1: arith_dialect.CmpIPredicate.ne,
+        2: arith_dialect.CmpIPredicate.slt,
+        3: arith_dialect.CmpIPredicate.sle,
+        4: arith_dialect.CmpIPredicate.sgt,
+        5: arith_dialect.CmpIPredicate.sge,
+        6: arith_dialect.CmpIPredicate.ult,
+        7: arith_dialect.CmpIPredicate.ule,
+        8: arith_dialect.CmpIPredicate.ugt,
+        9: arith_dialect.CmpIPredicate.uge,
     }
     if isinstance(predicate, Attribute):
         return predicate
@@ -264,29 +268,29 @@ def _arith_CmpIPredicateAttr(predicate: Union[str, Attribute], context: Context)
 @register_attribute_builder("Arith_CmpFPredicateAttr", replace=True)
 def _arith_CmpFPredicateAttr(predicate: Union[str, Attribute], context: Context):
     predicates = {
-        "false": CmpFPredicate.AlwaysFalse,
+        "false": arith_dialect.CmpFPredicate.AlwaysFalse,
         # ordered comparison
         # An ordered comparison checks if neither operand is NaN.
-        "oeq": CmpFPredicate.OEQ,
-        "ogt": CmpFPredicate.OGT,
-        "oge": CmpFPredicate.OGE,
-        "olt": CmpFPredicate.OLT,
-        "ole": CmpFPredicate.OLE,
-        "one": CmpFPredicate.ONE,
+        "oeq": arith_dialect.CmpFPredicate.OEQ,
+        "ogt": arith_dialect.CmpFPredicate.OGT,
+        "oge": arith_dialect.CmpFPredicate.OGE,
+        "olt": arith_dialect.CmpFPredicate.OLT,
+        "ole": arith_dialect.CmpFPredicate.OLE,
+        "one": arith_dialect.CmpFPredicate.ONE,
         # no clue what this one is
-        "ord": CmpFPredicate.ORD,
+        "ord": arith_dialect.CmpFPredicate.ORD,
         # unordered comparison
         # Conversely, an unordered comparison checks if either operand is a NaN.
-        "ueq": CmpFPredicate.UEQ,
-        "ugt": CmpFPredicate.UGT,
-        "uge": CmpFPredicate.UGE,
-        "ult": CmpFPredicate.ULT,
-        "ule": CmpFPredicate.ULE,
-        "une": CmpFPredicate.UNE,
+        "ueq": arith_dialect.CmpFPredicate.UEQ,
+        "ugt": arith_dialect.CmpFPredicate.UGT,
+        "uge": arith_dialect.CmpFPredicate.UGE,
+        "ult": arith_dialect.CmpFPredicate.ULT,
+        "ule": arith_dialect.CmpFPredicate.ULE,
+        "une": arith_dialect.CmpFPredicate.UNE,
         # no clue what this one is
-        "uno": CmpFPredicate.UNO,
+        "uno": arith_dialect.CmpFPredicate.UNO,
         # return always true
-        "true": CmpFPredicate.AlwaysTrue,
+        "true": arith_dialect.CmpFPredicate.AlwaysTrue,
     }
     if isinstance(predicate, Attribute):
         return predicate

@@ -238,6 +238,8 @@ class LLVMJITBackend:
                 return False
 
         kernel_func = find_ops(module.operation, cb, single=True)
+        if isinstance(kernel_func, list) and len(kernel_func) == 0:
+            raise ValueError(f"couldn't find kernel_func {kernel_name=}")
         if len(kernel_func.function_type.value.results) and generate_return_consumer:
             with InsertionPoint(module.body):
                 return_consumer = make_return_consumer(kernel_func)

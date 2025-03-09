@@ -6,6 +6,7 @@ import numpy as np
 from ._shaped_value import ShapedValue
 from .arith import Scalar, constant
 from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
+from .vector import Vector
 from ... import types as T
 from ...meta import region_op
 from ...util import (
@@ -28,7 +29,7 @@ from ....ir import (
 S = ShapedType.get_dynamic_size()
 
 
-def _alloc(
+def __alloc(
     op_ctor,
     sizes: Sequence[Union[int, Value]],
     element_type: Type,
@@ -64,6 +65,9 @@ def _alloc(
     )
 
 
+_alloc = alloc
+
+
 def alloc(
     sizes: Union[int, Value],
     element_type: Type = None,
@@ -74,7 +78,7 @@ def alloc(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return _alloc(
+    return __alloc(
         AllocOp,
         sizes,
         element_type,
@@ -83,6 +87,9 @@ def alloc(
         loc=loc,
         ip=ip,
     )
+
+
+_alloca = alloca
 
 
 def alloca(
@@ -95,7 +102,7 @@ def alloca(
 ):
     if loc is None:
         loc = get_user_code_loc()
-    return _alloc(
+    return __alloc(
         AllocaOp,
         sizes,
         element_type,
@@ -106,18 +113,23 @@ def alloca(
     )
 
 
-def load(mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None):
+def load(memref: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
     indices = list(indices)
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
-    return get_op_result_or_op_results(LoadOp(mem, indices, loc=loc, ip=ip))
+    return get_op_result_or_op_results(LoadOp(memref, indices, loc=loc, ip=ip))
 
 
 def store(
-    value: Value, mem: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=None
+    value: Value,
+    memref: Value,
+    indices: Sequence[Union[Value, int]],
+    *,
+    loc=None,
+    ip=None,
 ):
     if loc is None:
         loc = get_user_code_loc()
@@ -125,7 +137,7 @@ def store(
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
-    return get_op_result_or_op_results(StoreOp(value, mem, indices, loc=loc, ip=ip))
+    return get_op_result_or_op_results(StoreOp(value, memref, indices, loc=loc, ip=ip))
 
 
 @register_value_caster(MemRefType.static_typeid)
@@ -176,7 +188,9 @@ class MemRef(Value):
             if isinstance(val, (int, float)):
                 # TODO: this is an unchecked conversion
                 val = Scalar(val, dtype=self.dtype)
-            assert isinstance(val, Scalar), "coordinate insert requires scalar element"
+            assert isinstance(
+                val, (Scalar, Vector)
+            ), "coordinate insert requires scalar element"
             store(val, self, idx, loc=loc)
         else:
             _copy_to_subview(self, val, tuple(idx), loc=loc)
