@@ -135,7 +135,7 @@ class Pipeline:
         self._pipeline.append(pass_str)
         return self
 
-    def lower_to_llvm(self):
+    def lower_to_llvm(self, use_bare_ptr_memref_call_conv=False):
         # https://github.com/makslevental/llvm-project/blob/f6643263631bcb0d191ef923963ac1a5ca9ac5fd/mlir/test/lib/Dialect/LLVM/TestLowerToLLVM.cpp#L44
         return (
             self.Func(
@@ -163,7 +163,9 @@ class Pipeline:
             # Convert MemRef to LLVM (always needed).
             .finalize_memref_to_llvm()
             # Convert Func to LLVM (always needed).
-            .convert_func_to_llvm()
+            .convert_func_to_llvm(
+                use_bare_ptr_memref_call_conv=use_bare_ptr_memref_call_conv
+            )
             .convert_arith_to_llvm()
             .convert_cf_to_llvm()
             # Convert Index to LLVM (always needed).

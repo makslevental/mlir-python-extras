@@ -1,9 +1,11 @@
+import ctypes
 import platform
 import sys
 import tempfile
 from textwrap import dedent
 
 import mlir.extras.types as T
+import numpy as np
 import pytest
 from mlir.dialects._gpu_enum_gen import AllReduceOperation
 from mlir.dialects.gpu import host_register
@@ -40,7 +42,7 @@ from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from util import hip_bindings_not_installed
+from util import hip_bindings_not_installed, hip_check
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -547,7 +549,6 @@ def test_launch_op_reduce_op(ctx: MLIRContext):
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="requires python3.12 or higher")
 def test_generics(ctx: MLIRContext):
-
     set_container_module(ctx.module)
 
     # dodge <3.12 parser that doesn't support square brackets generics
@@ -622,7 +623,6 @@ def test_generics(ctx: MLIRContext):
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="requires python3.12 or higher")
 def test_generic_type_var_closure_patching(ctx: MLIRContext):
-
     # dodge <3.12 parser that doesn't support square brackets generics
     exec(
         dedent(
@@ -652,7 +652,6 @@ def test_generic_type_var_closure_patching(ctx: MLIRContext):
     reason="requires python3.12 or higher (and windows can't find the source file)",
 )
 def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
-
     # dodge <3.12 parser that doesn't support square brackets generics
     # but also need a real file here because rewriter needs source...
     src = dedent(
@@ -736,8 +735,67 @@ def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
+def chip_check(status):
+    import chip
+
+    if status != 0:
+        raise RuntimeError(
+            f"HIP Error {status}, {ctypes.string_at(chip.hipGetErrorString(status)).decode()}"
+        )
+
+
+def launch_kernel(
+    function,
+    gridX,
+    gridY,
+    gridZ,
+    warp_size,
+    num_warps,
+    stream,
+    shared_memory,
+    *args,
+):
+    import chip
+
+    from hip._util.types import DeviceArray
+
+    params = [None] * len(args)
+    addresses = [None] * len(args)
+    for i, p in enumerate(args):
+        if isinstance(p, DeviceArray):
+            addresses[i] = params[i] = p.createRef().as_c_void_p()
+        elif isinstance(p, int):
+            params[i] = ctypes.c_int32(p)
+            addresses[i] = ctypes.addressof(params[i])
+        else:
+            raise NotImplementedError(f"{p=} not supported with {p=}")
+
+    # global_scratch = chip.hipDeviceptr_t()
+    # addresses += [ctypes.addressof(global_scratch)]
+
+    c_args = (ctypes.c_void_p * len(addresses))(*addresses)
+    function = ctypes.cast(function, chip.hipFunction_t)
+    stream = ctypes.cast(stream, chip.hipStream_t)
+    chip_check(
+        chip.hipModuleLaunchKernel(
+            function,
+            gridX,
+            gridY,
+            gridZ,
+            warp_size,
+            num_warps,
+            1,
+            shared_memory,
+            stream,
+            c_args,
+            None,
+        )
+    )
+
+
 @pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu(ctx: MLIRContext):
+    from hip import hip
 
     set_container_module(ctx.module)
 
@@ -757,18 +815,88 @@ def test_amdgpu(ctx: MLIRContext):
             tmp = scf.yield_(tmp)
         C[x, y] = tmp + one
 
-    @module("naive", ['#rocdl.target<chip = "gfx1100">'])
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    arch = props.gcnArchName.decode()
+
+    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
     def gpu_module():
         mat_product_kernel.emit()
 
     lowered_module = run_pipeline(
         gpu_module,
         Pipeline()
-        .Gpu(Pipeline().convert_gpu_to_rocdl())
-        .rocdl_attach_target(chip="gfx1100")
+        .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
+        .rocdl_attach_target(chip=arch)
         .gpu_to_llvm()
         .lower_to_llvm()
         .gpu_module_to_binary(),
     )
+
     hsaco = get_compile_object_bytes(lowered_module)
-    print(hsaco)
+    hip_module = hip_check(hip.hipModuleLoadData(hsaco))
+    function = hip_check(hip.hipModuleGetFunction(hip_module, b"mat_product_kernel"))
+
+    # kernel launch
+
+    a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np.float32)
+    b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np.float32)
+    c_h = -3 * np.ones((M, N), dtype=np.float32)
+
+    a_num_bytes = a_h.size * a_h.itemsize
+    b_num_bytes = b_h.size * b_h.itemsize
+    c_num_bytes = c_h.size * c_h.itemsize
+
+    a_d = hip_check(hip.hipMalloc(a_num_bytes))
+    b_d = hip_check(hip.hipMalloc(b_num_bytes))
+    c_d = hip_check(hip.hipMalloc(c_num_bytes))
+
+    hip_check(
+        hip.hipMemcpy(a_d, a_h, a_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(b_d, b_h, b_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(c_d, c_h, c_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+
+    gridX = 1
+    gridY = 4
+    gridZ = 1
+    warp_size = 32
+    num_warps = 8
+    stream = 0
+    shared_memory = 0
+
+    launch_kernel(
+        function.as_c_void_p(),
+        gridX,
+        gridY,
+        gridZ,
+        warp_size,
+        num_warps,
+        stream,
+        shared_memory,
+        a_d,
+        b_d,
+        c_d,
+    )
+
+    correct = a_h @ b_h + 1
+    assert np.allclose(c_h, -3.0)
+    assert not np.allclose(correct, c_h)
+    hip_check(
+        hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost)
+    )
+
+    if not np.allclose(c_h, correct):
+        with np.printoptions(threshold=np.inf, linewidth=200):
+            print(correct)
+            print(c_h)
+
+    hip_check(hip.hipFree(a_d))
+    hip_check(hip.hipFree(b_d))
+    hip_check(hip.hipFree(c_d))
+
+    hip_check(hip.hipModuleUnload(hip_module))
