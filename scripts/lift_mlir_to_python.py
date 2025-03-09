@@ -1,7 +1,9 @@
+import argparse
 import inspect
 import re
 import sys
 import textwrap
+from pathlib import Path
 
 import numpy as np
 from mlir.dialects import builtin, func
@@ -400,46 +402,13 @@ def generic_print_walk_callback(op):
     return WalkResult.ADVANCE
 
 
-PROLOG = """\
-import numpy as np
-from mlir import types as _types
-from mlir.extras.context import RAIIMLIRContextModule
-from mlir.dialects import tt as ttpp, ttg, scf, llvm, _tt_ops_gen as tt, amdgpu
-from mlir.dialects.arith import IntegerOverflowFlags
-from mlir.ir import ArrayAttr, Type, Attribute
-from mlir.extras.dialects.ext import arith
-from mlir.extras.dialects import ext
-import mlir.extras.dialects.ext.scf
-from mlir.extras import types as T
-
-ctx = RAIIMLIRContextModule()
-"""
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_file", type=Path)
+    args = parser.parse_args()
+    with mlir_mod_ctx(open(args.input_file).read()) as ctx:
+        ctx.module.operation.walk(generic_print_walk_callback, WalkOrder.PRE_ORDER)
 
 
-def print_prolog():
-    print(PROLOG, file=OUTPUT_BUF)
-
-
-EPILOG = """
-matmul_kernel.emit()
-ctx.module.operation.verify()
-
-def mod_str():
-    return str(ctx.module)
-"""
-
-
-def print_epilog():
-    print(EPILOG, file=OUTPUT_BUF)
-
-
-with mlir_mod_ctx(
-    open(
-        "/home/mlevental/dev_projects/llvm-project/mlir/test/Integration/Dialect/Vector/CPU/sparse-saxpy-jagged-matvec.mlir"
-    ).read()
-) as ctx:
-    ctx.module.operation.walk(generic_print_walk_callback, WalkOrder.PRE_ORDER)
-# OUTPUT_BUF.flush()
-# OUTPUT_BUF.seek(0)
-# py_src = OUTPUT_BUF.read()
-# print(py_src)
+if __name__ == "__main__":
+    main()

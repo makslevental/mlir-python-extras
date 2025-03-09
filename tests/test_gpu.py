@@ -30,6 +30,7 @@ from mlir.extras.dialects.ext.gpu import (
     launch,
     all_reduce_,
     module,
+    get_compile_object_bytes,
 )
 from mlir.extras.dialects.ext.llvm import llvm_ptr_t
 from mlir.extras.dialects.ext.memref import alloc
@@ -39,6 +40,7 @@ from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from util import hip_bindings_not_installed
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -732,3 +734,41 @@ def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
     """
     )
     filecheck(correct, ctx.module)
+
+
+@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
+def test_amdgpu(ctx: MLIRContext):
+
+    set_container_module(ctx.module)
+
+    M, K, N, dtype = 32, 32, 32, T.f32()
+
+    @gpu_func
+    def mat_product_kernel(
+        A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)
+    ):
+        x = block_dim.x * block_idx.x + thread_idx.x
+        y = block_dim.y * block_idx.y + thread_idx.y
+
+        one = arith.constant(1.0, type=dtype)
+        tmp = arith.constant(0, type=dtype)
+        for k, tmp, _ in scf.range_(K, iter_args=[tmp]):
+            tmp += A[x, k] * B[k, y]
+            tmp = scf.yield_(tmp)
+        C[x, y] = tmp + one
+
+    @module("naive", ['#rocdl.target<chip = "gfx1100">'])
+    def gpu_module():
+        mat_product_kernel.emit()
+
+    lowered_module = run_pipeline(
+        gpu_module,
+        Pipeline()
+        .Gpu(Pipeline().convert_gpu_to_rocdl())
+        .rocdl_attach_target(chip="gfx1100")
+        .gpu_to_llvm()
+        .lower_to_llvm()
+        .gpu_module_to_binary(),
+    )
+    hsaco = get_compile_object_bytes(lowered_module)
+    print(hsaco)
