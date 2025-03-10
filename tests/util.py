@@ -1,3 +1,6 @@
+import sys
+
+
 def jax_not_installed():
     try:
         from jaxlib import mlir
@@ -56,6 +59,7 @@ def hip_bindings_not_installed():
         # don't skip
         return False
 
-    except:
+    except Exception as e:
+        print(e, file=sys.stderr)
         # skip
         return True
