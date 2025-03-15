@@ -188,13 +188,13 @@ def infer_mlir_type(
     if isinstance(py_val, bool):
         return T.bool()
     elif isinstance(py_val, int):
-        if -(2 ** 31) <= py_val < 2 ** 31:
+        if -(2**31) <= py_val < 2**31:
             return T.i32()
-        elif 2 ** 31 <= py_val < 2 ** 32:
+        elif 2**31 <= py_val < 2**32:
             return T.ui32()
-        elif -(2 ** 63) <= py_val < 2 ** 63:
+        elif -(2**63) <= py_val < 2**63:
             return T.i64()
-        elif 2 ** 63 <= py_val < 2 ** 64:
+        elif 2**63 <= py_val < 2**64:
             return T.ui64()
         else:
             raise RuntimeError(f"Nonrepresentable integer {py_val}.")
@@ -438,3 +438,22 @@ class getitemproperty:
         # f is not a bound method since it was decorated...
         return self.f(self.instance, item, **kwargs)
 
+
+# stolen from https://web.archive.org/web/20220528202902/https://code.activestate.com/recipes/384122/
+class Infix:
+    def __init__(self, function):
+        self.function = function
+
+    def __rmatmul__(self, other):
+        def l(x, self=self, other=other):
+            return self.function(other, x, *self.args, **self.kwargs)
+
+        return Infix(l)
+
+    def __matmul__(self, other):
+        return self.function(other)
+
+    def __call__(self, *args, **kwargs):
+        self.kwargs = kwargs
+        self.args = args
+        return self

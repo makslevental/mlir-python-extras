@@ -1,3 +1,4 @@
+import ctypes
 import sys
 
 
@@ -63,3 +64,58 @@ def hip_bindings_not_installed():
         print(e, file=sys.stderr)
         # skip
         return True
+
+
+def chip_check(status):
+    import chip
+
+    if status != 0:
+        raise RuntimeError(
+            f"HIP Error {status}, {ctypes.string_at(chip.hipGetErrorString(status)).decode()}"
+        )
+
+
+def launch_kernel(
+    function,
+    gridX,
+    gridY,
+    gridZ,
+    warp_size,
+    num_warps,
+    stream,
+    shared_memory,
+    *args,
+):
+    import chip
+
+    from hip._util.types import DeviceArray
+
+    params = [None] * len(args)
+    addresses = [None] * len(args)
+    for i, p in enumerate(args):
+        if isinstance(p, DeviceArray):
+            addresses[i] = params[i] = p.createRef().as_c_void_p()
+        elif isinstance(p, int):
+            params[i] = ctypes.c_int32(p)
+            addresses[i] = ctypes.addressof(params[i])
+        else:
+            raise NotImplementedError(f"{p=} not supported with {p=}")
+
+    c_args = (ctypes.c_void_p * len(addresses))(*addresses)
+    function = ctypes.cast(function, chip.hipFunction_t)
+    stream = ctypes.cast(stream, chip.hipStream_t)
+    chip_check(
+        chip.hipModuleLaunchKernel(
+            function,
+            gridX,
+            gridY,
+            gridZ,
+            warp_size,
+            num_warps,
+            1,
+            shared_memory,
+            stream,
+            c_args,
+            None,
+        )
+    )

@@ -14,8 +14,7 @@ from mlir.dialects.math import fma
 from mlir.dialects.memref import cast
 
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import arith
-from mlir.extras.dialects.ext import scf
+from mlir.extras.dialects.ext import arith, scf, memref
 from mlir.extras.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences
@@ -35,14 +34,13 @@ from mlir.extras.dialects.ext.gpu import (
     get_compile_object_bytes,
 )
 from mlir.extras.dialects.ext.llvm import llvm_ptr_t
-from mlir.extras.dialects.ext.memref import alloc
-from mlir.extras.dialects.ext.memref import load, store
 from mlir.extras.dialects.ext.scf import forall, in_parallel_
+from mlir.extras.dialects.ext.vector import outer, load, shuffle
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from util import hip_bindings_not_installed, hip_check
+from util import hip_bindings_not_installed, hip_check, launch_kernel
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -50,7 +48,7 @@ pytest.mark.usefixtures("ctx")
 
 def test_basic(ctx: MLIRContext):
     unranked_memref_f32 = T.memref(element_type=T.f32())
-    mem = cast(unranked_memref_f32, alloc((10, 10), element_type=T.f32()))
+    mem = cast(unranked_memref_f32, memref.alloc((10, 10), element_type=T.f32()))
     host_register(mem)
 
     ctx.module.operation.verify()
@@ -67,8 +65,8 @@ def test_basic(ctx: MLIRContext):
 
 
 def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContext):
-    x = alloc((10, 10), T.f32())
-    y = alloc((10, 10), T.f32())
+    x = memref.alloc((10, 10), T.f32())
+    y = memref.alloc((10, 10), T.f32())
     alpha = arith.constant(1, T.f32())
 
     for i, j in forall(
@@ -77,10 +75,10 @@ def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContex
         [3, 3],
         device_mapping=[thread("x"), thread("y")],
     ):
-        a = load(x, (i, j))
-        b = load(y, (i, j))
+        a = memref.load(x, (i, j))
+        b = memref.load(y, (i, j))
         c = fma(alpha, a, b)
-        store(c, y, (i, j))
+        memref.store(c, y, (i, j))
 
         in_parallel_()
 
@@ -171,9 +169,9 @@ def test_class_call(ctx: MLIRContext):
             C[x, y] = a * b
             return
 
-    a = alloc((M, N), T.f32())
-    b = alloc((N, K), T.f32())
-    c = alloc((M, K), T.f32())
+    a = memref.alloc((M, N), T.f32())
+    b = memref.alloc((N, K), T.f32())
+    c = memref.alloc((M, K), T.f32())
 
     # this is to avoid python 3.8 parser
     eval(
@@ -239,9 +237,9 @@ def test_class_call_from_func(ctx: MLIRContext):
     @func(emit=True)
     @canonicalize(using=scf.canonicalizer)
     def main():
-        a = alloc((M, N), T.f32())
-        b = alloc((N, K), T.f32())
-        c = alloc((M, K), T.f32())
+        a = memref.alloc((M, N), T.f32())
+        b = memref.alloc((N, K), T.f32())
+        c = memref.alloc((M, K), T.f32())
 
         MyClass1
         eval(
@@ -312,9 +310,9 @@ def test_async_object(ctx: MLIRContext):
     @func(emit=True)
     @canonicalize(using=scf.canonicalizer)
     def main():
-        a = alloc((M, N), T.f32())
-        b = alloc((N, K), T.f32())
-        c = alloc((M, K), T.f32())
+        a = memref.alloc((M, N), T.f32())
+        b = memref.alloc((N, K), T.f32())
+        c = memref.alloc((M, K), T.f32())
 
         w = wait()
         stream = mlir_zero(llvm_ptr_t())
@@ -361,8 +359,8 @@ def test_async_object(ctx: MLIRContext):
 def test_launch_op(ctx: MLIRContext):
     @func(emit=True)
     def main():
-        data = alloc((2, 6), T.i32())
-        sum = alloc((2,), T.i32())
+        data = memref.alloc((2, 6), T.i32())
+        sum = memref.alloc((2,), T.i32())
 
         power_csts = [arith.constant(0)] + [arith.constant(2**i) for i in range(5)]
         odd_csts = [
@@ -457,8 +455,8 @@ def test_launch_op(ctx: MLIRContext):
 def test_launch_op_reduce_op(ctx: MLIRContext):
     @func(emit=True)
     def main():
-        data = alloc((2, 6), T.i32())
-        sum = alloc((2,), T.i32())
+        data = memref.alloc((2, 6), T.i32())
+        sum = memref.alloc((2,), T.i32())
 
         power_csts = [arith.constant(0)] + [arith.constant(2**i) for i in range(5)]
         odd_csts = [
@@ -735,64 +733,6 @@ def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-def chip_check(status):
-    import chip
-
-    if status != 0:
-        raise RuntimeError(
-            f"HIP Error {status}, {ctypes.string_at(chip.hipGetErrorString(status)).decode()}"
-        )
-
-
-def launch_kernel(
-    function,
-    gridX,
-    gridY,
-    gridZ,
-    warp_size,
-    num_warps,
-    stream,
-    shared_memory,
-    *args,
-):
-    import chip
-
-    from hip._util.types import DeviceArray
-
-    params = [None] * len(args)
-    addresses = [None] * len(args)
-    for i, p in enumerate(args):
-        if isinstance(p, DeviceArray):
-            addresses[i] = params[i] = p.createRef().as_c_void_p()
-        elif isinstance(p, int):
-            params[i] = ctypes.c_int32(p)
-            addresses[i] = ctypes.addressof(params[i])
-        else:
-            raise NotImplementedError(f"{p=} not supported with {p=}")
-
-    # global_scratch = chip.hipDeviceptr_t()
-    # addresses += [ctypes.addressof(global_scratch)]
-
-    c_args = (ctypes.c_void_p * len(addresses))(*addresses)
-    function = ctypes.cast(function, chip.hipFunction_t)
-    stream = ctypes.cast(stream, chip.hipStream_t)
-    chip_check(
-        chip.hipModuleLaunchKernel(
-            function,
-            gridX,
-            gridY,
-            gridZ,
-            warp_size,
-            num_warps,
-            1,
-            shared_memory,
-            stream,
-            c_args,
-            None,
-        )
-    )
-
-
 @pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu(ctx: MLIRContext):
     from hip import hip
@@ -894,6 +834,244 @@ def test_amdgpu(ctx: MLIRContext):
         with np.printoptions(threshold=np.inf, linewidth=200):
             print(correct)
             print(c_h)
+            assert False
+
+    hip_check(hip.hipFree(a_d))
+    hip_check(hip.hipFree(b_d))
+    hip_check(hip.hipFree(c_d))
+
+    hip_check(hip.hipModuleUnload(hip_module))
+
+
+@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
+def test_amdgpu_square(ctx: MLIRContext):
+    from hip import hip
+
+    set_container_module(ctx.module)
+
+    scale = 1024
+    M, K, N, dtype = scale, scale, scale, T.f32()
+
+    @gpu_func
+    def mat_product_kernel(
+        A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)
+    ):
+        x = block_dim.x * block_idx.x + thread_idx.x
+        y = block_dim.y * block_idx.y + thread_idx.y
+
+        one = arith.constant(1.0, type=dtype)
+        tmp = arith.constant(0, type=dtype)
+        for k, tmp, _ in scf.range_(K, iter_args=[tmp]):
+            tmp += A[x, k] * B[k, y]
+            tmp = scf.yield_(tmp)
+        C[x, y] = tmp + one
+
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    arch = props.gcnArchName.decode()
+
+    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    def gpu_module():
+        mat_product_kernel.emit()
+
+    lowered_module = run_pipeline(
+        gpu_module,
+        Pipeline()
+        .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
+        .rocdl_attach_target(chip=arch)
+        .gpu_to_llvm()
+        .lower_to_llvm()
+        .gpu_module_to_binary(),
+    )
+
+    hsaco = get_compile_object_bytes(lowered_module)
+    hip_module = hip_check(hip.hipModuleLoadData(hsaco))
+    function = hip_check(hip.hipModuleGetFunction(hip_module, b"mat_product_kernel"))
+
+    # kernel launch
+
+    a_h = np.random.rand(M, K).astype(dtype=np.float32)
+    b_h = np.random.rand(K, N).astype(dtype=np.float32)
+    c_h = -3 * np.ones((M, N), dtype=np.float32)
+
+    a_num_bytes = a_h.size * a_h.itemsize
+    b_num_bytes = b_h.size * b_h.itemsize
+    c_num_bytes = c_h.size * c_h.itemsize
+
+    a_d = hip_check(hip.hipMalloc(a_num_bytes))
+    b_d = hip_check(hip.hipMalloc(b_num_bytes))
+    c_d = hip_check(hip.hipMalloc(c_num_bytes))
+
+    hip_check(
+        hip.hipMemcpy(a_d, a_h, a_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(b_d, b_h, b_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(c_d, c_h, c_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+
+    gridX = M // 32
+    gridY = K // 8
+    gridZ = 1
+    warp_size = 32
+    num_warps = 8
+    stream = 0
+    shared_memory = 0
+
+    launch_kernel(
+        function.as_c_void_p(),
+        gridX,
+        gridY,
+        gridZ,
+        warp_size,
+        num_warps,
+        stream,
+        shared_memory,
+        a_d,
+        b_d,
+        c_d,
+    )
+
+    correct = a_h @ b_h + 1
+    assert np.allclose(c_h, -3.0)
+    assert not np.allclose(correct, c_h)
+    hip_check(
+        hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost)
+    )
+
+    if not np.allclose(c_h, correct):
+        with np.printoptions(threshold=np.inf, linewidth=200):
+            print(correct)
+            print(c_h)
+            assert False
+
+    hip_check(hip.hipFree(a_d))
+    hip_check(hip.hipFree(b_d))
+    hip_check(hip.hipFree(c_d))
+
+    hip_check(hip.hipModuleUnload(hip_module))
+
+
+@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
+def test_amdgpu_vector(ctx: MLIRContext):
+    from hip import hip
+
+    set_container_module(ctx.module)
+
+    scale = 2
+    M, K, N = 2 * scale, 4 * scale, 6 * scale
+    v2f32 = T.vector(2, T.f32())
+
+    @gpu_func
+    def smol_matmul(
+        A: T.memref(M, K, T.f32()),
+        B: T.memref(K, N, T.f32()),
+        C: T.memref(M, N, T.f32()),
+    ):
+        cst = arith.constant(np.full([4], 0.0, np.float32), T.vector(4, T.f32()))
+        cst_0 = arith.constant(
+            np.full([2, 2], 0.0, np.float32), T.vector(2, 2, T.f32())
+        )
+        for i, C, v0 in scf.range_(0, M, 2, iter_args=[C]):
+            for j, C, v1 in scf.range_(0, N, 2, iter_args=[C]):
+                for k, C, v2 in scf.range_(0, K, 2, iter_args=[C]):
+                    cst[0::1] = A @ load(v2f32) @ [i, k]
+                    cst[2::1] = A @ load(v2f32) @ [i + 1, k]
+                    cst_0[0] = C @ load(v2f32) @ [i, j]
+                    cst_0[1] = C @ load(v2f32) @ [i + 1, j]
+                    cst = cst @ shuffle(mask=[0, 2, 1, 3]) @ cst
+
+                    v19 = cst[0:2:1] @ outer(cst_0) @ (B @ load(v2f32) @ [k, j])
+                    v20 = cst[2:4:1] @ outer(v19) @ (B @ load(v2f32) @ [k + 1, j])
+                    C[i, j] = v20[0]
+                    C[i + 1, j] = v20[1]
+
+                    scf.yield_(C)
+                scf.yield_(v2)
+            scf.yield_(v1)
+
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    arch = props.gcnArchName.decode()
+
+    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    def gpu_module():
+        smol_matmul.emit()
+
+    lowered_module = run_pipeline(
+        gpu_module,
+        Pipeline()
+        .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
+        .rocdl_attach_target(chip=arch)
+        .gpu_to_llvm()
+        .lower_to_llvm()
+        .gpu_module_to_binary(),
+    )
+
+    hsaco = get_compile_object_bytes(lowered_module)
+    hip_module = hip_check(hip.hipModuleLoadData(hsaco))
+    function = hip_check(
+        hip.hipModuleGetFunction(hip_module, smol_matmul.__name__.encode())
+    )
+
+    a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np.float32)
+    b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np.float32)
+    c_h = np.zeros((M, N), dtype=np.float32)
+
+    a_num_bytes = a_h.size * a_h.itemsize
+    b_num_bytes = b_h.size * b_h.itemsize
+    c_num_bytes = c_h.size * c_h.itemsize
+
+    a_d = hip_check(hip.hipMalloc(a_num_bytes))
+    b_d = hip_check(hip.hipMalloc(b_num_bytes))
+    c_d = hip_check(hip.hipMalloc(c_num_bytes))
+
+    hip_check(
+        hip.hipMemcpy(a_d, a_h, a_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(b_d, b_h, b_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(c_d, c_h, c_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+
+    gridX = max(M // 32, 1)
+    gridY = max(K // 8, 1)
+    gridZ = 1
+    warp_size = 32
+    num_warps = 8
+    stream = 0
+    shared_memory = 0
+
+    launch_kernel(
+        function.as_c_void_p(),
+        gridX,
+        gridY,
+        gridZ,
+        warp_size,
+        num_warps,
+        stream,
+        shared_memory,
+        a_d,
+        b_d,
+        c_d,
+    )
+
+    correct = a_h @ b_h
+    assert np.allclose(c_h, 0.0)
+    assert not np.allclose(correct, c_h)
+    hip_check(
+        hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost)
+    )
+
+    if not np.allclose(c_h, correct):
+        with np.printoptions(threshold=np.inf, linewidth=200):
+            print(correct)
+            print(c_h)
+            assert False
 
     hip_check(hip.hipFree(a_d))
     hip_check(hip.hipFree(b_d))

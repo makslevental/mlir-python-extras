@@ -1,9 +1,9 @@
 import inspect
 from typing import List
 
-from ._shaped_value import ShapedValue
+from ._shaped_value import ShapedValue, _indices_to_indexer
 from .arith import ArithValue, FastMathFlags, constant, Scalar
-from ...util import get_user_code_loc, _update_caller_vars
+from ...util import get_user_code_loc, _update_caller_vars, Infix
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects._ods_common import _dispatch_mixed_values
 
@@ -30,16 +30,47 @@ class Vector(ArithValue):
             raise RuntimeError("None idx not supported")
 
         idx = list((idx,) if isinstance(idx, (int, Scalar, slice)) else idx)
-        return extract(self, tuple(idx), loc=loc)
+        for i, d in enumerate(idx):
+            if isinstance(d, int):
+                idx[i] = constant(d, index=True, loc=loc)
+        if all(isinstance(d, (int, Scalar)) for d in idx):
+            return extract(self, tuple(idx), loc=loc)
+        else:
+            indexer = _indices_to_indexer(idx, self.shape)
+            return extract_strided_slice(
+                self,
+                offsets=indexer.static_offsets(),
+                sizes=indexer.static_sizes(),
+                strides=indexer.static_strides(),
+                loc=loc,
+            )
 
     def __setitem__(self, idx, val):
         loc = get_user_code_loc()
 
         if not self.has_rank():
-            raise ValueError("only ranked memref slicing/indexing supported")
+            raise ValueError("only ranked vector slicing/indexing supported")
 
-        idx = list((idx,) if isinstance(idx, (Scalar, int, Value)) else idx)
-        res = insert(self, val, idx, loc=loc)
+        idx = list((idx,) if isinstance(idx, (Scalar, int, Value, slice)) else idx)
+        for i, d in enumerate(idx):
+            if isinstance(d, int):
+                idx[i] = constant(d, index=True, loc=loc)
+        if all(isinstance(d, Scalar) for d in idx):
+            res = insert(self, val, idx, loc=loc)
+        else:
+            indexer = _indices_to_indexer(tuple(idx), self.shape)
+            if indexer.is_constant():
+                res = insert_strided_slice(
+                    val,
+                    self,
+                    offsets=indexer.static_offsets(),
+                    strides=indexer.static_strides(),
+                    loc=loc,
+                    ip=None,
+                )
+            else:
+                raise ValueError(f"non-constant indices not supported {indexer}")
+
         previous_frame = inspect.currentframe().f_back
         _update_caller_vars(previous_frame, [self], [res])
 
@@ -214,3 +245,44 @@ def extract_strided_slice(vector, offsets, sizes, strides, *, loc=None, ip=None)
         loc=loc,
         ip=ip,
     )
+
+
+_outerproduct = outerproduct
+
+
+def outerproduct(lhs, rhs, acc=None, *, kind=None, loc=None, ip=None):
+    if kind is None:
+        kind = CombiningKind.ADD
+    result_shape = [lhs.shape[0], rhs.shape[0]]
+    result = VectorType.get(result_shape, lhs.type.element_type)
+    return OuterProductOp(
+        result=result, lhs=lhs, rhs=rhs, acc=acc, kind=kind, loc=loc, ip=ip
+    ).result
+
+
+@Infix
+def outer(lhs, rhs, acc=None, *, kind=None, loc=None, ip=None):
+    return outerproduct(lhs, rhs, acc, kind=kind, loc=loc, ip=ip)
+
+
+_shuffle = shuffle
+
+
+@Infix
+def shuffle(v1, v2, mask, *, loc=None, ip=None):
+    return ShuffleOp(v1=v1, v2=v2, mask=mask, loc=loc, ip=ip).result
+
+
+_load = load
+
+
+@Infix
+def load(base, indices, result, *, nontemporal=None, loc=None, ip=None):
+    return LoadOp(
+        result=result,
+        base=base,
+        indices=indices,
+        nontemporal=nontemporal,
+        loc=loc,
+        ip=ip,
+    ).result
