@@ -28,6 +28,7 @@ from mlir.extras.context import ExplicitlyManagedModule
 # you need this to register the memref value caster
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext import arith, linalg, memref, transform, vector, scf, func
+from mlir.extras.dialects.ext.vector import outer, shuffle, load
 from mlir.extras.dialects.ext.transform import (
     get_parent_op,
     match,
@@ -50,7 +51,8 @@ def test_e2e(ctx: MLIRContext):
     backend = LLVMJITBackend()
     module = ExplicitlyManagedModule()
 
-    M, K, N = 2, 4, 6
+    scale = 16
+    M, K, N = 2 * scale, 4 * scale, 6 * scale
 
     @func.func
     def smol_matmul(
@@ -113,6 +115,8 @@ def test_e2e(ctx: MLIRContext):
         ),
     )
 
+    print(vectorized_module)
+
     compiled_module = backend.compile(
         find_ops(
             vectorized_module.operation,
@@ -120,6 +124,55 @@ def test_e2e(ctx: MLIRContext):
             and x.attributes["transform.target_tag"].value == "payload",
             single=True,
         ),
+        kernel_name=smol_matmul.__name__,
+        pipeline=Pipeline().lower_to_llvm(),
+    )
+
+    A = np.random.randint(0, 10, (M, K)).astype(np.float32)
+    B = np.random.randint(0, 10, (K, N)).astype(np.float32)
+    C = np.zeros((M, N), dtype=np.float32)
+
+    backend.load(compiled_module).smol_matmul_capi_wrapper(A, B, C)
+    assert np.allclose(A @ B, C)
+
+
+def test_e2e_sugar(ctx: MLIRContext):
+    backend = LLVMJITBackend()
+
+    scale = 16
+    M, K, N = 2 * scale, 4 * scale, 6 * scale
+    v2f32 = T.vector(2, T.f32())
+
+    @func.func(emit=True)
+    def smol_matmul(
+        A: T.memref(M, K, T.f32()),
+        B: T.memref(K, N, T.f32()),
+        C: T.memref(M, N, T.f32()),
+    ):
+        cst = arith.constant(np.full([4], 0.0, np.float32), T.vector(4, T.f32()))
+        cst_0 = arith.constant(
+            np.full([2, 2], 0.0, np.float32), T.vector(2, 2, T.f32())
+        )
+        for i, C, v0 in scf.range_(0, M, 2, iter_args=[C]):
+            for j, C, v1 in scf.range_(0, N, 2, iter_args=[C]):
+                for k, C, v2 in scf.range_(0, K, 2, iter_args=[C]):
+                    cst[0::1] = A @ load(v2f32) @ [i, k]
+                    cst[2::1] = A @ load(v2f32) @ [i + 1, k]
+                    cst_0[0] = C @ load(v2f32) @ [i, j]
+                    cst_0[1] = C @ load(v2f32) @ [i + 1, j]
+                    cst = cst @ shuffle(mask=[0, 2, 1, 3]) @ cst
+
+                    v19 = cst[0:2:1] @ outer(cst_0) @ (B @ load(v2f32) @ [k, j])
+                    v20 = cst[2:4:1] @ outer(v19) @ (B @ load(v2f32) @ [k + 1, j])
+                    C[i, j] = v20[0]
+                    C[i + 1, j] = v20[1]
+
+                    scf.yield_(C)
+                scf.yield_(v2)
+            scf.yield_(v1)
+
+    compiled_module = backend.compile(
+        ctx.module,
         kernel_name=smol_matmul.__name__,
         pipeline=Pipeline().lower_to_llvm(),
     )

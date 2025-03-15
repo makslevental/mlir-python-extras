@@ -7,7 +7,7 @@ import types
 from abc import ABC, abstractmethod
 from dis import findlinestarts
 from opcode import opmap
-from typing import List, Union, Sequence
+from typing import List, Union, Sequence, get_type_hints
 
 import astunparse
 from bytecode import ConcreteBytecode
@@ -27,6 +27,43 @@ class Transformer(ast.NodeTransformer):
 class StrictTransformer(Transformer):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         return node
+
+
+# https://stackoverflow.com/a/66582895/9045206
+class AnnotationsCollector(ast.NodeVisitor):
+    def __init__(self):
+        self.annotations = {}
+
+    def visit_AnnAssign(self, node):
+        if node.simple:
+            # 'simple' == a single name, not an attribute or subscription.
+            # we can therefore count on `node.target.id` to exist. This is
+            # the same criteria used for module and class-level variable
+            # annotations.
+            self.annotations[node.target.id] = node.annotation
+
+
+def function_local_annotations(func):
+    """Return a mapping of name to string annotations for function locals
+
+    Python does not retain PEP 526 "variable: annotation" variable annotations
+    within a function body, as local variables do not have a lifetime beyond
+    the local namespace. This function extracts the mapping from functions that
+    have source code available.
+
+    """
+    source = inspect.getsource(func)
+    mod = ast.parse(source)
+    assert mod.body and isinstance(mod.body[0], (ast.FunctionDef, ast.AsyncFunctionDef))
+    collector = AnnotationsCollector()
+    collector.visit(mod.body[0])
+    func.__annotations__.update(
+        {
+            name: ast.get_source_segment(source, node)
+            for name, node in collector.annotations.items()
+        }
+    )
+    return get_type_hints(func)
 
 
 def transform_func(f, *transformer_ctors: type(Transformer)):

@@ -3,9 +3,9 @@ from typing import Sequence, Union
 
 import numpy as np
 
-from ._shaped_value import ShapedValue
+from ._shaped_value import ShapedValue, _indices_to_indexer
 from .arith import Scalar, constant
-from .tensor import _indices_to_indexer, compute_result_shape_reassoc_list
+from .tensor import compute_result_shape_reassoc_list
 from .vector import Vector
 from ... import types as T
 from ...meta import region_op
@@ -15,7 +15,7 @@ from ...util import (
     infer_mlir_type,
 )
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import memref, arith
+from ....dialects import memref, arith, vector
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
 from ....ir import (
@@ -191,7 +191,15 @@ class MemRef(Value):
             assert isinstance(
                 val, (Scalar, Vector)
             ), "coordinate insert requires scalar element"
-            store(val, self, idx, loc=loc)
+            if isinstance(val, Scalar):
+                store(val, self, idx, loc=loc)
+            elif isinstance(val, Vector):
+                return vector.StoreOp(
+                    valueToStore=val,
+                    base=self,
+                    indices=idx,
+                    loc=loc,
+                )
         else:
             _copy_to_subview(self, val, tuple(idx), loc=loc)
 
