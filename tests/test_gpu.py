@@ -962,6 +962,7 @@ def test_amdgpu_vector(ctx: MLIRContext):
 
     scale = 2
     M, K, N = 2 * scale, 4 * scale, 6 * scale
+    tz_a, tz_b, tz_c = [2, 2, 2]
     v2f32 = T.vector(2, T.f32())
 
     @gpu_func
@@ -972,11 +973,11 @@ def test_amdgpu_vector(ctx: MLIRContext):
     ):
         cst = arith.constant(np.full([4], 0.0, np.float32), T.vector(4, T.f32()))
         cst_0 = arith.constant(
-            np.full([2, 2], 0.0, np.float32), T.vector(2, 2, T.f32())
+            np.full([tz_a, tz_b], 0.0, np.float32), T.vector(tz_a, tz_b, T.f32())
         )
-        for i, C, v0 in scf.range_(0, M, 2, iter_args=[C]):
-            for j, C, v1 in scf.range_(0, N, 2, iter_args=[C]):
-                for k, C, v2 in scf.range_(0, K, 2, iter_args=[C]):
+        for i, C, v0 in scf.range_(0, M, tz_a, iter_args=[C]):
+            for j, C, v1 in scf.range_(0, N, tz_b, iter_args=[C]):
+                for k, C, v2 in scf.range_(0, K, tz_c, iter_args=[C]):
                     cst[0::1] = A @ load(v2f32) @ [i, k]
                     cst[2::1] = A @ load(v2f32) @ [i + 1, k]
                     cst_0[0] = C @ load(v2f32) @ [i, j]
@@ -1066,6 +1067,112 @@ def test_amdgpu_vector(ctx: MLIRContext):
     hip_check(
         hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost)
     )
+
+    if not np.allclose(c_h, correct):
+        with np.printoptions(threshold=np.inf, linewidth=200):
+            print(correct)
+            print(c_h)
+            assert False
+
+    hip_check(hip.hipFree(a_d))
+    hip_check(hip.hipFree(b_d))
+    hip_check(hip.hipFree(c_d))
+
+    hip_check(hip.hipModuleUnload(hip_module))
+
+
+@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
+def test_amdgpu_bank_conflicts(ctx: MLIRContext):
+    from hip import hip
+
+    set_container_module(ctx.module)
+
+    M = 32
+
+    @gpu_func
+    def smol_matmul(A: T.memref(M, M, T.f32()), B: T.memref(M, M, T.f32())):
+        for i in range(M):
+            a = A[i, thread_idx.x]
+            B[i, thread_idx.x] = a * a
+
+    @gpu_func
+    def smol_matmul_transpose(A: T.memref(M, M, T.f32()), B: T.memref(M, M, T.f32())):
+        for i in range(M):
+            a = A[i, thread_idx.x]
+            B[thread_idx.x, i] = a * a
+
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    arch = props.gcnArchName.decode()
+
+    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    def gpu_module():
+        smol_matmul.emit()
+        smol_matmul_transpose.emit()
+
+    lowered_module = run_pipeline(
+        gpu_module,
+        Pipeline()
+        .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
+        .rocdl_attach_target(chip=arch)
+        .gpu_to_llvm()
+        .lower_to_llvm()
+        .gpu_module_to_binary(),
+    )
+
+    hsaco = get_compile_object_bytes(lowered_module)
+    hip_module = hip_check(hip.hipModuleLoadData(hsaco))
+    function = hip_check(
+        hip.hipModuleGetFunction(hip_module, smol_matmul_transpose.__name__.encode())
+    )
+
+    a_h = np.arange(M).astype(dtype=np.float32)
+    a_h = np.tile(a_h, (M, 1))
+    b_h = np.zeros((M, M), dtype=np.float32)
+
+    a_num_bytes = a_h.size * a_h.itemsize
+    b_num_bytes = b_h.size * b_h.itemsize
+
+    a_d = hip_check(hip.hipMalloc(a_num_bytes))
+    b_d = hip_check(hip.hipMalloc(b_num_bytes))
+
+    hip_check(
+        hip.hipMemcpy(a_d, a_h, a_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+    hip_check(
+        hip.hipMemcpy(b_d, b_h, b_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice)
+    )
+
+    gridX = max(M // 32, 1)
+    gridY = max(M // 8, 1)
+    gridZ = 1
+    warp_size = 32
+    num_warps = 8
+    stream = 0
+    shared_memory = 0
+
+    launch_kernel(
+        function.as_c_void_p(),
+        gridX,
+        gridY,
+        gridZ,
+        warp_size,
+        num_warps,
+        stream,
+        shared_memory,
+        a_d,
+        b_d,
+    )
+
+    # correct = a_h @ b_h
+    # assert np.allclose(c_h, 0.0)
+    # assert not np.allclose(correct, c_h)
+    hip_check(
+        hip.hipMemcpy(b_h, b_d, b_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost)
+    )
+    with np.printoptions(threshold=np.inf, linewidth=200):
+        print(b_h)
+    return
 
     if not np.allclose(c_h, correct):
         with np.printoptions(threshold=np.inf, linewidth=200):

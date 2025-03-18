@@ -20,6 +20,8 @@ from mlir.ir import (
     ShapedType,
     AffineMap,
     AffineConstantExpr,
+    Attribute,
+    ArrayAttr,
 )
 
 from mlir.extras import types as T
@@ -28,6 +30,7 @@ from mlir.extras.context import ExplicitlyManagedModule
 # you need this to register the memref value caster
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext import arith, linalg, memref, transform, vector, scf, func
+from mlir.dialects import affine
 from mlir.extras.dialects.ext.vector import outer, shuffle, load
 from mlir.extras.dialects.ext.transform import (
     get_parent_op,
@@ -71,7 +74,7 @@ def test_e2e(ctx: MLIRContext):
         @named_sequence("main", [any_op_t()], [])
         def main(module_op: any_op_t()):
             matmul = match(module_op, ops=["linalg.matmul"])
-            tiled_matmul, (_, _, inner_loop) = tile_to_scf_for(matmul, sizes=[2, 2, 2])
+            tiled_matmul, (_, _, inner_loop) = tile_to_scf_for(matmul, sizes=[4, 3, 8])
             transform.structured.vectorize_children_and_apply_patterns(
                 get_parent_op(
                     transform_any_op_t(), tiled_matmul, isolated_from_above=True
@@ -136,12 +139,31 @@ def test_e2e(ctx: MLIRContext):
     assert np.allclose(A @ B, C)
 
 
-def test_e2e_sugar(ctx: MLIRContext):
+testdata = (
+    (2, 2, 2),
+    (2, 3, 2),
+    (2, 3, 4),
+    (2, 4, 8),
+    (2, 4, 16),
+    (4, 4, 16),
+    (4, 8, 16),
+)
+
+
+@pytest.mark.parametrize("tz_a, tz_b, tz_c", testdata)
+def test_e2e_sugar(ctx: MLIRContext, tz_a, tz_b, tz_c):
     backend = LLVMJITBackend()
 
     scale = 16
     M, K, N = 2 * scale, 4 * scale, 6 * scale
-    v2f32 = T.vector(2, T.f32())
+
+    vaf32 = T.vector(tz_a, T.f32())
+    vbf32 = T.vector(tz_b, T.f32())
+    vcf32 = T.vector(tz_c, T.f32())
+    vacrossbf32 = T.vector(tz_a, tz_b, T.f32())
+    vatimescf32 = T.vector(tz_a * tz_c, T.f32())
+
+    shuffle_mask = np.arange(tz_a * tz_c).reshape(tz_a, tz_c).reshape((-1,), order="F")
 
     @func.func(emit=True)
     def smol_matmul(
@@ -149,27 +171,32 @@ def test_e2e_sugar(ctx: MLIRContext):
         B: T.memref(K, N, T.f32()),
         C: T.memref(M, N, T.f32()),
     ):
-        cst = arith.constant(np.full([4], 0.0, np.float32), T.vector(4, T.f32()))
-        cst_0 = arith.constant(
-            np.full([2, 2], 0.0, np.float32), T.vector(2, 2, T.f32())
-        )
-        for i, C, v0 in scf.range_(0, M, 2, iter_args=[C]):
-            for j, C, v1 in scf.range_(0, N, 2, iter_args=[C]):
-                for k, C, v2 in scf.range_(0, K, 2, iter_args=[C]):
-                    cst[0::1] = A @ load(v2f32) @ [i, k]
-                    cst[2::1] = A @ load(v2f32) @ [i + 1, k]
-                    cst_0[0] = C @ load(v2f32) @ [i, j]
-                    cst_0[1] = C @ load(v2f32) @ [i + 1, j]
-                    cst = cst @ shuffle(mask=[0, 2, 1, 3]) @ cst
+        cst = arith.constant(np.full([tz_a * tz_c], 0.0, np.float32), vatimescf32)
+        acc = arith.constant(np.full([tz_a, tz_b], 0.0, np.float32), vacrossbf32)
 
-                    v19 = cst[0:2:1] @ outer(cst_0) @ (B @ load(v2f32) @ [k, j])
-                    v20 = cst[2:4:1] @ outer(v19) @ (B @ load(v2f32) @ [k + 1, j])
-                    C[i, j] = v20[0]
-                    C[i + 1, j] = v20[1]
+        for m, C, v0 in scf.range_(0, M, tz_a, iter_args=[C]):
+            for n, C, v1 in scf.range_(0, N, tz_b, iter_args=[C]):
+                for k, C, v2 in scf.range_(0, K, tz_c, iter_args=[C]):
+                    for i in range(tz_a):
+                        cst[tz_c * i :: 1] = A @ load(vcf32) @ [m + i, k]
+                    cst = cst @ shuffle(mask=shuffle_mask) @ cst
 
-                    scf.yield_(C)
-                scf.yield_(v2)
-            scf.yield_(v1)
+                    for i in range(tz_a):
+                        acc[i] = C @ load(vbf32) @ [m + i, n]
+
+                    for i in range(tz_c):
+                        acc = (
+                            (cst[i * tz_a : (i + 1) * tz_a : 1])
+                            @ outer(acc)
+                            @ (B @ load(vbf32) @ [k + i, n])
+                        )
+
+                    for i in range(tz_a):
+                        C[m + i, n] = acc[i]
+
+                    scf.yield_(results_=[C])
+                scf.yield_(results_=[v2])
+            scf.yield_(results_=[v1])
 
     compiled_module = backend.compile(
         ctx.module,
