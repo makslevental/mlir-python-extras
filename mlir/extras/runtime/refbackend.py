@@ -179,22 +179,17 @@ def make_return_consumer(kernel_func):
 # This function will be called KERNEL_NAME_capi_wrapper and will have a {llvm.emit_c_interface} attribute.
 # Note there might be other such functions in the final module (gpu-lower-to-nvvm-pipeline somehow also inserts some like this).
 def make_kernel_wrapper(kernel_func, return_consumer=None):
-    c_api_compatible_types = [
-        T.memref(element_type=t.element_type) if MemRefType.isinstance(t) else t
-        for t in kernel_func.function_type.value.results
-    ]
-
     input_types = kernel_func.function_type.value.inputs
 
     @FuncOp.from_py_func(*input_types, name=f"{kernel_func.name.value}_capi_wrapper")
     def wrapper(*args, **_kwargs):
         results = CallOp(kernel_func, list(args)).results
-        c_api_compatible_results = []
-        for i, a in enumerate(results):
-            if MemRefType.isinstance(a.type):
-                a = cast(c_api_compatible_types[i], a)
-            c_api_compatible_results.append(a)
         if return_consumer is not None:
+            c_api_compatible_results = []
+            for i, a in enumerate(results):
+                if MemRefType.isinstance(a.type):
+                    a = cast(T.memref(element_type=a.type.element_type), a)
+                c_api_compatible_results.append(a)
             CallOp(return_consumer, c_api_compatible_results)
 
     wrapper_func_op = wrapper.func_op

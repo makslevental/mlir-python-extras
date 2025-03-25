@@ -505,7 +505,7 @@ def test_setting_memref_diagonal(ctx: MLIRContext, backend: LLVMJITBackend):
                 T.f32(), index_cast(T.i32(), i)
             )
             res = yield it_mem
-        return res
+        return res, res
 
     memfoo.emit()
 
@@ -520,8 +520,9 @@ def test_setting_memref_diagonal(ctx: MLIRContext, backend: LLVMJITBackend):
     A = np.ones((K, K)).astype(np.float32)
     AA = ctypes.pointer(ctypes.pointer(get_ranked_memref_descriptor(A)))
 
-    results = invoker.memfoo_capi_wrapper(AA)
+    results, results1 = invoker.memfoo_capi_wrapper(AA)
     assert np.array_equal(np.diagonal(results), np.arange(1, K + 1))
+    assert np.array_equal(np.diagonal(results1), np.arange(1, K + 1))
 
 
 def test_setting_memref_diagonal_no_iter(ctx: MLIRContext, backend: LLVMJITBackend):
@@ -535,6 +536,7 @@ def test_setting_memref_diagonal_no_iter(ctx: MLIRContext, backend: LLVMJITBacke
             mem[i, i] = mem[i, i] + mem[i, i] * sitofp(T.f32(), index_cast(T.i32(), i))
 
     memfoo.emit()
+    print(ctx.module)
 
     module = backend.compile(
         ctx.module,
