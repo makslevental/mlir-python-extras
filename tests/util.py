@@ -50,6 +50,12 @@ def hip_check(call_result):
     return result
 
 
+def hip_synchronize():
+    from hip import hip
+
+    hip.hipDeviceSynchronize()
+
+
 def hip_bindings_not_installed():
     try:
         from hip import hip
