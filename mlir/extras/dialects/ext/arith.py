@@ -126,8 +126,8 @@ def constant(
 
 def index_cast(
     in_: Value,
-    *,
     to: Type = None,
+    *,
     out: Type = None,
     loc: Location = None,
     ip: InsertionPoint = None,
