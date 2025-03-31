@@ -15,7 +15,7 @@ from ...util import (
     infer_mlir_type,
 )
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import memref, arith, vector
+from ....dialects import memref, arith, vector, builtin
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
 from ....ir import (
@@ -24,6 +24,8 @@ from ....ir import (
     ShapedType,
     Type,
     Value,
+    SymbolTable,
+    InsertionPoint,
 )
 
 S = ShapedType.get_dynamic_size()
@@ -71,6 +73,7 @@ _alloc = alloc
 def alloc(
     sizes: Union[int, Value],
     element_type: Type = None,
+    *,
     memory_space=None,
     alignment=None,
     loc=None,
@@ -367,7 +370,7 @@ def dim(source, index, *, loc=None, ip=None):
 def global_(
     initial_value=None,
     sym_name=None,
-    type_=None,
+    type=None,
     sym_visibility="private",
     constant=None,
     alignment=None,
@@ -385,20 +388,21 @@ def global_(
     if loc is None:
         loc = get_user_code_loc()
     if initial_value is None:
-        assert type_ is not None
+        assert type is not None
     else:
         assert isinstance(initial_value, np.ndarray)
-        type_ = infer_mlir_type(initial_value, memref=True)
+        if type is None:
+            type = infer_mlir_type(initial_value, memref=True)
         initial_value = DenseElementsAttr.get(
             initial_value,
-            type=type_.element_type,
+            type=type.element_type,
             context=None,
         )
         constant = True
 
     return memref.global_(
         sym_name,
-        type_,
+        type,
         sym_visibility=sym_visibility,
         initial_value=initial_value,
         constant=constant,
@@ -422,3 +426,43 @@ def view(source, shape, dtype=None, shift=0, memory_space=None):
         byte_shift,
         [],
     )
+
+
+_get_global = get_global
+
+
+def get_global(
+    name_or_global, *, name=None, global_=None, result=None, loc=None, ip=None
+):
+    if isinstance(name_or_global, GlobalOp):
+        global_ = name_or_global
+    elif isinstance(name_or_global, str):
+        name = name_or_global
+    elif name_or_global is not None:
+        raise ValueError(
+            f"only string or GlobalOp can be provided; got {name_or_global}"
+        )
+
+    if global_ is None:
+        assert name is not None, "name must be provided"
+
+        if result is None:
+
+            def callback(symbol_table_op, _uses_visible):
+                nonlocal global_
+                sym_table = SymbolTable(symbol_table_op)
+                if name in sym_table:
+                    global_ = sym_table[name]
+
+            current_owner = InsertionPoint.current.block.owner
+            while not isinstance(current_owner.opview, builtin.ModuleOp):
+                current_owner = current_owner.parent
+            SymbolTable.walk_symbol_tables(current_owner, True, callback)
+            if global_ is None:
+                raise RuntimeError(f"couldn't find symbol for {name}")
+
+    if not isinstance(global_, GlobalOp):
+        raise RuntimeError(f"expected memref.global, got {global_}")
+    result = global_.type_.value
+    name = global_.sym_name.value
+    return GetGlobalOp(result=result, name=name, loc=loc, ip=ip).result

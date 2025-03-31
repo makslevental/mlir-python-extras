@@ -153,6 +153,9 @@ def smem_space(int=False):
     return address_space_attr(a)
 
 
+lds_space = smem_space
+
+
 @_cext.register_operation(_Dialect, replace=True)
 class GPUModuleOp(GPUModuleOp):
     def __init__(

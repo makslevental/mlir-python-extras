@@ -83,11 +83,11 @@ def chip_check(status):
 
 def launch_kernel(
     function,
-    gridX,
-    gridY,
-    gridZ,
-    warp_size,
-    num_warps,
+    blocks_per_grid_x,
+    blocks_per_grid_y,
+    blocks_per_grid_z,
+    threads_per_block_x,
+    threads_per_block_y,
     stream,
     shared_memory,
     *args,
@@ -113,11 +113,11 @@ def launch_kernel(
     chip_check(
         chip.hipModuleLaunchKernel(
             function,
-            gridX,
-            gridY,
-            gridZ,
-            warp_size,
-            num_warps,
+            blocks_per_grid_x,
+            blocks_per_grid_y,
+            blocks_per_grid_z,
+            threads_per_block_x,
+            threads_per_block_y,
             1,
             shared_memory,
             stream,
