@@ -88,12 +88,14 @@ def launch_kernel(
     blocks_per_grid_z,
     threads_per_block_x,
     threads_per_block_y,
+    threads_per_block_z,
     stream,
     shared_memory,
     *args,
 ):
     import chip
 
+    import hip
     from hip._util.types import DeviceArray
 
     params = [None] * len(args)
@@ -110,18 +112,29 @@ def launch_kernel(
     c_args = (ctypes.c_void_p * len(addresses))(*addresses)
     function = ctypes.cast(function, chip.hipFunction_t)
     stream = ctypes.cast(stream, chip.hipStream_t)
-    chip_check(
-        chip.hipModuleLaunchKernel(
-            function,
-            blocks_per_grid_x,
-            blocks_per_grid_y,
-            blocks_per_grid_z,
-            threads_per_block_x,
-            threads_per_block_y,
-            1,
-            shared_memory,
-            stream,
-            c_args,
-            None,
-        )
+
+    tstart = hip_check(hip.hip.hipEventCreate())
+    tstop = hip_check(hip.hip.hipEventCreate())
+    hip_check(hip.hip.hipEventRecord(tstart, None))
+
+    r = chip.hipModuleLaunchKernel(
+        function,
+        blocks_per_grid_x,
+        blocks_per_grid_y,
+        blocks_per_grid_z,
+        threads_per_block_x,
+        threads_per_block_y,
+        threads_per_block_z,
+        shared_memory,
+        stream,
+        c_args,
+        None,
     )
+
+    hip_check(hip.hip.hipEventRecord(tstop, None))
+    hip_check(hip.hip.hipEventSynchronize(tstop))
+    time_compute = hip_check(hip.hip.hipEventElapsedTime(tstart, tstop))
+
+    chip_check(r)
+
+    return time_compute
