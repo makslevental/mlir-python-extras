@@ -379,6 +379,159 @@ launch_params[kernel3_registers.__name__] = (
     0,
 )
 
+
+@gpu_func(emit=True)
+@canonicalize(using=scf.canonicalizer)
+def kernel4_gmem_db(
+    A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.memref(M, N, T.f32())
+):
+    tid_x = thread_idx.x
+    bid_x = block_idx.x
+    bid_y = block_idx.y
+
+    # Thread Tile size
+    TN = 4
+    TM = 4
+
+    nbWaves = BLOCK_SIZE // 32
+    # Wave Tile size
+    WN = 64
+    WM = BN * BM // nbWaves // WN
+
+    # Number of wave on X & Y axis in the Block tile
+    nbWaveX = BN // WN
+
+    # A wave is a block of 8x4 of the output matrix
+    nbThreadXPerWave = 8
+    nbThreadYPerWave = 4
+
+    nbIterWaveN = WN // (nbThreadXPerWave * TN)
+    nbIterWaveM = WM // (nbThreadYPerWave * TM)
+
+    # Wave Sub-tile size
+    SUBWN = WN // nbIterWaveN
+    SUBWM = WM // nbIterWaveM
+
+    strideReadB = BLOCK_SIZE // BN
+    strideReadA = BLOCK_SIZE // BK
+    nbReadsB = BN * BK // BLOCK_SIZE
+    nbReadsA = BM * BK // BLOCK_SIZE
+
+    waveIndex = tid_x // 32
+    waveIdx = waveIndex % nbWaveX
+    waveIdy = waveIndex // nbWaveX
+    indexInWave = tid_x % 32
+
+    # Thread coordinates in Wave
+    idxInWave = indexInWave % nbThreadXPerWave
+    idyInWave = indexInWave / nbThreadXPerWave
+
+    # Thread mapping to read BKxBN block from A
+    rAIdx = tid_x % BK
+    rAIdy = tid_x // BK
+    # Thread mapping to read BNxBK block from B
+    rBIdx = tid_x % BN
+    rBIdy = tid_x // BN
+
+    A_col = memref.alloca([nbIterWaveM * TM], T.f32())
+    B_row = memref.alloca([nbIterWaveN * TN], T.f32())
+
+    As = memref.get_global(A_shared)
+    Bs = memref.get_global(B_shared)
+
+    l = TM * nbIterWaveM * TN * nbIterWaveN
+    c_regs = memref.alloca([l], T.f32())
+    for i in range(l):
+        c_regs[i] = 0.0
+
+    for i in range(nbReadsB):
+        index_x = BN * bid_x + rBIdx
+        index_y = rBIdy + i * strideReadB
+        Bs[index_y % BK, index_x % BN] = B[index_y, index_x]
+
+    for i in range(nbReadsA):
+        index_x = rAIdx
+        index_y = BM * bid_y + rAIdy + i * strideReadA
+        As[index_x % BK, index_y % BM] = A[index_y, index_x]
+
+    gpu.barrier()
+
+    regA = memref.alloca([nbReadsA], T.f32())
+    regB = memref.alloca([nbReadsB], T.f32())
+
+    for kId in scf.range_(0, N, BK):
+
+        kId_i32 = arith.index_cast(kId, to=T.i32())
+        if kId_i32 < (N - BK):
+
+            for i in range(nbReadsB):
+                index_x = BN * bid_x + rBIdx
+                index_y = rBIdy + i * strideReadB + kId + BK
+                regB[i] = B[index_y, index_x]
+
+            for i in range(nbReadsA):
+                index_x = rAIdx + kId + BK
+                index_y = BM * bid_y + rAIdy + i * strideReadA
+                regA[i] = A[index_y, index_x]
+
+        for k in range(BK):
+
+            for iterWave in range(nbIterWaveN):
+                for i in range(TN):
+                    index = waveIdx * WN + iterWave * SUBWN + TN * idxInWave + i
+                    B_row[iterWave * TN + i] = Bs[k, index]
+
+            for iterWave in range(nbIterWaveM):
+                for i in range(TM):
+                    index = waveIdy * WM + iterWave * SUBWM + TM * idyInWave + i
+                    A_col[iterWave * TM + i] = As[k, index]
+
+            for iterWaveM in range(nbIterWaveM):
+                for iterWaveN in range(nbIterWaveN):
+                    for yt in range(TM):
+                        for xt in range(TN):
+                            x = iterWaveN * TN + xt
+                            y = iterWaveM * TM + yt
+                            a = A_col[y]
+                            b = B_row[x]
+                            c = c_regs[y * TN * nbIterWaveN + x]
+                            c = llvm.intr_fmuladd(a, b, c)
+                            c_regs[y * TN * nbIterWaveN + x] = c
+
+        gpu.barrier()
+
+        if kId_i32 < (N - BK):
+
+            for i in range(nbReadsB):
+                index_x = BN * bid_x + rBIdx
+                index_y = rBIdy + i * strideReadB + kId + BK
+                Bs[index_y % BK, index_x % BN] = regB[i]
+
+            for i in range(nbReadsA):
+                index_x = rAIdx + kId + BK
+                index_y = BM * bid_y + rAIdy + i * strideReadA
+                As[index_x % BK, index_y % BM] = regA[i]
+
+            gpu.barrier()
+
+    for iterWaveM in range(nbIterWaveM):
+        for iterWaveN in range(nbIterWaveN):
+            xOut = bid_x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
+            yOut = bid_y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
+            for yt in range(TM):
+                for xt in range(TN):
+                    C[yOut + yt, xOut + xt] = c_regs[
+                        TN * nbIterWaveN * (iterWaveM * TM + yt) + (iterWaveN * TN + xt)
+                    ]
+
+
+launch_params[kernel4_gmem_db.__name__] = (
+    (N // 128, N // 128, 1),
+    (BLOCK_SIZE, 1, 1),
+    0,
+)
+
+
 ip.__exit__(None, None, None)
 
 simplified_module = run_pipeline(
@@ -455,16 +608,18 @@ times = {
     kernel2_lds_shared_direct_dynamic.__name__: 0,
     kernel2_lds_shared_direct_load_globals.__name__: 0,
     kernel3_registers.__name__: 0,
+    kernel4_gmem_db.__name__: 0,
 }
-runs = 16
 kernels = [
     kernel1_naive,
     kernel2_lds_shared_direct_load_globals,
     kernel2_lds_shared_direct_dynamic,
     kernel2_lds_shared_subview,
     kernel3_registers,
+    kernel4_gmem_db,
 ]
 # random.shuffle(kernels)
+runs = 16
 for kernel in kernels:
     for i in range(runs):
         c_h = -3 * np.ones((M, N), dtype=np.float32)
@@ -535,7 +690,7 @@ for kernel in kernels:
 
         times[kernel.__name__] += time_compute
 
-        print(f"{kernel.__name__} : {time_compute}")
+        # print(f"{kernel.__name__} : {time_compute}")
 
 for k in times:
     times[k] /= runs
