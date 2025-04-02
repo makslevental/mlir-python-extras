@@ -4,7 +4,8 @@ from hip import hip
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContextModule
 from mlir.extras.dialects.ext import memref, scf, arith, gpu, llvm
-from mlir.ir import InsertionPoint, IntegerAttr
+from mlir.dialects import index as index_dialect
+from mlir.ir import InsertionPoint, IntegerAttr, UnitAttr, Attribute
 import mlir.extras.types as T
 
 # noinspection PyUnresolvedReferences
@@ -29,6 +30,11 @@ from mlir.extras.util import find_ops
 
 # noinspection PyUnresolvedReferences
 from util import hip_check, launch_kernel, hip_synchronize
+
+
+def time_to_gflops(time_ms, N):
+    return 1e-6 * (N * N * N * 2 + 3 * N * N) // time_ms
+
 
 # just so it doesn't get DCE'd by black/reformat
 # TypeError: 'mlir._mlir_libs._mlir.ir.BlockArgument' object is not subscriptable
@@ -106,23 +112,20 @@ def kernel2_lds_shared_direct_load_globals(
     As = memref.get_global(A_shared)
     Bs = memref.get_global(B_shared)
 
-    tid_y = thread_idx.y
-    tid_x = thread_idx.x
-
-    row = block_idx.y * TILE_SIZE + tid_y
-    col = block_idx.x * TILE_SIZE + tid_x
+    row = block_idx.y * TILE_SIZE + thread_idx.y
+    col = block_idx.x * TILE_SIZE + thread_idx.x
 
     sum = arith.constant(0.0)
 
     for t, sum, _ in scf.range_(0, N, BK, iter_args=[sum]):
-        Bs[tid_y, tid_x] = B[tid_y + t, col]
-        As[tid_y, tid_x] = A[row, tid_x + t]
+        Bs[thread_idx.y, thread_idx.x] = B[thread_idx.y + t, col]
+        As[thread_idx.y, thread_idx.x] = A[row, thread_idx.x + t]
 
         gpu.barrier()
 
         for k in range(BK):
-            a = As[tid_y, k]
-            b = Bs[k, tid_x]
+            a = As[thread_idx.y, k]
+            b = Bs[k, thread_idx.x]
             sum = llvm.intr_fmuladd(a, b, sum)
 
         gpu.barrier()
@@ -147,23 +150,20 @@ def kernel2_lds_shared_direct_dynamic(
     As = memref.get_global(A_shared)
     Bs = memref.get_global(B_shared)
 
-    tid_y = thread_idx.y
-    tid_x = thread_idx.x
-
-    row = block_idx.y * TILE_SIZE + tid_y
-    col = block_idx.x * TILE_SIZE + tid_x
+    row = block_idx.y * TILE_SIZE + thread_idx.y
+    col = block_idx.x * TILE_SIZE + thread_idx.x
 
     sum = arith.constant(0.0)
 
     for t, sum, _ in scf.range_(0, N, BK, iter_args=[sum]):
-        Bs[tid_y, tid_x] = B[tid_y + t, col]
-        As[tid_y, tid_x] = A[row, tid_x + t]
+        Bs[thread_idx.y, thread_idx.x] = B[thread_idx.y + t, col]
+        As[thread_idx.y, thread_idx.x] = A[row, thread_idx.x + t]
 
         gpu.barrier()
 
         for k in range(BK):
-            a = As[tid_y, k]
-            b = Bs[k, tid_x]
+            a = As[thread_idx.y, k]
+            b = Bs[k, thread_idx.x]
             sum = llvm.intr_fmuladd(a, b, sum)
 
         gpu.barrier()
@@ -238,9 +238,7 @@ launch_params[kernel2_lds_shared_subview.__name__] = (
     2 * TILE_SIZE * TILE_SIZE * T.f32().width // 8,
 )
 
-
 BLOCK_SIZE = 256
-
 # Block Tile size
 BN = 128
 BM = 128
@@ -264,9 +262,11 @@ B_shared = memref.global_(
 def kernel3_registers(
     A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.memref(M, N, T.f32())
 ):
-    tid_x = thread_idx.x
-    bid_x = block_idx.x
-    bid_y = block_idx.y
+    # Block Tile size
+    BN = 128
+    BM = 128
+    # Number of Row or column we read per batch
+    BK = 8
 
     # Thread Tile size
     TN = 4
@@ -279,10 +279,20 @@ def kernel3_registers(
 
     # Number of wave on X & Y axis in the Block tile
     nbWaveX = BN // WN
+    nbWaveY = BM // WM
+
+    waveIndex = thread_idx.x // 32
+    waveIdx = waveIndex % nbWaveX
+    waveIdy = waveIndex // nbWaveX
+    indexInWave = thread_idx.x % 32
 
     # A wave is a block of 8x4 of the output matrix
     nbThreadXPerWave = 8
     nbThreadYPerWave = 4
+
+    # Thread coordinates in Wave
+    idxInWave = indexInWave % nbThreadXPerWave
+    idyInWave = indexInWave // nbThreadXPerWave
 
     nbIterWaveN = WN // (nbThreadXPerWave * TN)
     nbIterWaveM = WM // (nbThreadYPerWave * TM)
@@ -291,26 +301,17 @@ def kernel3_registers(
     SUBWN = WN // nbIterWaveN
     SUBWM = WM // nbIterWaveM
 
+    # Thread mapping to read BKxBN block from A
+    rAIdx = thread_idx.x % BK
+    rAIdy = thread_idx.x // BK
+    # Thread mapping to read BNxBK block from B
+    rBIdx = thread_idx.x % BN
+    rBIdy = thread_idx.x // BN
+
     strideReadB = BLOCK_SIZE // BN
     strideReadA = BLOCK_SIZE // BK
     nbReadsB = BN * BK // BLOCK_SIZE
     nbReadsA = BM * BK // BLOCK_SIZE
-
-    waveIndex = tid_x // 32
-    waveIdx = waveIndex % nbWaveX
-    waveIdy = waveIndex // nbWaveX
-    indexInWave = tid_x % 32
-
-    # Thread coordinates in Wave
-    idxInWave = indexInWave % nbThreadXPerWave
-    idyInWave = indexInWave / nbThreadXPerWave
-
-    # Thread mapping to read BKxBN block from A
-    rAIdx = tid_x % BK
-    rAIdy = tid_x // BK
-    # Thread mapping to read BNxBK block from B
-    rBIdx = tid_x % BN
-    rBIdy = tid_x // BN
 
     A_col = memref.alloca([nbIterWaveM * TM], T.f32())
     B_row = memref.alloca([nbIterWaveN * TN], T.f32())
@@ -320,19 +321,25 @@ def kernel3_registers(
 
     l = TM * nbIterWaveM * TN * nbIterWaveN
     c_regs = memref.alloca([l], T.f32())
-    for i in range(l):
-        c_regs[i] = 0.0
+
+    c_regs_idx = memref.extract_aligned_pointer_as_index(c_regs)
+    c_regs_i64 = arith.index_cast(c_regs_idx, T.i64())
+    c_regs_ptr = llvm.inttoptr(llvm.llvm_ptr_t(), c_regs_i64)
+
+    l_4 = llvm.mlir_constant(l * 4)
+    c_0 = llvm.mlir_constant(0, T.i8())
+    llvm.intr_memset(c_regs_ptr, c_0, l_4, False)
 
     for kId in scf.range_(0, N, BK):
 
         for i in range(nbReadsB):
-            index_x = BN * bid_x + rBIdx
+            index_x = BN * block_idx.x + rBIdx
             index_y = rBIdy + i * strideReadB + kId
             Bs[index_y % BK, index_x % BN] = B[index_y, index_x]
 
         for i in range(nbReadsA):
             index_x = rAIdx + kId
-            index_y = BM * bid_y + rAIdy + i * strideReadA
+            index_y = BM * block_idx.y + rAIdy + i * strideReadA
             As[index_x % BK, index_y % BM] = A[index_y, index_x]
 
         gpu.barrier()
@@ -358,14 +365,16 @@ def kernel3_registers(
                             b = B_row[x]
                             c = c_regs[y * TN * nbIterWaveN + x]
                             c = llvm.intr_fmuladd(a, b, c)
+                            # c = llvm.intr_fma(a, b, c)
                             c_regs[y * TN * nbIterWaveN + x] = c
+                            # c_regs[y * TN * nbIterWaveN + x] += a * b
 
         gpu.barrier()
 
     for iterWaveM in range(nbIterWaveM):
         for iterWaveN in range(nbIterWaveN):
-            xOut = bid_x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
-            yOut = bid_y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
+            xOut = block_idx.x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
+            yOut = block_idx.y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
             for yt in range(TM):
                 for xt in range(TN):
                     C[yOut + yt, xOut + xt] = c_regs[
@@ -385,10 +394,6 @@ launch_params[kernel3_registers.__name__] = (
 def kernel4_gmem_db(
     A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.memref(M, N, T.f32())
 ):
-    tid_x = thread_idx.x
-    bid_x = block_idx.x
-    bid_y = block_idx.y
-
     # Thread Tile size
     TN = 4
     TM = 4
@@ -417,21 +422,21 @@ def kernel4_gmem_db(
     nbReadsB = BN * BK // BLOCK_SIZE
     nbReadsA = BM * BK // BLOCK_SIZE
 
-    waveIndex = tid_x // 32
+    waveIndex = thread_idx.x // 32
     waveIdx = waveIndex % nbWaveX
     waveIdy = waveIndex // nbWaveX
-    indexInWave = tid_x % 32
+    indexInWave = thread_idx.x % 32
 
     # Thread coordinates in Wave
     idxInWave = indexInWave % nbThreadXPerWave
     idyInWave = indexInWave / nbThreadXPerWave
 
     # Thread mapping to read BKxBN block from A
-    rAIdx = tid_x % BK
-    rAIdy = tid_x // BK
+    rAIdx = thread_idx.x % BK
+    rAIdy = thread_idx.x // BK
     # Thread mapping to read BNxBK block from B
-    rBIdx = tid_x % BN
-    rBIdy = tid_x // BN
+    rBIdx = thread_idx.x % BN
+    rBIdy = thread_idx.x // BN
 
     A_col = memref.alloca([nbIterWaveM * TM], T.f32())
     B_row = memref.alloca([nbIterWaveN * TN], T.f32())
@@ -441,17 +446,23 @@ def kernel4_gmem_db(
 
     l = TM * nbIterWaveM * TN * nbIterWaveN
     c_regs = memref.alloca([l], T.f32())
-    for i in range(l):
-        c_regs[i] = 0.0
+
+    c_regs_idx = memref.extract_aligned_pointer_as_index(c_regs)
+    c_regs_i64 = arith.index_cast(c_regs_idx, T.i64())
+    c_regs_ptr = llvm.inttoptr(llvm.llvm_ptr_t(), c_regs_i64)
+
+    l_4 = llvm.mlir_constant(l * 4)
+    c_0 = llvm.mlir_constant(0, T.i8())
+    llvm.intr_memset(c_regs_ptr, c_0, l_4, False)
 
     for i in range(nbReadsB):
-        index_x = BN * bid_x + rBIdx
+        index_x = BN * block_idx.x + rBIdx
         index_y = rBIdy + i * strideReadB
         Bs[index_y % BK, index_x % BN] = B[index_y, index_x]
 
     for i in range(nbReadsA):
         index_x = rAIdx
-        index_y = BM * bid_y + rAIdy + i * strideReadA
+        index_y = BM * block_idx.y + rAIdy + i * strideReadA
         As[index_x % BK, index_y % BM] = A[index_y, index_x]
 
     gpu.barrier()
@@ -459,19 +470,21 @@ def kernel4_gmem_db(
     regA = memref.alloca([nbReadsA], T.f32())
     regB = memref.alloca([nbReadsB], T.f32())
 
+    N_minus_BK = arith.constant(N - BK, index=True)
+
     for kId in scf.range_(0, N, BK):
 
-        kId_i32 = arith.index_cast(kId, to=T.i32())
-        if kId_i32 < (N - BK):
+        pred = index_dialect.cmp(index_dialect.IndexCmpPredicate.SLT, kId, N_minus_BK)
+        if pred:
 
             for i in range(nbReadsB):
-                index_x = BN * bid_x + rBIdx
+                index_x = BN * block_idx.x + rBIdx
                 index_y = rBIdy + i * strideReadB + kId + BK
                 regB[i] = B[index_y, index_x]
 
             for i in range(nbReadsA):
                 index_x = rAIdx + kId + BK
-                index_y = BM * bid_y + rAIdy + i * strideReadA
+                index_y = BM * block_idx.y + rAIdy + i * strideReadA
                 regA[i] = A[index_y, index_x]
 
         for k in range(BK):
@@ -500,30 +513,36 @@ def kernel4_gmem_db(
 
         gpu.barrier()
 
-        if kId_i32 < (N - BK):
+        if pred:
 
             for i in range(nbReadsB):
-                index_x = BN * bid_x + rBIdx
+                index_x = BN * block_idx.x + rBIdx
                 index_y = rBIdy + i * strideReadB + kId + BK
                 Bs[index_y % BK, index_x % BN] = regB[i]
 
             for i in range(nbReadsA):
                 index_x = rAIdx + kId + BK
-                index_y = BM * bid_y + rAIdy + i * strideReadA
+                index_y = BM * block_idx.y + rAIdy + i * strideReadA
                 As[index_x % BK, index_y % BM] = regA[i]
 
             gpu.barrier()
 
     for iterWaveM in range(nbIterWaveM):
         for iterWaveN in range(nbIterWaveN):
-            xOut = bid_x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
-            yOut = bid_y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
+            xOut = block_idx.x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
+            yOut = block_idx.y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
             for yt in range(TM):
                 for xt in range(TN):
                     C[yOut + yt, xOut + xt] = c_regs[
                         TN * nbIterWaveN * (iterWaveM * TM + yt) + (iterWaveN * TN + xt)
                     ]
 
+
+launch_params[kernel4_gmem_db.__name__] = (
+    (N // 128, N // 128, 1),
+    (BLOCK_SIZE, 1, 1),
+    0,
+)
 
 A_shared = memref.global_(
     sym_name="A_shared_BK_BM_times_4",
@@ -537,10 +556,6 @@ A_shared = memref.global_(
 def kernel5_lds_optim(
     A: T.memref(M, K, T.f32()), B: T.memref(K, N, T.f32()), C: T.memref(M, N, T.f32())
 ):
-    tid_x = thread_idx.x
-    bid_x = block_idx.x
-    bid_y = block_idx.y
-
     # Thread Tile size
     TN = 4
     TM = 4
@@ -569,21 +584,21 @@ def kernel5_lds_optim(
     nbReadsB = BN * BK // BLOCK_SIZE
     nbReadsA = BM * BK // BLOCK_SIZE
 
-    waveIndex = tid_x // 32
+    waveIndex = thread_idx.x // 32
     waveIdx = waveIndex % nbWaveX
     waveIdy = waveIndex // nbWaveX
-    indexInWave = tid_x % 32
+    indexInWave = thread_idx.x % 32
 
     # Thread coordinates in Wave
     idxInWave = indexInWave % nbThreadXPerWave
     idyInWave = indexInWave / nbThreadXPerWave
 
     # Thread mapping to read BKxBN block from A
-    rAIdx = tid_x % BK
-    rAIdy = tid_x // BK
+    rAIdx = thread_idx.x % BK
+    rAIdy = thread_idx.x // BK
     # Thread mapping to read BNxBK block from B
-    rBIdx = tid_x % BN
-    rBIdy = tid_x // BN
+    rBIdx = thread_idx.x % BN
+    rBIdy = thread_idx.x // BN
 
     A_col = memref.alloca([nbIterWaveM * TM], T.f32())
     B_row = memref.alloca([nbIterWaveN * TN], T.f32())
@@ -593,17 +608,23 @@ def kernel5_lds_optim(
 
     l = TM * nbIterWaveM * TN * nbIterWaveN
     c_regs = memref.alloca([l], T.f32())
-    for i in range(l):
-        c_regs[i] = 0.0
+
+    c_regs_idx = memref.extract_aligned_pointer_as_index(c_regs)
+    c_regs_i64 = arith.index_cast(c_regs_idx, T.i64())
+    c_regs_ptr = llvm.inttoptr(llvm.llvm_ptr_t(), c_regs_i64)
+
+    l_4 = llvm.mlir_constant(l * 4)
+    c_0 = llvm.mlir_constant(0, T.i8())
+    llvm.intr_memset(c_regs_ptr, c_0, l_4, False)
 
     for i in range(nbReadsB):
-        index_x = BN * bid_x + rBIdx
+        index_x = BN * block_idx.x + rBIdx
         index_y = rBIdy + i * strideReadB
         Bs[index_y % BK, index_x % BN] = B[index_y, index_x]
 
     for i in range(nbReadsA):
         index_x = rAIdx
-        index_y = BM * bid_y + rAIdy + i * strideReadA
+        index_y = BM * block_idx.y + rAIdy + i * strideReadA
         As[index_x % BK, index_y % BM] = A[index_y, index_x]
 
     gpu.barrier()
@@ -617,13 +638,13 @@ def kernel5_lds_optim(
         if kId_i32 < (N - BK):
 
             for i in range(nbReadsB):
-                index_x = BN * bid_x + rBIdx
+                index_x = BN * block_idx.x + rBIdx
                 index_y = rBIdy + i * strideReadB + kId + BK
                 regB[i] = B[index_y, index_x]
 
             for i in range(nbReadsA):
                 index_x = rAIdx + kId + BK
-                index_y = BM * bid_y + rAIdy + i * strideReadA
+                index_y = BM * block_idx.y + rAIdy + i * strideReadA
                 regA[i] = A[index_y, index_x]
 
         for k in range(BK):
@@ -655,21 +676,21 @@ def kernel5_lds_optim(
         if kId_i32 < (N - BK):
 
             for i in range(nbReadsB):
-                index_x = BN * bid_x + rBIdx
+                index_x = BN * block_idx.x + rBIdx
                 index_y = rBIdy + i * strideReadB + kId + BK
                 Bs[index_y % BK, index_x % BN] = regB[i]
 
             for i in range(nbReadsA):
                 index_x = rAIdx + kId + BK
-                index_y = BM * bid_y + rAIdy + i * strideReadA
+                index_y = BM * block_idx.y + rAIdy + i * strideReadA
                 As[index_x % BK, index_y % BM] = regA[i]
 
             gpu.barrier()
 
     for iterWaveM in range(nbIterWaveM):
         for iterWaveN in range(nbIterWaveN):
-            xOut = bid_x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
-            yOut = bid_y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
+            xOut = block_idx.x * BN + waveIdx * WN + iterWaveN * SUBWN + TN * idxInWave
+            yOut = block_idx.y * BM + waveIdy * WM + iterWaveM * SUBWM + TM * idyInWave
             for yt in range(TM):
                 for xt in range(TN):
                     C[yOut + yt, xOut + xt] = c_regs[
@@ -677,7 +698,7 @@ def kernel5_lds_optim(
                     ]
 
 
-launch_params[kernel5_lds_optim.__name__] = launch_params[kernel4_gmem_db.__name__] = (
+launch_params[kernel5_lds_optim.__name__] = (
     (N // 128, N // 128, 1),
     (BLOCK_SIZE, 1, 1),
     0,
@@ -708,23 +729,35 @@ lowered_module = run_pipeline(
 )
 
 # print(lowered_module)
+gep = find_ops(lowered_module.operation, lambda o: isinstance(o.opview, llvm.GEPOp))
+for g in gep:
+    g.attributes["inbounds"] = UnitAttr.get()
 
 
 kernel_funcs = find_ops(
     lowered_module.operation, lambda o: isinstance(o.opview, llvm.LLVMFuncOp)
 )
+target_flags = "+16-bit-insts,+atomic-fadd-rtn-insts,+ci-insts,+dl-insts,+dot10-insts,+dot5-insts,+dot7-insts,+dot8-insts,+dot9-insts,+dpp,+gfx10-3-insts,+gfx10-insts,+gfx11-insts,+gfx8-insts,+gfx9-insts,+wavefrontsize32".split(
+    ","
+)
+flags = ", ".join([f'"{t}"' for t in target_flags])
 for k in kernel_funcs:
     _, thread_dims, _ = launch_params[k.sym_name.value]
     k.attributes["rocdl.max_flat_work_group_size"] = IntegerAttr.get(
         T.index(), np.prod(thread_dims)
     )
+    k.attributes["target_features"] = Attribute.parse(
+        f"#llvm.target_features<[{flags}]>"
+    )
 
-lowered_module_llvm = run_pipeline(
-    lowered_module, Pipeline().gpu_module_to_binary(format="llvm")
-)
-hsaco = get_compile_object_bytes(lowered_module_llvm)
-with open("llvm.bc", "wb") as f:
-    f.write(hsaco)
+
+# lowered_module_llvm = run_pipeline(
+#     lowered_module, Pipeline().gpu_module_to_binary(format="llvm")
+# )
+# hsaco = get_compile_object_bytes(lowered_module_llvm)
+# with open("llvm.bc", "wb") as f:
+#     f.write(hsaco)
+# llvm_opt_pipeline = "annotation2metadata,forceattrs,declare-to-assign,inferattrs,coro-early,function<eager-inv>(lower-expect,simplifycfg<bonus-inst-threshold=1no-forward-switch-condno-switch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,sroa<modify-cfg>,early-cse<>,callsite-splitting),openmp-opt,ipsccp,called-value-propagation,globalopt,function<eager-inv>(mem2reg,instcombine<max-iterations=1no-verify-fixpoint>,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>),require<globals-aa>,function(invalidate<aa>),require<profile-summary>,cgscc(devirt<4>(inline<only-mandatory>,inline,function-attrs<skip-non-recursive-function-attrs>,argpromotion,openmp-opt-cgscc,function<eager-invno-rerun>(sroa<modify-cfg>,early-cse<memssa>,speculative-execution<only-if-divergent-target>,jump-threading,correlated-propagation,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,instcombine<max-iterations=1no-verify-fixpoint>,aggressive-instcombine,libcalls-shrinkwrap,tailcallelim,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,reassociate,constraint-elimination,loop-mssa(loop-instsimplify,loop-simplifycfg,licm<no-allowspeculation>,loop-rotate<header-duplicationno-prepare-for-lto>,licm<allowspeculation>,simple-loop-unswitch<nontrivialtrivial>),simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,instcombine<max-iterations=1no-verify-fixpoint>,loop(loop-idiom,indvars,loop-deletion,loop-unroll-full),sroa<modify-cfg>,vector-combine,mldst-motion<no-split-footer-bb>,gvn<>,sccp,bdce,instcombine<max-iterations=1no-verify-fixpoint>,jump-threading,correlated-propagation,adce,memcpyopt,dse,move-auto-init,loop-mssa(licm<allowspeculation>),coro-elide,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopshoist-common-instssink-common-instsspeculate-blockssimplify-cond-branch>,instcombine<max-iterations=1no-verify-fixpoint>),function-attrs,function(require<should-not-run-function-passes>),coro-split)),deadargelim,coro-cleanup,globalopt,globaldce,elim-avail-extern,rpo-function-attrs,recompute-globalsaa,function<eager-inv>(float2int,lower-constant-intrinsics,chr,loop(loop-rotate<header-duplicationno-prepare-for-lto>,loop-deletion),loop-distribute,inject-tli-mappings,loop-vectorize<no-interleave-forced-onlyno-vectorize-forced-only>,infer-alignment,loop-load-elim,instcombine<max-iterations=1no-verify-fixpoint>,simplifycfg<bonus-inst-threshold=1forward-switch-condswitch-range-to-icmpswitch-to-lookupno-keep-loopshoist-common-instssink-common-instsspeculate-blockssimplify-cond-branch>,slp-vectorizer,vector-combine,instcombine<max-iterations=1no-verify-fixpoint>,loop-unroll<O3>,transform-warning,sroa<preserve-cfg>,infer-alignment,instcombine<max-iterations=1no-verify-fixpoint>,loop-mssa(licm<allowspeculation>),alignment-from-assumptions,loop-sink,instsimplify,div-rem-pairs,tailcallelim,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>),globaldce,constmerge,cg-profile,rel-lookup-table-converter,function(annotation-remarks),print"
 # import subprocess
 #
 # subprocess.check_call(
@@ -735,10 +768,23 @@ with open("llvm.bc", "wb") as f:
 #         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.ll",
 #     ]
 # )
-
+# subprocess.check_call(
+#     [
+#         "/home/mlevental/dev_projects/llvm-project/cmake-build-debug/bin/opt",
+#         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.ll",
+#         f"--passes={llvm_opt_pipeline}",
+#         "--disable-output",
+#         "-S",
+#         # "-emit-llvm",
+#         "-o",
+#         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.opt.ll",
+#     ]
+# )
 
 lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
 hsaco = get_compile_object_bytes(lowered_module)
+# with open("/home/mlevental/dev_projects/fp32_sgemm_amd/pythonkernels.hsaco", "wb") as f:
+#     f.write(hsaco)
 hip_module = hip_check(hip.hipModuleLoadData(hsaco))
 
 a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np.float32)
@@ -752,35 +798,21 @@ b_num_bytes = b_h.size * b_h.itemsize
 a_d = hip_check(hip.hipMalloc(a_num_bytes))
 b_d = hip_check(hip.hipMalloc(b_num_bytes))
 
-hip_check(hip.hipMemcpy(a_d, a_h, a_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice))
-hip_check(hip.hipMemcpy(b_d, b_h, b_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice))
-
 stream = 0
 
 times = {
-    kernel1_naive.__name__: 0,
-    kernel2_lds_shared_subview.__name__: 0,
-    kernel2_lds_shared_direct_dynamic.__name__: 0,
-    kernel2_lds_shared_direct_load_globals.__name__: 0,
-    kernel3_registers.__name__: 0,
-    kernel4_gmem_db.__name__: 0,
-    kernel5_lds_optim.__name__: 0,
+    kernel1_naive: 0,
+    kernel2_lds_shared_subview: 0,
+    kernel2_lds_shared_direct_dynamic: 0,
+    kernel2_lds_shared_direct_load_globals: 0,
+    kernel3_registers: 0,
+    kernel4_gmem_db: 0,
+    kernel5_lds_optim: 0,
 }
-kernels = [
-    kernel1_naive,
-    kernel2_lds_shared_direct_load_globals,
-    kernel2_lds_shared_direct_dynamic,
-    kernel2_lds_shared_subview,
-    kernel3_registers,
-    kernel4_gmem_db,
-    kernel5_lds_optim,
-]
 # random.shuffle(kernels)
 runs = 16
-for kernel in kernels:
+for kernel in times:
     for i in range(runs):
-        c_h = -3 * np.ones((M, N), dtype=np.float32)
-        c_num_bytes = c_h.size * c_h.itemsize
         function = hip_check(
             hip.hipModuleGetFunction(hip_module, kernel.__name__.encode())
         )
@@ -797,6 +829,8 @@ for kernel in kernels:
             )
         )
 
+        c_h = -3 * np.ones((M, N), dtype=np.float32)
+        c_num_bytes = c_h.size * c_h.itemsize
         c_d = hip_check(hip.hipMalloc(c_num_bytes))
         hip_check(
             hip.hipMemcpy(
@@ -845,7 +879,7 @@ for kernel in kernels:
             # print(c_h)
             print(f"{kernel.__name__} failed")
 
-        times[kernel.__name__] += time_compute
+        times[kernel] += time_compute
 
         # print(f"{kernel.__name__} : {time_compute}")
 
@@ -853,4 +887,4 @@ for k in times:
     times[k] /= runs
 
 for k, v in times.items():
-    print(f"{k}: {v}ms")
+    print(f"{k.__name__}: {v:.03f}ms GLOPs {time_to_gflops(v, N)}")
