@@ -760,7 +760,7 @@ def test_amdgpu(ctx: MLIRContext):
     hip_check(hip.hipGetDeviceProperties(props, 0))
     arch = props.gcnArchName.decode()
 
-    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
         mat_product_kernel.emit()
 
@@ -768,7 +768,7 @@ def test_amdgpu(ctx: MLIRContext):
         gpu_module,
         Pipeline()
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
-        .rocdl_attach_target(chip=arch)
+        .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
         .lower_to_llvm()
         .gpu_module_to_binary(),
@@ -871,7 +871,7 @@ def test_amdgpu_square(ctx: MLIRContext):
     hip_check(hip.hipGetDeviceProperties(props, 0))
     arch = props.gcnArchName.decode()
 
-    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
         mat_product_kernel.emit()
 
@@ -879,7 +879,7 @@ def test_amdgpu_square(ctx: MLIRContext):
         gpu_module,
         Pipeline()
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
-        .rocdl_attach_target(chip=arch)
+        .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
         .lower_to_llvm()
         .gpu_module_to_binary(),
@@ -998,7 +998,7 @@ def test_amdgpu_vector(ctx: MLIRContext):
     hip_check(hip.hipGetDeviceProperties(props, 0))
     arch = props.gcnArchName.decode()
 
-    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
         smol_matmul.emit()
 
@@ -1006,7 +1006,7 @@ def test_amdgpu_vector(ctx: MLIRContext):
         gpu_module,
         Pipeline()
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
-        .rocdl_attach_target(chip=arch)
+        .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
         .lower_to_llvm()
         .gpu_module_to_binary(),
@@ -1106,7 +1106,7 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
     hip_check(hip.hipGetDeviceProperties(props, 0))
     arch = props.gcnArchName.decode()
 
-    @module("naive", [f'#rocdl.target<chip = "{arch}">'])
+    @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
         no_bank_conflicts.emit()
         all_bank_conflicts.emit()
@@ -1115,7 +1115,7 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
         gpu_module,
         Pipeline()
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
-        .rocdl_attach_target(chip=arch)
+        .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
         .lower_to_llvm()
         .gpu_module_to_binary(),
