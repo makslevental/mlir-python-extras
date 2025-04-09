@@ -42,9 +42,15 @@ from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
 from mlir.extras.util import mlir_type_to_np_dtype
 
 
+INDENT = 0
+# OUTPUT_BUF = io.StringIO()
+OUTPUT_BUF = sys.stdout
+ATTR_ALIASES = {}
+
+
 def normalize_ssa(ssa: str | Value):
     if isinstance(ssa, Value):
-        ssa = ssa.get_name()
+        ssa = ssa.get_name(use_name_loc_as_prefix=True)
     if ssa[1].isnumeric():
         ssa = ssa.replace("%", "v")
     else:
@@ -74,6 +80,8 @@ _integer_overflow_flags_reg = re.compile(r"#arith.overflow<(.*?)>")
 
 
 def map_attr(attr):
+    if attr in ATTR_ALIASES:
+        return ATTR_ALIASES[attr]
     attr = attr.maybe_downcast()
     if isinstance(attr, (IntegerAttr, BoolAttr, FloatAttr)):
         return attr.value
@@ -130,11 +138,6 @@ def map_type(type):
     return f"Type.parse('{type}')"
 
 
-indent = 0
-# OUTPUT_BUF = io.StringIO()
-OUTPUT_BUF = sys.stdout
-
-
 def get_init_args(opview):
     klass = opview.__class__
     while not klass.__base__ is OpView:
@@ -168,7 +171,7 @@ opidx_counter = 0
 
 
 def print_opview(opview, name=None):
-    print("    " * indent, file=OUTPUT_BUF, end="")
+    print("    " * INDENT, file=OUTPUT_BUF, end="")
     if len(opview.results):
         print(
             ", ".join([normalize_ssa(r) for r in opview.results]),
@@ -249,7 +252,7 @@ def print_opview(opview, name=None):
         else:
             owner = f"{op_idx_owner_name}"
         print(
-            "    " * indent
+            "    " * INDENT
             + f"{owner}.attributes['OpIdx'] = amdgpu.OpIdxAttr.get({attrs['OpIdx'].value})",
             file=OUTPUT_BUF,
         )
@@ -257,7 +260,7 @@ def print_opview(opview, name=None):
 
 def print_func_op(func_op: func.FuncOp):
     # op.print(print_generic_op_form=True)
-    print("    " * indent, file=OUTPUT_BUF, end="")
+    print("    " * INDENT, file=OUTPUT_BUF, end="")
     print("@func.func(", file=OUTPUT_BUF, end="")
     if len(func_op.attributes):
         attrs = []
@@ -283,7 +286,7 @@ def print_func_op(func_op: func.FuncOp):
 
 
 def print_arith_constant(constop: arith.ConstantOp):
-    print("    " * indent, file=OUTPUT_BUF, end="")
+    print("    " * INDENT, file=OUTPUT_BUF, end="")
     print(
         f"{normalize_ssa(constop.result)} = arith.constant({map_attr(constop.value)}, {map_type(constop.result.type)})",
         file=OUTPUT_BUF,
@@ -305,7 +308,7 @@ def print_scf_for(for_op: scf.ForOp):
     )
     init_args = [normalize_ssa(a) for a in for_op.initArgs]
     print(
-        ("    " * indent)
+        ("    " * INDENT)
         + f"for {opers_str} in scf.for_({start}, {stop}, {step}, iter_args=[{', '.join(init_args)}]):",
         file=OUTPUT_BUF,
     )
@@ -315,12 +318,12 @@ def print_scf_if(if_op: scf.IfOp):
     assert len(if_op.results) == 1
     res = if_op.results[0]
     res_name = normalize_ssa(res)
-    global indent
+    global INDENT
 
     def print_yield_as_return(yield_op: scf.YieldOp):
         opers = [normalize_ssa(a) for a in yield_op.operands]
         print(
-            ("    " * indent) + f"return {', '.join(opers)}",
+            ("    " * INDENT) + f"return {', '.join(opers)}",
             file=OUTPUT_BUF,
         )
 
@@ -332,17 +335,17 @@ def print_scf_if(if_op: scf.IfOp):
                     def {res_name}():\
                 """
             ),
-            "    " * indent,
+            "    " * INDENT,
         ),
         file=OUTPUT_BUF,
     )
-    indent += 1
+    INDENT += 1
     for bodyop in if_op.thenRegion.blocks[0].operations:
         if isinstance(bodyop, scf.YieldOp):
             print_yield_as_return(bodyop)
         else:
             bodyop.walk(generic_print_walk_callback, WalkOrder.PRE_ORDER)
-    indent -= 1
+    INDENT -= 1
     print(
         textwrap.indent(
             textwrap.dedent(
@@ -351,17 +354,17 @@ def print_scf_if(if_op: scf.IfOp):
                     def {res_name}_else():\
                 """,
             ),
-            "    " * indent,
+            "    " * INDENT,
         ),
         file=OUTPUT_BUF,
     )
-    indent += 1
+    INDENT += 1
     for bodyop in if_op.elseRegion.blocks[0].operations:
         if isinstance(bodyop, scf.YieldOp):
             print_yield_as_return(bodyop)
         else:
             bodyop.walk(generic_print_walk_callback, WalkOrder.PRE_ORDER)
-    indent -= 1
+    INDENT -= 1
 
 
 def generic_print_walk_callback(op):
@@ -392,14 +395,24 @@ def generic_print_walk_callback(op):
         print_opview(opview)
 
     if len(op.regions):
-        global indent
-        indent += 1
+        global INDENT
+        INDENT += 1
         for bodyop in op.regions[0].blocks[0].operations:
             bodyop.walk(generic_print_walk_callback, WalkOrder.PRE_ORDER)
-        indent -= 1
+        INDENT -= 1
         return WalkResult.SKIP
 
     return WalkResult.ADVANCE
+
+
+def print_attr_alias(attr_line: str):
+    print(attr_line)
+    alias_name, attr_str = attr_line.split(" = ", maxsplit=1)
+    assert alias_name.startswith("#")
+    alias_name = alias_name[1:]
+    attr = Attribute.parse(attr_str)
+    print(f"{alias_name} = {map_attr(attr)}", file=OUTPUT_BUF)
+    ATTR_ALIASES[attr] = alias_name
 
 
 def main() -> None:
