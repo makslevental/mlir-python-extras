@@ -49,7 +49,7 @@ arch = props.gcnArchName.decode()
 
 
 # just a default attr - actual target is set blow
-@module("kernels", [f"#rocdl.target"])
+@module("kernels", [f'#rocdl.target<abi = "500">'])
 def gpu_module():
     pass
 
@@ -714,7 +714,7 @@ simplified_module = run_pipeline(
     .cse()
     .loop_invariant_code_motion()
     .loop_invariant_subset_hoisting()
-    .rocdl_attach_target(chip=arch, O=3),
+    .rocdl_attach_target(chip=arch, O=3, abi="500"),
 )
 
 # print(simplified_module)
