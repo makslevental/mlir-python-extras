@@ -79,7 +79,7 @@ _transfer_write = transfer_write
 
 
 def transfer_write(
-    vector: Vector,
+    val: Vector,
     dest,
     indices,
     *,
@@ -92,13 +92,13 @@ def transfer_write(
     if loc is None:
         loc = get_user_code_loc()
     if permutation_map is None:
-        permutation_map = AffineMap.get_minor_identity(dest.type.rank, vector.type.rank)
+        permutation_map = AffineMap.get_minor_identity(dest.type.rank, val.type.rank)
     for j, i in enumerate(indices):
         if isinstance(i, int):
             indices[j] = constant(i, index=True)
     return _transfer_write(
         result=None,
-        vector=vector,
+        value_to_store=val,
         # no clue why they chose this name...
         source=dest,
         indices=indices,
