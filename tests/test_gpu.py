@@ -758,7 +758,7 @@ def test_amdgpu(ctx: MLIRContext):
 
     props = hip.hipDeviceProp_t()
     hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode()
+    arch = props.gcnArchName.decode().split(":")[0]
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -869,7 +869,7 @@ def test_amdgpu_square(ctx: MLIRContext):
 
     props = hip.hipDeviceProp_t()
     hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode()
+    arch = props.gcnArchName.decode().split(":")[0]
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -996,7 +996,7 @@ def test_amdgpu_vector(ctx: MLIRContext):
 
     props = hip.hipDeviceProp_t()
     hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode()
+    arch = props.gcnArchName.decode().split(":")[0]
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -1104,7 +1104,7 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
 
     props = hip.hipDeviceProp_t()
     hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode()
+    arch = props.gcnArchName.decode().split(":")[0]
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -1239,7 +1239,7 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
 
     props = hip.hipDeviceProp_t()
     hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode()
+    arch = props.gcnArchName.decode().split(":")[0]
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():

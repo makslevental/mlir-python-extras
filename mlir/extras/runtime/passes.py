@@ -31,7 +31,7 @@ def run_pipeline(
     print_pipeline=False,
     verify=True,
 ):
-    module = Module.parse(str(module))
+    module = Module.parse(module.operation.get_asm(enable_debug_info=True))
 
     if isinstance(pipeline, Pipeline):
         pipeline = str(pipeline)
