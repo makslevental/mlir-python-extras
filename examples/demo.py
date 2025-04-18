@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from pathlib import Path
 
 import mlir.extras.types as T
 import numpy as np
@@ -7,7 +8,7 @@ from mlir.ir import InsertionPoint
 
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContextModule
-from mlir.extras.dialects.ext import memref, scf, arith, rocdl
+from mlir.extras.dialects.ext import memref, scf, arith, rocdl, gpu, llvm, vector
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext.gpu import (
@@ -25,6 +26,7 @@ from mlir.extras.dialects.ext.gpu import (
     module,
     get_compile_object_bytes,
     lds_space,
+    dynamic_shared_memory,
 )
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
@@ -43,10 +45,6 @@ _ = memref
 ctx = RAIIMLIRContextModule()
 set_container_module(ctx.module)
 
-props = hip.hipDeviceProp_t()
-hip_check(hip.hipGetDeviceProperties(props, 0))
-arch = props.gcnArchName.decode()
-
 
 # just a default attr - actual target is set blow
 @module("kernels", [f'#rocdl.target<abi = "500">'])
@@ -60,40 +58,44 @@ ip.__enter__()
 set_container_module(ctx.module)
 
 v_len = 16
-M, K, N = 1024, 1024, 1024
-v16f16 = T.vector(v_len, T.f16())
+M, K, N = 512, 512, 512
+TILE_SIZE = BK = 16
+dtype = T.f16()
+np_dtype = np.float16
+v16 = T.vector(v_len, dtype)
 
 
 @gpu_func
 @canonicalize(using=scf.canonicalizer)
-def smol_matmul(
-    a: T.memref(M, K, T.f16()),
-    b: T.memref(K, N, T.f16()),
-    c: T.memref(M, N, T.f16()),
+def kernel(
+    A: T.memref(M, K, dtype), B: T.memref(K, N, dtype), C: T.memref(M, N, dtype)
 ):
-    lIdx = thread_idx.x
-    # a and b fragments are stored in 8 VGPRs each, in packed format, so 16 elements each for a and b
-    # a_frag will store one column of the 16x16 matrix A tile
-    # b_frag will store one row of the 16x16 matrix B tile
-    a_frag = arith.constant(np.full([v_len], 0.0, np.float16), v16f16)
-    b_frag = arith.constant(np.full([v_len], 0.0, np.float16), v16f16)
-    c_frag = arith.constant(np.full([v_len], 0.0, np.float16), v16f16)
+    base = dynamic_shared_memory()
+    As = memref.view(base, (TILE_SIZE, TILE_SIZE), dtype=dtype)
+    Bs = memref.view(
+        base, (TILE_SIZE, TILE_SIZE), dtype=dtype, shift=TILE_SIZE * TILE_SIZE
+    )
 
-    # lane is (0-31) mod 16 instead of 0-31 due to matrix replication in RDNA 3
-    lane = lIdx % v_len
-    for ele in range(v_len):
-        b_frag[ele] = b[ele, lane]
-        a_frag[ele] = a[lane, ele]
-        # a_frag, b_frag = yield a_frag, b_frag
+    row = block_idx.y * TILE_SIZE + thread_idx.y
+    col = block_idx.x * TILE_SIZE + thread_idx.x
 
-    # call the WMMA intrinsic
-    false = arith.constant(False, T.bool())
-    c_frag = rocdl.wmma_f16_16x16x16_f16(v16f16, [a_frag, b_frag, c_frag, false])
+    sum = arith.constant(np.full([v_len], 0.0, np_dtype), v16)
+    for t, sum, _ in scf.range_(0, N, BK, iter_args=[sum]):
+        Bs[thread_idx.y, thread_idx.x] = B[thread_idx.y + t, col]
+        As[thread_idx.y, thread_idx.x] = A[row, thread_idx.x + t]
 
-    for ele in range(v_len // 2):
-        r = ele * 2 + (lIdx // v_len)
-        # store results from unpacked c_frag output
-        c[r, lane] = c_frag[ele * 2]
+        gpu.barrier()
+
+        a_frag = As @ vector.load(v16) @ [thread_idx.y, 0]
+        b_frag = Bs @ vector.load(v16) @ [0, thread_idx.x]
+        false = arith.constant(False, T.bool())
+        sum = rocdl.wmma_f16_16x16x16_f16(v16, [a_frag, b_frag, sum, false])
+
+        gpu.barrier()
+
+        sum = yield sum
+
+    C[row, col] = sum
 
 
 props = hip.hipDeviceProp_t()
@@ -103,31 +105,38 @@ arch = props.gcnArchName.decode().split(":")[0]
 
 @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
 def gpu_module():
-    smol_matmul.emit()
+    kernel.emit()
 
 
 ip.__exit__(None, None, None)
+
+O = 3
+output_format = "binary"
 
 lowered_module = run_pipeline(
     gpu_module,
     Pipeline()
     .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
-    .rocdl_attach_target(chip=arch, abi="500", O=0)
+    .rocdl_attach_target(chip=arch, abi="500", O=O)
     .gpu_to_llvm()
     .lower_to_llvm()
     .ensure_debug_info_scope_on_llvm_func(emission_kind="Full")
-    .gpu_module_to_binary(),
+    .gpu_module_to_binary(format=output_format),
 )
 
 hsaco = get_compile_object_bytes(lowered_module)
+if output_format == "assembly":
+    with open(Path(__file__).parent / f"hsacoO{O}.txt", "wb") as f:
+        f.write(hsaco)
+        exit()
 hip_module = hip_check(hip.hipModuleLoadData(hsaco))
-function = hip_check(
-    hip.hipModuleGetFunction(hip_module, smol_matmul.__name__.encode())
-)
+function = hip_check(hip.hipModuleGetFunction(hip_module, kernel.__name__.encode()))
 
-a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np.float16)
-b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np.float16)
-c_h = -3 * np.ones((M, N), dtype=np.float16)
+# a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np_dtype)
+# b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np_dtype)
+a_h = np.ones((M, K)).astype(dtype=np_dtype)
+b_h = np.ones((K, N)).astype(dtype=np_dtype)
+c_h = -3 * np.ones((M, N), dtype=np_dtype)
 
 a_num_bytes = a_h.size * a_h.itemsize
 b_num_bytes = b_h.size * b_h.itemsize
@@ -141,22 +150,34 @@ hip_check(hip.hipMemcpy(a_d, a_h, a_num_bytes, hip.hipMemcpyKind.hipMemcpyHostTo
 hip_check(hip.hipMemcpy(b_d, b_h, b_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice))
 hip_check(hip.hipMemcpy(c_d, c_h, c_num_bytes, hip.hipMemcpyKind.hipMemcpyHostToDevice))
 
-gridX = 32
-gridY = 32
-gridZ = 1
-warp_size = 32
-num_warps = 1
+(
+    (
+        blocks_per_grid_x,
+        blocks_per_grid_y,
+        blocks_per_grid_z,
+    ),
+    (
+        threads_per_block_x,
+        threads_per_block_y,
+        threads_per_block_z,
+    ),
+    shared_memory,
+) = (
+    (N // TILE_SIZE, N // TILE_SIZE, 1),
+    (TILE_SIZE, TILE_SIZE, 1),
+    2 * TILE_SIZE * TILE_SIZE * dtype.width // 8,
+)
+
 stream = 0
-shared_memory = 0
 
 launch_kernel(
     function.as_c_void_p(),
-    gridX,
-    gridY,
-    gridZ,
-    warp_size,
-    num_warps,
-    1,
+    blocks_per_grid_x,
+    blocks_per_grid_y,
+    blocks_per_grid_z,
+    threads_per_block_x,
+    threads_per_block_y,
+    threads_per_block_z,
     stream,
     shared_memory,
     a_d,
@@ -169,11 +190,13 @@ assert np.allclose(c_h, -3.0)
 assert not np.allclose(correct, c_h)
 hip_check(hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
 
-# if not np.allclose(c_h, correct):
-#     with np.printoptions(threshold=np.inf, linewidth=200):
-#         print(correct)
-#         print(c_h)
-#         assert False
+
+if not np.allclose(c_h, correct):
+    with np.printoptions(threshold=np.inf, linewidth=np.inf):
+        # print("correct", correct)
+        # print("c_h", c_h)
+        print("off by atol", np.max(np.abs(correct - c_h)))
+        print("off by rtol", np.max(np.abs(correct - c_h) / correct))
 
 hip_check(hip.hipFree(a_d))
 hip_check(hip.hipFree(b_d))
