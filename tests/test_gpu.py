@@ -1233,6 +1233,9 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
         for i in scf.range_(v_len):
             gpu.printf("(%02ld, %02ld, %02ld), %f\n", lIdx, lane, i, c_frag[i])
 
+        for i in scf.range_(v_len):
+            gpu.printf("(%02ld, %02ld, %02ld), %f\n", lIdx, lane, i, c_frag[i])
+
         for ele in scf.range_(v_len // 2):
             r = ele * 2 + (lIdx // v_len)
             # store results from unpacked c_frag output
