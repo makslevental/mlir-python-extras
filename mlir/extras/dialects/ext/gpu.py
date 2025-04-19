@@ -49,43 +49,43 @@ class classproperty(property):
 class block_idx:
     @classproperty
     def x(cls):
-        return _block_id("x")
+        return _block_id("x", loc=get_user_code_loc())
 
     @classproperty
     def y(cls):
-        return _block_id("y")
+        return _block_id("y", loc=get_user_code_loc())
 
     @classproperty
     def z(cls):
-        return _block_id("z")
+        return _block_id("z", loc=get_user_code_loc())
 
 
 class block_dim:
     @classproperty
     def x(cls):
-        return _block_dim("x")
+        return _block_dim("x", loc=get_user_code_loc())
 
     @classproperty
     def y(cls):
-        return _block_dim("y")
+        return _block_dim("y", loc=get_user_code_loc())
 
     @classproperty
     def z(cls):
-        return _block_dim("z")
+        return _block_dim("z", loc=get_user_code_loc())
 
 
 class thread_idx:
     @classproperty
     def x(cls):
-        return _thread_id("x")
+        return _thread_id("x", loc=get_user_code_loc())
 
     @classproperty
     def y(cls):
-        return _thread_id("y")
+        return _thread_id("y", loc=get_user_code_loc())
 
     @classproperty
     def z(cls):
-        return _thread_id("z")
+        return _thread_id("z", loc=get_user_code_loc())
 
 
 def thread_id():
@@ -222,6 +222,8 @@ class GPUFuncOp(GPUFuncOp):
         loc=None,
         ip=None,
     ):
+        if loc is None:
+            loc = get_user_code_loc()
         super().__init__(
             function_type=function_type,
             arg_attrs=arg_attrs,
@@ -301,10 +303,10 @@ def launch_(
 ):
     if loc is None:
         loc = get_user_code_loc()
-        for size in [grid_size, block_size]:
-            for i, s in enumerate(size):
-                if isinstance(s, int):
-                    size[i] = constant(s, index=True)
+    for size in [grid_size, block_size]:
+        for i, s in enumerate(size):
+            if isinstance(s, int):
+                size[i] = constant(s, index=True)
     launch_op = LaunchOp(
         grid_size,
         block_size,
@@ -371,13 +373,16 @@ class GPUFunc(FuncBase):
         async_dependencies=None,
         dynamic_shared_memory_size: Optional[Value] = None,
         stream=None,
+        loc=None,
+        ip=None,
     ):
         for size in [grid_size, block_size]:
             for i, s in enumerate(size):
                 if isinstance(s, int):
                     size[i] = constant(s, index=True)
 
-        loc = get_user_code_loc()
+        if loc is None:
+            loc = get_user_code_loc()
         return get_op_result_or_op_results(
             LaunchFuncOp(
                 (
@@ -469,6 +474,8 @@ def all_reduce__(value: Value, *, op=None, uniform=None, loc=None, ip=None):
 
 
 def all_reduce_(value: Value, *, op=None, uniform=None, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     return get_op_result_or_op_results(
         all_reduce__(value, op=op, uniform=uniform, loc=loc, ip=ip)
     )
@@ -577,15 +584,18 @@ def get_compile_object_bytes(compiled_module):
 _printf = printf
 
 
-def printf(format, *args):
-    loc = get_user_code_loc()
-    return _printf(format=format, args=args, loc=loc)
+def printf(format, *args, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    return _printf(format=format, args=args, loc=loc, ip=ip)
 
 
 _dynamic_shared_memory = dynamic_shared_memory
 
 
 def dynamic_shared_memory(*, int=False, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     return _dynamic_shared_memory(
         T.memref(
             ShapedType.get_dynamic_size(),
@@ -611,3 +621,10 @@ def memset(dst, value, async_dependencies=None, *, loc=None, ip=None):
     if isinstance(value, (int, float, bool)):
         value = constant(value, type=dst.type.element_type)
     return _memset(async_token, async_dependencies, dst, value, loc=loc, ip=ip)
+
+
+def barrier(*, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+
+    return BarrierOp(loc=loc, ip=ip)

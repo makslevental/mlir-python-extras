@@ -58,7 +58,7 @@ ip.__enter__()
 set_container_module(ctx.module)
 
 v_len = 16
-M, K, N = 16, 16, 16
+M, K, N = 1024, 1024, 1024
 TILE_SIZE = BK = 16
 dtype = T.f16()
 np_dtype = np.float16
@@ -142,18 +142,25 @@ if output_format == "assembly":
 hip_module = hip_check(hip.hipModuleLoadData(hsaco))
 function = hip_check(hip.hipModuleGetFunction(hip_module, kernel.__name__.encode()))
 
-a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np_dtype)
-b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np_dtype)
-# a_h = np.ones((M, K)).astype(dtype=np_dtype)
-# b_h = np.ones((K, N)).astype(dtype=np_dtype)
-c_h = 0 * np.ones((M, N), dtype=np_dtype)
+# a_h = np.random.randint(1, 5, (M, K)).astype(dtype=np_dtype)
+# b_h = np.random.randint(1, 5, (K, N)).astype(dtype=np_dtype)
 
+# a_h = np.random.rand(M, K).astype(np_dtype)
+# b_h = np.random.rand(K, N).astype(np_dtype)
+
+a_h = 3 * np.ones((M, K)).astype(dtype=np_dtype)
+a_h[0 : M // 2, 0 : K // 2] = 0
+a_h[M // 2 : M, K // 2 : K] = 1
+b_h = 2 * np.ones((K, N)).astype(dtype=np_dtype)
+b_h[0 : K // 2, 0 : N // 2] = 2
+b_h[K // 2 : K, N // 2 : N] = 3
+
+c_h = 0 * np.ones((M, N), dtype=np.float32)
 for k in range(K):
-    a = a_h[:, k]
-    b = b_h[k, :]
+    a = a_h.astype(np.float32)[:, k]
+    b = b_h.astype(np.float32)[k, :]
     c_h += np.outer(a, b)
-
-assert np.allclose(a_h @ b_h, c_h)
+assert np.allclose(a_h.astype(np.float32) @ b_h.astype(np.float32), c_h)
 
 c_h = -3 * np.ones((M, N), dtype=np_dtype)
 a_num_bytes = a_h.size * a_h.itemsize
@@ -210,8 +217,8 @@ hip_check(hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDevice
 
 if not np.allclose(c_h, correct):
     with np.printoptions(threshold=np.inf, linewidth=np.inf):
-        print("correct\n", correct)
-        print("c_h\n", c_h)
+        # print("correct\n", correct)
+        # print("c_h\n", c_h)
         print("off by atol", np.max(np.abs(correct - c_h)))
         print("off by rtol", np.max(np.abs(correct - c_h) / correct))
 

@@ -24,6 +24,8 @@ class WMMA_F16_16X16X16_F16(ir.OpView):
     _ODS_REGIONS = (0, True)
 
     def __init__(self, res, args, *, loc=None, ip=None):
+        if loc is None:
+            loc = get_user_code_loc()
         operands = []
         results = []
         attributes = {}
@@ -57,4 +59,6 @@ class WMMA_F16_16X16X16_F16(ir.OpView):
 
 
 def wmma_f16_16x16x16_f16(res, args, *, loc=None, ip=None) -> ir.Value:
+    if loc is None:
+        loc = get_user_code_loc()
     return WMMA_F16_16X16X16_F16(res=res, args=args, loc=loc, ip=ip).result
