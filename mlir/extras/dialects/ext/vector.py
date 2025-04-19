@@ -282,8 +282,7 @@ def shuffle(v1, v2, mask, *, loc=None, ip=None):
 _load = load
 
 
-@Infix
-def load(base, indices, result, *, nontemporal=None, loc=None, ip=None):
+def load_(base, indices, result, *, nontemporal=None, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
     for j, i in enumerate(indices):
@@ -297,3 +296,6 @@ def load(base, indices, result, *, nontemporal=None, loc=None, ip=None):
         loc=loc,
         ip=ip,
     ).result
+
+
+load = Infix(load_)

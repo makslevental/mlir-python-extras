@@ -58,7 +58,7 @@ ip.__enter__()
 set_container_module(ctx.module)
 
 v_len = 16
-M, K, N = 512, 512, 512
+M, K, N = 16, 16, 16
 TILE_SIZE = BK = 16
 dtype = T.f16()
 np_dtype = np.float16
@@ -78,24 +78,26 @@ def kernel(
 
     row = block_idx.y * TILE_SIZE + thread_idx.y
     col = block_idx.x * TILE_SIZE + thread_idx.x
+    # gpu.printf("(%ld, %ld)\n", row, col)
+    # vector.print_(source=row)
 
     sum = arith.constant(np.full([v_len], 0.0, np_dtype), v16)
     for t, sum, _ in scf.range_(0, N, BK, iter_args=[sum]):
-        Bs[thread_idx.y, thread_idx.x] = B[thread_idx.y + t, col]
+        Bs[thread_idx.y, thread_idx.x] = B[col, thread_idx.y + t]
         As[thread_idx.y, thread_idx.x] = A[row, thread_idx.x + t]
 
         gpu.barrier()
 
-        a_frag = As @ vector.load(v16) @ [thread_idx.y, 0]
-        b_frag = Bs @ vector.load(v16) @ [0, thread_idx.x]
+        lane = thread_idx.x % v_len
+        a_frag = As @ vector.load(v16) @ [lane, 0]
+        b_frag = Bs @ vector.load(v16) @ [lane, 0]
+
+        # call the WMMA intrinsic
         false = arith.constant(False, T.bool())
         sum = rocdl.wmma_f16_16x16x16_f16(v16, [a_frag, b_frag, sum, false])
-
-        gpu.barrier()
-
         sum = yield sum
 
-    C[row, col] = sum
+    C[row, col] = sum[2 * (row // 2)]
 
 
 props = hip.hipDeviceProp_t()
@@ -110,13 +112,21 @@ def gpu_module():
 
 ip.__exit__(None, None, None)
 
+# gpu_module = run_pipeline(gpu_module, Pipeline().cse())
+# print(gpu_module)
+
 O = 3
 output_format = "binary"
 
 lowered_module = run_pipeline(
     gpu_module,
     Pipeline()
-    .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
+    .Gpu(
+        Pipeline().convert_gpu_to_rocdl(
+            use_bare_ptr_memref_call_conv=True,
+            runtime="HIP",
+        )
+    )
     .rocdl_attach_target(chip=arch, abi="500", O=O)
     .gpu_to_llvm()
     .lower_to_llvm()
@@ -132,12 +142,20 @@ if output_format == "assembly":
 hip_module = hip_check(hip.hipModuleLoadData(hsaco))
 function = hip_check(hip.hipModuleGetFunction(hip_module, kernel.__name__.encode()))
 
-# a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np_dtype)
-# b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np_dtype)
-a_h = np.ones((M, K)).astype(dtype=np_dtype)
-b_h = np.ones((K, N)).astype(dtype=np_dtype)
-c_h = -3 * np.ones((M, N), dtype=np_dtype)
+a_h = np.random.randint(0, 10, (M, K)).astype(dtype=np_dtype)
+b_h = np.random.randint(0, 10, (K, N)).astype(dtype=np_dtype)
+# a_h = np.ones((M, K)).astype(dtype=np_dtype)
+# b_h = np.ones((K, N)).astype(dtype=np_dtype)
+c_h = 0 * np.ones((M, N), dtype=np_dtype)
 
+for k in range(K):
+    a = a_h[:, k]
+    b = b_h[k, :]
+    c_h += np.outer(a, b)
+
+assert np.allclose(a_h @ b_h, c_h)
+
+c_h = -3 * np.ones((M, N), dtype=np_dtype)
 a_num_bytes = a_h.size * a_h.itemsize
 b_num_bytes = b_h.size * b_h.itemsize
 c_num_bytes = c_h.size * c_h.itemsize
@@ -190,13 +208,13 @@ assert np.allclose(c_h, -3.0)
 assert not np.allclose(correct, c_h)
 hip_check(hip.hipMemcpy(c_h, c_d, c_num_bytes, hip.hipMemcpyKind.hipMemcpyDeviceToHost))
 
-
 if not np.allclose(c_h, correct):
     with np.printoptions(threshold=np.inf, linewidth=np.inf):
-        # print("correct", correct)
-        # print("c_h", c_h)
+        print("correct\n", correct)
+        print("c_h\n", c_h)
         print("off by atol", np.max(np.abs(correct - c_h)))
         print("off by rtol", np.max(np.abs(correct - c_h) / correct))
+
 
 hip_check(hip.hipFree(a_d))
 hip_check(hip.hipFree(b_d))

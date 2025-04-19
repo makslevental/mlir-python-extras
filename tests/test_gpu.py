@@ -15,7 +15,7 @@ from mlir.dialects.math import fma
 from mlir.dialects.memref import cast
 
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext import arith, scf, memref, rocdl
+from mlir.extras.dialects.ext import arith, scf, memref, rocdl, gpu
 from mlir.extras.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences
@@ -1232,6 +1232,9 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
         false = arith.constant(False, T.bool())
         c_frag = rocdl.wmma_f16_16x16x16_f16(v16f16, [a_frag, b_frag, c_frag, false])
 
+        for i in scf.range_(v_len):
+            gpu.printf("(%02ld, %02ld, %02ld), %f\n", lIdx, lane, i, c_frag[i])
+
         for ele in scf.range_(v_len // 2):
             r = ele * 2 + (lIdx // v_len)
             # store results from unpacked c_frag output
@@ -1250,7 +1253,11 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
     lowered_module = run_pipeline(
         gpu_module,
         Pipeline()
-        .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
+        .Gpu(
+            Pipeline().convert_gpu_to_rocdl(
+                use_bare_ptr_memref_call_conv=True, runtime="HIP"
+            )
+        )
         .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
         .lower_to_llvm()
