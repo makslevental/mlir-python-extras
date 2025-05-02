@@ -251,6 +251,8 @@ _outerproduct = outerproduct
 
 
 def outerproduct(lhs, rhs, acc=None, *, kind=None, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     if kind is None:
         kind = CombiningKind.ADD
     result_shape = [lhs.shape[0], rhs.shape[0]]
@@ -262,6 +264,8 @@ def outerproduct(lhs, rhs, acc=None, *, kind=None, loc=None, ip=None):
 
 @Infix
 def outer(lhs, rhs, acc=None, *, kind=None, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     return outerproduct(lhs, rhs, acc, kind=kind, loc=loc, ip=ip)
 
 
@@ -270,14 +274,20 @@ _shuffle = shuffle
 
 @Infix
 def shuffle(v1, v2, mask, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     return ShuffleOp(v1=v1, v2=v2, mask=mask, loc=loc, ip=ip).result
 
 
 _load = load
 
 
-@Infix
-def load(base, indices, result, *, nontemporal=None, loc=None, ip=None):
+def load_(base, indices, result, *, nontemporal=None, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    for j, i in enumerate(indices):
+        if isinstance(i, int):
+            indices[j] = constant(i, index=True)
     return LoadOp(
         result=result,
         base=base,
@@ -286,3 +296,6 @@ def load(base, indices, result, *, nontemporal=None, loc=None, ip=None):
         loc=loc,
         ip=ip,
     ).result
+
+
+load = Infix(load_)
