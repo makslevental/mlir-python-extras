@@ -231,7 +231,7 @@ class Tensor(ArithValue):
             loc = get_user_code_loc()
         if isinstance(other, np.ndarray):
             other = Tensor(other)
-            return self, other
+            return other
         elif _is_scalar(other):
             if not self.has_static_shape():
                 raise ValueError(
@@ -245,7 +245,7 @@ class Tensor(ArithValue):
                     loc=loc,
                     ip=ip,
                 )
-                return self, other
+                return other
             elif isinstance(other, Scalar):
                 other = tensor.splat(
                     RankedTensorType.get(self.shape, other.dtype),
@@ -254,7 +254,7 @@ class Tensor(ArithValue):
                     loc=loc,
                     ip=ip,
                 )
-                return self, other
+                return other
 
         raise ValueError(f"can't coerce unknown {other=}")
 

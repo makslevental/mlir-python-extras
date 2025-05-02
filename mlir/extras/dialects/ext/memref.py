@@ -4,7 +4,7 @@ from typing import Sequence, Union
 import numpy as np
 
 from ._shaped_value import ShapedValue, _indices_to_indexer
-from .arith import Scalar, constant
+from .arith import Scalar, constant, index_cast
 from .tensor import compute_result_shape_reassoc_list
 from .vector import Vector
 from ... import types as T
@@ -16,12 +16,15 @@ from ...util import (
 )
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import memref, arith, vector, builtin
+from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
 from ....dialects._ods_common import get_op_result_or_op_results
 from ....dialects.memref import *
 from ....ir import (
     DenseElementsAttr,
     MemRefType,
+    UnrankedMemRefType,
     ShapedType,
+    IndexType,
     Type,
     Value,
     SymbolTable,
@@ -123,6 +126,12 @@ def load(memref: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=No
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
+        elif isinstance(i, Value):
+            if not _is_index_type(i.type):
+                i = index_cast(i, to=IndexType.get(), loc=loc, ip=ip)
+                indices[idx] = i
+        else:
+            raise TypeError(f"expected {i=} to be either int or Value")
     return get_op_result_or_op_results(LoadOp(memref, indices, loc=loc, ip=ip))
 
 
@@ -140,6 +149,12 @@ def store(
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
+        elif isinstance(i, Value):
+            if not _is_index_type(i.type):
+                i = index_cast(i, to=IndexType.get(), loc=loc, ip=ip)
+                indices[idx] = i
+        else:
+            raise TypeError(f"expected {i=} to be either int or Value")
     return get_op_result_or_op_results(StoreOp(value, memref, indices, loc=loc, ip=ip))
 
 
@@ -193,7 +208,7 @@ class MemRef(Value):
                 val = Scalar(val, dtype=self.dtype)
             assert isinstance(
                 val, (Scalar, Vector)
-            ), "coordinate insert requires scalar element"
+            ), f"coordinate insert on ranked memref {self.type} requires scalar element but got {val=}"
             if isinstance(val, Scalar):
                 store(val, self, idx, loc=loc)
             elif isinstance(val, Vector):
@@ -260,14 +275,15 @@ def _canonicalize_start_stop(start, stop, step):
     ):
         return stop.owner.operands[1].literal_value
     elif (
-        isinstance(start.owner.opview, arith.MulIOp)
+        isinstance(start, Value)
+        and isinstance(start.owner.opview, arith.MulIOp)
+        and isinstance(stop, Value)
         and isinstance(stop.owner.opview, arith.MulIOp)
         and isinstance(stop.owner.operands[0].owner.opview, arith.AddIOp)
         and start.owner.operands[0] == stop.owner.operands[0].owner.operands[0]
         and stop.owner.operands[1].is_constant()
         and isinstance(step, int)
-        or isinstance(step, Scalar)
-        and step.is_constant()
+        or (isinstance(step, Scalar) and step.is_constant())
     ):
         # looks like this
         # l = lambda l: l * D
@@ -281,7 +297,7 @@ def _canonicalize_start_stop(start, stop, step):
     elif isinstance(start, int) and isinstance(stop, int):
         return stop - start
 
-    raise NotImplementedError
+    raise NotImplementedError(f"can't canonicalize {start=} {stop=} {step=}")
 
 
 def _subview(
@@ -312,15 +328,19 @@ def _subview(
         static_sizes = [None] * len(indexer.in_shape)
         static_strides = [None] * len(indexer.in_shape)
         for i, ind in enumerate(indexer.indices):
-            maybe_size = _canonicalize_start_stop(ind.start, ind.stop, ind.step)
-            if maybe_size is not None:
+            if isinstance(ind, slice):
+                maybe_size = _canonicalize_start_stop(ind.start, ind.stop, ind.step)
+                if maybe_size is None:
+                    raise RuntimeError(
+                        f"failed to canonicalize start, stop, step: {ind=}"
+                    )
                 offsets[i] = ind.start
                 static_sizes[i] = maybe_size
                 static_strides[i] = (
                     ind.step.literal_value if isinstance(ind.step, Scalar) else ind.step
                 )
             else:
-                raise RuntimeError(f"indexing not supported {indexer.indices}")
+                raise RuntimeError(f"indexing of {mem=} not supported by {ind=}")
         assert all(
             map(lambda x: x is not None, offsets + static_sizes + static_strides)
         ), f"not each slice is statically known: {indexer.indices}"
@@ -423,14 +443,33 @@ def view(source, shape, dtype=None, shift=0, memory_space=None, loc=None, ip=Non
         dtype = source.type.element_type
     byte_width_dtype = dtype.width // 8
     byte_shift = shift * byte_width_dtype
-    byte_shift = constant(byte_shift, index=True)
+    if isinstance(byte_shift, int):
+        byte_shift = constant(byte_shift, index=True)
+    elif isinstance(byte_shift, Value):
+        if not _is_index_type(byte_shift.type):
+            byte_shift = index_cast(byte_shift, to=IndexType.get(), loc=loc, ip=ip)
+    else:
+        raise TypeError(f"expected {byte_shift=} to be either int or Value")
+    assert _is_index_type(byte_shift.type), "expected index type for byte-shift"
     if memory_space is None and source:
         memory_space = source.type.memory_space
+
+    dynamic_sizes = []
+    memref_shape = []
+    for s in shape:
+        if isinstance(s, int):
+            memref_shape.append(s)
+        else:
+            memref_shape.append(ShapedType.get_dynamic_size())
+            if not _is_index_type(s.type):
+                s = index_cast(s, to=IndexType.get(), loc=loc, ip=ip)
+            dynamic_sizes.append(s)
+
     return memref.view(
-        T.memref(*shape, element_type=dtype, memory_space=memory_space),
+        T.memref(*memref_shape, element_type=dtype, memory_space=memory_space),
         source,
         byte_shift,
-        [],
+        dynamic_sizes,
         loc=loc,
         ip=ip,
     )

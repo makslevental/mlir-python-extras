@@ -39,6 +39,7 @@ from ....ir import (
 _block_id = block_id
 _thread_id = thread_id
 _block_dim = block_dim
+_grid_dim = grid_dim
 
 
 class classproperty(property):
@@ -86,6 +87,20 @@ class thread_idx:
     @classproperty
     def z(cls):
         return _thread_id("z", loc=get_user_code_loc())
+
+
+class grid_dim:
+    @classproperty
+    def x(cls):
+        return _grid_dim("x", loc=get_user_code_loc())
+
+    @classproperty
+    def y(cls):
+        return _grid_dim("y", loc=get_user_code_loc())
+
+    @classproperty
+    def z(cls):
+        return _grid_dim("z", loc=get_user_code_loc())
 
 
 def thread_id():
