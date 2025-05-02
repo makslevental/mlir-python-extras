@@ -281,6 +281,8 @@ def _canonicalize_start_stop(start, stop, step):
     elif isinstance(start, int) and isinstance(stop, int):
         return stop - start
 
+    raise NotImplementedError
+
 
 def _subview(
     mem: MemRef,
@@ -362,6 +364,8 @@ _dim = dim
 
 
 def dim(source, index, *, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     if isinstance(index, int):
         index = constant(index, index=True)
     return _dim(source=source, index=index, loc=loc, ip=ip)
@@ -412,7 +416,9 @@ def global_(
     ).opview
 
 
-def view(source, shape, dtype=None, shift=0, memory_space=None):
+def view(source, shape, dtype=None, shift=0, memory_space=None, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
     if dtype is None:
         dtype = source.type.element_type
     byte_width_dtype = dtype.width // 8
@@ -425,6 +431,8 @@ def view(source, shape, dtype=None, shift=0, memory_space=None):
         source,
         byte_shift,
         [],
+        loc=loc,
+        ip=ip,
     )
 
 
@@ -434,6 +442,8 @@ _get_global = get_global
 def get_global(
     name_or_global, *, name=None, global_=None, result=None, loc=None, ip=None
 ):
+    if loc is None:
+        loc = get_user_code_loc()
     if isinstance(name_or_global, GlobalOp):
         global_ = name_or_global
     elif isinstance(name_or_global, str):
