@@ -104,7 +104,7 @@ def manual_attn(q, k, v):
     return y
 
 
-rank_reduce = memref.MemRef.rank_reduce
+rank_reduce = memref.rank_reduce
 
 
 # https://github.com/tspeterkim/flash-attention-minimal/blob/main/flash.cu

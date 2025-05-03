@@ -170,6 +170,9 @@ def store(
     return get_op_result_or_op_results(StoreOp(value, memref, indices, loc=loc, ip=ip))
 
 
+rank_reduce = object()
+
+
 @register_value_caster(MemRefType.static_typeid)
 @ShapedValue
 class MemRef(Value):
@@ -178,8 +181,6 @@ class MemRef(Value):
 
     def __repr__(self):
         return str(self)
-
-    rank_reduce = object()
 
     def __getitem__(self, idx: tuple) -> "MemRef":
         loc = get_user_code_loc()
@@ -195,9 +196,9 @@ class MemRef(Value):
             return expand_shape(self, (0,), loc=loc)
 
         idx = list((idx,) if isinstance(idx, (int, Scalar, slice)) else idx)
-        rank_reduce = MemRef.rank_reduce in idx
-        if rank_reduce:
-            idx.remove(MemRef.rank_reduce)
+        should_rank_reduce = rank_reduce in idx
+        if should_rank_reduce:
+            idx.remove(rank_reduce)
 
         for i, d in enumerate(idx):
             # TODO(max): rethink this since subview and etc probably take constant attributes?
@@ -207,7 +208,7 @@ class MemRef(Value):
         if all(isinstance(d, Scalar) for d in idx) and len(idx) == len(self.shape):
             return load(self, idx, loc=loc)
         else:
-            return _subview(self, tuple(idx), rank_reduce=rank_reduce, loc=loc)
+            return _subview(self, tuple(idx), rank_reduce=should_rank_reduce, loc=loc)
 
     def __setitem__(self, idx, val):
         loc = get_user_code_loc()

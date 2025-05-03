@@ -17,6 +17,7 @@ from mlir.extras.dialects.ext.memref import (
     alloca_scope,
     alloca_scope_return,
     global_,
+    rank_reduce,
 )
 from mlir.extras.dialects.ext.scf import (
     range_,
@@ -41,6 +42,10 @@ def test_simple_literal_indexing(ctx: MLIRContext):
     w = mem[2, 4, 6, 8]
     assert isinstance(w, Scalar)
 
+    two = constant(1) * 2
+    w = mem[two, 4, 6, 8]
+    mem[two, 4, 6, 8] = w
+
     correct = dedent(
         """\
     module {
@@ -50,6 +55,19 @@ def test_simple_literal_indexing(ctx: MLIRContext):
       %c6 = arith.constant 6 : index
       %c8 = arith.constant 8 : index
       %0 = memref.load %alloc[%c2, %c4, %c6, %c8] : memref<10x22x333x4444xi32>
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %1 = arith.muli %c1_i32, %c2_i32 : i32
+      %c4_0 = arith.constant 4 : index
+      %c6_1 = arith.constant 6 : index
+      %c8_2 = arith.constant 8 : index
+      %2 = arith.index_cast %1 : i32 to index
+      %3 = memref.load %alloc[%2, %c4_0, %c6_1, %c8_2] : memref<10x22x333x4444xi32>
+      %c4_3 = arith.constant 4 : index
+      %c6_4 = arith.constant 6 : index
+      %c8_5 = arith.constant 8 : index
+      %4 = arith.index_cast %1 : i32 to index
+      memref.store %3, %alloc[%4, %c4_3, %c6_4, %c8_5] : memref<10x22x333x4444xi32>
     }
     """
     )
@@ -62,8 +80,8 @@ def test_simple_slicing(ctx: MLIRContext):
     w = mem[5:]
     w = mem[:5]
 
-    one = constant(1, index=True) * 2
-    w = mem[one:]
+    two = constant(1, index=True) * 2
+    w = mem[two:]
 
     correct = dedent(
         """\
@@ -153,9 +171,9 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
     w = mem[1, :, ...]
     w = mem[1, :, :, ...]
 
-    one = constant(1, index=True) * 2
-    w = mem[one, :, :, ...]
-    w = mem[one:, :, :, ...]
+    two = constant(1, index=True) * 2
+    w = mem[two, :, :, ...]
+    w = mem[two:, :, :, ...]
 
     correct = dedent(
         f"""\
@@ -183,10 +201,9 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
         w = mem[1, :, :, :, :]
     except IndexError as e:
         assert (
-                str(e)
-                == "Too many indices for shaped type with rank: 5 non-None/Ellipsis indices for dim 4."
+            str(e)
+            == "Too many indices for shaped type with rank: 5 non-None/Ellipsis indices for dim 4."
         )
-
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
@@ -194,18 +211,25 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
     dtype_size_in_bytes = np.int32().dtype.itemsize
     golden_mem = np.zeros(sizes, dtype=np.int32)
     golden_w_1 = golden_mem[1:2, :]
+    golden_w_1_rank_reduce = golden_mem[1, :]
     golden_w_2 = golden_mem[1:2, :, :]
     golden_w_3 = golden_mem[1:2, :, :, :]
     golden_w_4 = golden_mem[:, 1:2]
     golden_w_5 = golden_mem[:, :, 1:2]
 
     golden_w_1_strides = (np.array(golden_w_1.strides) // dtype_size_in_bytes).tolist()
+    golden_w_1_rank_reduce_strides = (
+        np.array(golden_w_1_rank_reduce.strides) // dtype_size_in_bytes
+    ).tolist()
     golden_w_2_strides = (np.array(golden_w_2.strides) // dtype_size_in_bytes).tolist()
     golden_w_3_strides = (np.array(golden_w_3.strides) // dtype_size_in_bytes).tolist()
     golden_w_4_strides = (np.array(golden_w_4.strides) // dtype_size_in_bytes).tolist()
     golden_w_5_strides = (np.array(golden_w_5.strides) // dtype_size_in_bytes).tolist()
 
     golden_w_1_offset = get_np_view_offset(golden_w_1) // dtype_size_in_bytes
+    golden_w_1_rank_reduce_offset = (
+        get_np_view_offset(golden_w_1_rank_reduce) // dtype_size_in_bytes
+    )
     golden_w_2_offset = get_np_view_offset(golden_w_2) // dtype_size_in_bytes
     golden_w_3_offset = get_np_view_offset(golden_w_3) // dtype_size_in_bytes
     golden_w_4_offset = get_np_view_offset(golden_w_4) // dtype_size_in_bytes
@@ -213,6 +237,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
 
     mem = alloc(sizes, T.i32())
     w = mem[1, :]
+    w = mem[1, :, rank_reduce]
     w = mem[1, :, :]
     w = mem[1, :, :, :]
     w = mem[:, 1]
@@ -224,13 +249,15 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
       %c1 = arith.constant 1 : index
       %subview = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_1_strides}, offset: {golden_w_1_offset}>>
       %c1_0 = arith.constant 1 : index
-      %subview_2 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
+      %subview_1 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<22x333x4444xi32, strided<{golden_w_1_rank_reduce_strides}, offset: {golden_w_1_rank_reduce_offset}>>
       %c1_2 = arith.constant 1 : index
-      %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: {golden_w_3_offset}>>
+      %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_2_strides}, offset: {golden_w_2_offset}>>
       %c1_4 = arith.constant 1 : index
-      %subview_5 = memref.subview %alloc[0, 1, 0, 0] [10, 1, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x333x4444xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
+      %subview_5 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: {golden_w_3_offset}>>
       %c1_6 = arith.constant 1 : index
-      %subview_7 = memref.subview %alloc[0, 0, 1, 0] [10, 22, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x1x4444xi32, strided<{golden_w_5_strides}, offset: {golden_w_5_offset}>>
+      %subview_7 = memref.subview %alloc[0, 1, 0, 0] [10, 1, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x1x333x4444xi32, strided<{golden_w_4_strides}, offset: {golden_w_4_offset}>>
+      %c1_8 = arith.constant 1 : index
+      %subview_9 = memref.subview %alloc[0, 0, 1, 0] [10, 22, 1, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x1x4444xi32, strided<{golden_w_5_strides}, offset: {golden_w_5_offset}>>
     }}
     """
     )
@@ -688,6 +715,9 @@ def test_memref_view(ctx: MLIRContext):
     ab_buffer = alloc(((m * k + k * n) * byte_width_dtype,), T.i8())
     a_buffer = memref.view(ab_buffer, (m, k), dtype=dtype)
     b_buffer = memref.view(ab_buffer, (k, n), dtype=dtype, shift=m * k)
+    two = constant(1) * 2
+    # TODO(max): should the type here also contain the offset...?
+    c_buffer = memref.view(ab_buffer, (k, n), dtype=dtype, shift=m * k + two)
 
     correct = dedent(
         """\
@@ -697,6 +727,15 @@ def test_memref_view(ctx: MLIRContext):
       %view = memref.view %alloc[%c0][] : memref<2048xi8> to memref<16x16xf32>
       %c1024 = arith.constant 1024 : index
       %view_0 = memref.view %alloc[%c1024][] : memref<2048xi8> to memref<16x16xf32>
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.muli %c1_i32, %c2_i32 : i32
+      %c256_i32 = arith.constant 256 : i32
+      %1 = arith.addi %c256_i32, %0 : i32
+      %c4_i32 = arith.constant 4 : i32
+      %2 = arith.muli %1, %c4_i32 : i32
+      %3 = arith.index_cast %2 : i32 to index
+      %view_1 = memref.view %alloc[%3][] : memref<2048xi8> to memref<16x16xf32>
     }
     """
     )
