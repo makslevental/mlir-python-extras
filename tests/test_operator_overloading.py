@@ -7,7 +7,12 @@ from mlir.extras.dialects.ext.arith import constant, Scalar
 from mlir.extras.dialects.ext.tensor import Tensor, empty
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import (
+    mlir_ctx as ctx,
+    filecheck,
+    MLIRContext,
+    filecheck_with_comments,
+)
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -249,33 +254,28 @@ def test_scalar_promotion(ctx: MLIRContext):
     one % 2.0
 
     ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %c1_i32 = arith.constant 1 : i32
-      %c2_i32 = arith.constant 2 : i32
-      %0 = arith.addi %c1_i32, %c2_i32 : i32
-      %c2_i32_0 = arith.constant 2 : i32
-      %1 = arith.subi %c1_i32, %c2_i32_0 : i32
-      %c2_i32_1 = arith.constant 2 : i32
-      %2 = arith.divsi %c1_i32, %c2_i32_1 : i32
-      %c2_i32_2 = arith.constant 2 : i32
-      %3 = arith.floordivsi %c1_i32, %c2_i32_2 : i32
-      %c2_i32_3 = arith.constant 2 : i32
-      %4 = arith.remsi %c1_i32, %c2_i32_3 : i32
-      %cst = arith.constant 1.000000e+00 : f32
-      %cst_4 = arith.constant 2.000000e+00 : f32
-      %5 = arith.addf %cst, %cst_4 : f32
-      %cst_5 = arith.constant 2.000000e+00 : f32
-      %6 = arith.subf %cst, %cst_5 : f32
-      %cst_6 = arith.constant 2.000000e+00 : f32
-      %7 = arith.divf %cst, %cst_6 : f32
-      %cst_7 = arith.constant 2.000000e+00 : f32
-      %8 = arith.remf %cst, %cst_7 : f32
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK: %[[C1_I32:.*]] = arith.constant 1 : i32
+    # CHECK: %[[VAL_0:.*]] = arith.constant 2 : i32
+    # CHECK: %[[VAL_1:.*]] = arith.addi %[[C1_I32]], %[[VAL_0]] : i32
+    # CHECK: %[[VAL_2:.*]] = arith.constant 2 : i32
+    # CHECK: %[[VAL_3:.*]] = arith.subi %[[C1_I32]], %[[VAL_2]] : i32
+    # CHECK: %[[VAL_4:.*]] = arith.constant 2 : i32
+    # CHECK: %[[VAL_5:.*]] = arith.divsi %[[C1_I32]], %[[VAL_4]] : i32
+    # CHECK: %[[VAL_6:.*]] = arith.constant 2 : i32
+    # CHECK: %[[VAL_7:.*]] = arith.floordivsi %[[C1_I32]], %[[VAL_6]] : i32
+    # CHECK: %[[VAL_8:.*]] = arith.constant 2 : i32
+    # CHECK: %[[VAL_9:.*]] = arith.remsi %[[C1_I32]], %[[VAL_8]] : i32
+    # CHECK: %[[VAL_10:.*]] = arith.constant 1.000000e+00 : f32
+    # CHECK: %[[VAL_11:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK: %[[VAL_12:.*]] = arith.addf %[[VAL_10]], %[[VAL_11]] : f32
+    # CHECK: %[[VAL_13:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK: %[[VAL_14:.*]] = arith.subf %[[VAL_10]], %[[VAL_13]] : f32
+    # CHECK: %[[VAL_15:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK: %[[VAL_16:.*]] = arith.divf %[[VAL_10]], %[[VAL_15]] : f32
+    # CHECK: %[[VAL_17:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK: %[[VAL_18:.*]] = arith.remf %[[VAL_10]], %[[VAL_17]] : f32
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_rscalar_promotion(ctx: MLIRContext):
