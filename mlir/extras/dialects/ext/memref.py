@@ -1,6 +1,6 @@
 import inspect
 import operator
-from itertools import accumulate
+from itertools import accumulate, zip_longest
 from typing import Sequence, Union, Optional
 
 import numpy as np
@@ -24,7 +24,11 @@ from ....dialects._ods_common import (
     MixedValues,
     _dispatch_mixed_values,
 )
-from ....dialects.memref import _is_static_int_like, _infer_memref_subview_result_type
+from ....dialects.memref import (
+    _is_static_int_like,
+    _infer_memref_subview_result_type,
+    _generated_subview,
+)
 from ....dialects.memref import *
 from ....ir import (
     DenseElementsAttr,
@@ -175,6 +179,8 @@ class MemRef(Value):
     def __repr__(self):
         return str(self)
 
+    rank_reduce = object()
+
     def __getitem__(self, idx: tuple) -> "MemRef":
         loc = get_user_code_loc()
 
@@ -189,6 +195,10 @@ class MemRef(Value):
             return expand_shape(self, (0,), loc=loc)
 
         idx = list((idx,) if isinstance(idx, (int, Scalar, slice)) else idx)
+        rank_reduce = MemRef.rank_reduce in idx
+        if rank_reduce:
+            idx.remove(MemRef.rank_reduce)
+
         for i, d in enumerate(idx):
             # TODO(max): rethink this since subview and etc probably take constant attributes?
             if isinstance(d, int):
@@ -197,7 +207,7 @@ class MemRef(Value):
         if all(isinstance(d, Scalar) for d in idx) and len(idx) == len(self.shape):
             return load(self, idx, loc=loc)
         else:
-            return _subview(self, tuple(idx), loc=loc)
+            return _subview(self, tuple(idx), rank_reduce=rank_reduce, loc=loc)
 
     def __setitem__(self, idx, val):
         loc = get_user_code_loc()
@@ -306,10 +316,89 @@ def _maybe_compute_size(start, stop, step):
         return stop - start
 
 
+def subview(
+    source: Value,
+    offsets: MixedValues,
+    sizes: MixedValues,
+    strides: MixedValues,
+    *,
+    rank_reduce=False,
+    result_type: Optional[MemRefType] = None,
+    loc=None,
+    ip=None,
+):
+    if offsets is None:
+        offsets = []
+    if sizes is None:
+        sizes = []
+    if strides is None:
+        strides = []
+    source_strides, source_offset = source.type.get_strides_and_offset()
+    if result_type is None and all(
+        all(_is_static_int_like(i) for i in s) for s in [sizes, strides, source_strides]
+    ):
+        # If any are arith.constant results then this will canonicalize to python int
+        # (which can then be used to fully specify the subview).
+        (
+            offsets,
+            sizes,
+            strides,
+            result_type,
+        ) = _infer_memref_subview_result_type(source.type, offsets, sizes, strides)
+    elif result_type is None:
+        raise ValueError(
+            "mixed static/dynamic offset/sizes/strides requires explicit result type."
+        )
+
+    offsets, _packed_offsets, static_offsets = _dispatch_mixed_values(offsets)
+    sizes, _packed_sizes, static_sizes = _dispatch_mixed_values(sizes)
+    strides, _packed_strides, static_strides = _dispatch_mixed_values(strides)
+
+    if rank_reduce:
+        result_shape = list(result_type.shape)
+        layout_strides = None
+        if result_type.layout:
+            layout_strides = result_type.layout.strides
+        for i, (s, ss) in reversed(
+            list(enumerate(list(zip_longest(sizes, static_sizes))))
+        ):
+            if (
+                s is not None and _is_static_int_like(s) and s.literal_value == 1
+            ) or ss == 1:
+                del result_shape[i]
+                if layout_strides is not None:
+                    del layout_strides[i]
+        reduced_layout = None
+        if layout_strides is not None:
+            reduced_layout = StridedLayoutAttr.get(
+                result_type.layout.offset, layout_strides
+            )
+        result_type = MemRefType.get(
+            result_shape,
+            result_type.element_type,
+            reduced_layout,
+            result_type.memory_space,
+        )
+
+    return _generated_subview(
+        result_type,
+        source,
+        offsets,
+        sizes,
+        strides,
+        static_offsets,
+        static_sizes,
+        static_strides,
+        loc=loc,
+        ip=ip,
+    )
+
+
 def _subview(
     mem: MemRef,
     idx,
     *,
+    rank_reduce=False,
     loc=None,
     ip=None,
 ) -> MemRef:
@@ -320,14 +409,9 @@ def _subview(
     out = mem
 
     if indexer.is_constant():
-        out = subview(
-            out,
-            offsets=indexer.static_offsets(),
-            sizes=indexer.static_sizes(),
-            strides=indexer.static_strides(),
-            loc=loc,
-            ip=ip,
-        )
+        offsets = indexer.static_offsets()
+        sizes = indexer.static_sizes()
+        strides = indexer.static_strides()
     else:
         # special tile case
         offsets = [None] * len(indexer.in_shape)
@@ -354,14 +438,16 @@ def _subview(
         assert all(
             map(lambda x: x is not None, offsets + sizes + strides)
         ), f"not each slice is statically known: {indexer.indices}"
-        out = subview(
-            out,
-            offsets=offsets,
-            sizes=sizes,
-            strides=strides,
-            loc=loc,
-            ip=ip,
-        )
+
+    out = subview(
+        out,
+        offsets=offsets,
+        sizes=sizes,
+        strides=strides,
+        rank_reduce=rank_reduce,
+        loc=loc,
+        ip=ip,
+    )
 
     # This adds newaxis/None dimensions.
     return expand_shape(out, indexer.newaxis_dims, loc=loc, ip=ip)

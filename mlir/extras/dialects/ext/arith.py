@@ -13,7 +13,6 @@ from einspect.structs import PyTypeObject
 from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects.arith import *
 from ....dialects import complex as complex_dialect
 from ....dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
@@ -457,8 +456,9 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __mod__ = partialmethod(_binary_op, op="mod")
     __and__ = partialmethod(_binary_op, op="and")
     __or__ = partialmethod(_binary_op, op="or")
-    __radd__ = partialmethod(_binary_op, op="add")
+    # TODO(max): powi/powf using math
 
+    __radd__ = partialmethod(_rbinary_op, op="add")
     __rsub__ = partialmethod(_rbinary_op, op="sub")
     __rmul__ = partialmethod(_rbinary_op, op="mul")
     __rtruediv__ = partialmethod(_rbinary_op, op="truediv")

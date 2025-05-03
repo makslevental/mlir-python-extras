@@ -3,10 +3,11 @@ from pathlib import Path
 import mlir.extras.types as T
 import numpy as np
 from hip import hip
-from mlir.ir import InsertionPoint, IntegerAttr, UnitAttr, Type
+from mlir.ir import InsertionPoint, IntegerAttr, UnitAttr
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContextModule
-from mlir.extras.dialects.ext import memref, scf, arith, gpu, llvm, affine
+from mlir.extras.dialects.ext import memref, scf, arith, gpu, llvm
+from mlir.dialects import math
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext.gpu import (
@@ -25,12 +26,12 @@ from mlir.extras.util import find_ops
 from util import hip_check, launch_kernel, hip_synchronize
 
 
-def init_copy_host_device():
-    q_h = np.random.randint(0, 10, (B * nh * N * d)).astype(dtype=np.float32)
-    k_h = np.random.randint(0, 10, (B * nh * N * d)).astype(dtype=np.float32)
-    v_h = np.random.randint(0, 10, (B * nh * N * d)).astype(dtype=np.float32)
-    l_h = np.zeros((B * nh * N), dtype=np.float32)
-    m_h = np.full((B * nh * N), float(np.finfo(np.float32).min), dtype=np.float32)
+def init_copy_host_device(B, nh, N, d):
+    q_h = np.random.randint(0, 10, (B, nh, N, d)).astype(dtype=np.float32)
+    k_h = np.random.randint(0, 10, (B, nh, N, d)).astype(dtype=np.float32)
+    v_h = np.random.randint(0, 10, (B, nh, N, d)).astype(dtype=np.float32)
+    l_h = np.zeros((B, nh, N), dtype=np.float32)
+    m_h = np.full((B, nh, N), float(np.finfo(np.float32).min), dtype=np.float32)
     O_h = np.zeros_like(q_h, dtype=np.float32)
 
     host = [q_h, k_h, v_h, l_h, m_h, O_h]
@@ -87,11 +88,7 @@ nh = 12
 N = 128
 d = 128
 
-import math
-
-Tc = math.ceil(N / Bc)
-Tr = math.ceil(N / Br)
-softmax_scale = 1.0 / math.sqrt(d)
+softmax_scale = 1.0 / float(np.sqrt(d))
 
 
 def softmax(x, axis=None):
@@ -101,20 +98,13 @@ def softmax(x, axis=None):
 
 
 def manual_attn(q, k, v):
-    # the kernel below overwrites the global math.........
-    import math
-
-    q = q.reshape(B, nh, N, d)
-    k = k.reshape(B, nh, N, d)
-    v = v.reshape(B, nh, N, d)
-
-    att = q @ k.transpose(0, 1, 3, 2) * (1.0 / math.sqrt(k.shape[-1]))
+    att = q @ k.transpose(0, 1, 3, 2) * (1.0 / float(np.sqrt(k.shape[-1])))
     att = softmax(att, axis=-1)
     y = att @ v
-    return y.flatten()
+    return y
 
 
-from mlir.dialects import math
+rank_reduce = memref.MemRef.rank_reduce
 
 
 # https://github.com/tspeterkim/flash-attention-minimal/blob/main/flash.cu
@@ -134,32 +124,18 @@ def flash_attention(
     # gpu.printf("bx %ld, by %ld\n", bx, by)
 
     # Offset into Q,K,V,O,l,m - different for each batch and head
-    K_ = K[bx, by, :, :]
-    V_ = V[bx, by, :, :]
-    Q_ = Q[bx, by, :, :]
-    O_ = O[bx, by, :, :]
-    l_ = l[bx, by, :]
-    m_ = m[bx, by, :]
+    K = K[bx, by, :, :, rank_reduce]
+    V = V[bx, by, :, :, rank_reduce]
+    Q = Q[bx, by, :, :, rank_reduce]
+    O = O[bx, by, :, :, rank_reduce]
+    l = l[bx, by, :, rank_reduce]
+    m = m[bx, by, :, rank_reduce]
 
     # Define SRAM for Q,K,V,S
     sram = gpu.dynamic_shared_memory()
-    Qi = memref.view(
-        sram,
-        (Br, d),
-        dtype=T.f32(),
-    )
-    Kj = memref.view(
-        sram,
-        (Bc, d),
-        dtype=T.f32(),
-        shift=Qi.n_elements,
-    )
-    Vj = memref.view(
-        sram,
-        (Bc, d),
-        dtype=T.f32(),
-        shift=Qi.n_elements + Kj.n_elements,
-    )
+    Qi = memref.view(sram, (Br, d), dtype=T.f32())
+    Kj = memref.view(sram, (Bc, d), dtype=T.f32(), shift=Qi.n_elements)
+    Vj = memref.view(sram, (Bc, d), dtype=T.f32(), shift=Qi.n_elements + Kj.n_elements)
     S = memref.view(
         sram,
         (Br, Bc),
@@ -169,22 +145,22 @@ def flash_attention(
 
     for bc in scf.range_(0, N, Bc):
         # Load Kj, Vj to SRAM
-        K_ = K_[:, :, bc : bc + 1, :]
-        V_ = V_[:, :, bc : bc + 1, :]
+        K_ = K[bc : bc + 1, :]
+        V_ = V[bc : bc + 1, :]
         for x in scf.range_(0, d):
-            Kj[tx, x] = K_[0, 0, tx, x]
-            Vj[tx, x] = V_[0, 0, tx, x]
+            Kj[tx, x] = K_[tx, x]
+            Vj[tx, x] = V_[tx, x]
 
         for br in scf.range_(0, N, Br):
             # Load Qi to SRAM, l and m to registers
-            Q_ = Q_[:, :, br : br + 1, :]
+            Q_ = Q[br : br + 1, :]
             for x in scf.range_(0, d):
-                Qi[tx, x] = Q_[0, 0, tx, x]
+                Qi[tx, x] = Q_[tx, x]
 
-            l_ = l_[:, :, br : br + 1]
-            m_ = m_[:, :, br : br + 1]
-            row_l_prev = l_[0, 0, tx]
-            row_m_prev = m_[0, 0, tx]
+            l_ = l[br : br + 1]
+            m_ = m[br : br + 1]
+            row_l_prev = l_[tx]
+            row_m_prev = m_[tx]
 
             # S = QK^T, row_m = rowmax(S)
             row_m: T.f32() = float(np.finfo(np.float32).min)
@@ -218,22 +194,21 @@ def flash_attention(
                 + math.exp(row_m - row_m_new) * row_l
             )
             div = 1.0 / row_l_new
-            c = row_l_prev * math.exp(row_m_prev - row_m_new)
+            f1 = row_l_prev * math.exp(row_m_prev - row_m_new)
+            f2 = math.exp(row_m - row_m_new)
 
             # Write O, l, m to HBM
-            O_ = O_[:, :, br : br + 1, :]
+            O_ = O[br : br + 1, :]
             for x in scf.range_(0, d):
                 pv: T.f32() = 0.0  # Pij * Vj
                 for y, pv, _ in scf.range_(0, Bc, iter_args=[pv]):
                     pv += S[tx, y] * Vj[y, x]
                     pv = yield pv
 
-                O_[0, 0, tx, x] = div * (
-                    c * O_[0, 0, tx, x] + math.exp(row_m - row_m_new) * pv
-                )
+                O_[tx, x] = div * (f1 * O_[tx, x] + f2 * pv)
 
-            l_[0, 0, tx] = row_l_new
-            m_[0, 0, tx] = row_m_new
+            l_[tx] = row_l_new
+            m_[tx] = row_m_new
 
             gpu.barrier()
 
@@ -305,7 +280,7 @@ lowered_module = run_pipeline(
 )
 hsaco = get_compile_object_bytes(lowered_module)
 if output_format in {"isa", "llvm", "offloading"}:
-    with open(Path(__file__).parent / "flashattention.amdgcn", "wb") as f:
+    with open(Path(__file__).parent / f"flashattention.{output_format}", "wb") as f:
         f.write(hsaco)
     exit()
 
@@ -338,7 +313,7 @@ for kernel in times:
             shared_memory,
         ) = launch_params[kernel.__name__]
 
-        host, device = init_copy_host_device()
+        host, device = init_copy_host_device(B, nh, N, d)
         q_h, k_h, v_h, *_ = host
         correct = manual_attn(q_h, k_h, v_h)
 
@@ -360,8 +335,7 @@ for kernel in times:
             with np.printoptions(threshold=np.inf, linewidth=np.inf):
                 print(
                     "correct - output:\n",
-                    correct.round().reshape(B, nh, N, d)
-                    - O_h.round().reshape(B, nh, N, d),
+                    correct.round() - O_h.round(),
                 )
             print(f"{kernel.__name__} failed\n")
         else:
