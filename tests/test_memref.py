@@ -144,6 +144,9 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
     w = mem[1, :, ...]
     w = mem[1, :, :, ...]
 
+    one = constant(1, index=True) * 2
+    w = mem[one, :, :, ...]
+
     try:
         w = mem[1, :, :, :, :]
     except IndexError as e:
@@ -163,6 +166,10 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
       %c1_2 = arith.constant 1 : index
       %subview_3 = memref.subview %alloc[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: {golden_w_3_offset}>>
       %c1_4 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %0 = arith.muli %c1_4, %c2 : index
+      %subview_5 = memref.subview %alloc[%0, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: ?>>
+      %c1_6 = arith.constant 1 : index
     }}
     """
     )

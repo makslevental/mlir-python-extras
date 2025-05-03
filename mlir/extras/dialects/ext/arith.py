@@ -11,7 +11,6 @@ from bytecode import ConcreteBytecode
 from einspect.structs import PyTypeObject
 
 from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
-from ...ast.util import ast_call
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects.arith import *

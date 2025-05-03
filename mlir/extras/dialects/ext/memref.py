@@ -1,5 +1,7 @@
 import inspect
-from typing import Sequence, Union
+import operator
+from itertools import accumulate
+from typing import Sequence, Union, Optional
 
 import numpy as np
 
@@ -17,7 +19,12 @@ from ...util import (
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import memref, arith, vector, builtin
 from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
-from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects._ods_common import (
+    get_op_result_or_op_results,
+    MixedValues,
+    _dispatch_mixed_values,
+)
+from ....dialects.memref import _is_static_int_like, _infer_memref_subview_result_type
 from ....dialects.memref import *
 from ....ir import (
     DenseElementsAttr,
@@ -29,6 +36,7 @@ from ....ir import (
     Value,
     SymbolTable,
     InsertionPoint,
+    StridedLayoutAttr,
 )
 
 S = ShapedType.get_dynamic_size()
@@ -265,7 +273,7 @@ def expand_shape(
     )
 
 
-def _canonicalize_start_stop(start, stop, step):
+def _maybe_compute_size(start, stop, step):
     # TODO(max): figure out how to use actual canonicalizers
     if (
         isinstance(start, Value)
@@ -294,10 +302,8 @@ def _canonicalize_start_stop(start, stop, step):
         #     C[l(i) : r(i), l(j) : r(j)],
         # )
         return stop.owner.operands[1]
-    elif isinstance(start, int) and isinstance(stop, int):
+    else:
         return stop - start
-
-    raise NotImplementedError(f"can't canonicalize {start=} {stop=} {step=}")
 
 
 def _subview(
@@ -325,30 +331,34 @@ def _subview(
     else:
         # special tile case
         offsets = [None] * len(indexer.in_shape)
-        static_sizes = [None] * len(indexer.in_shape)
-        static_strides = [None] * len(indexer.in_shape)
+        sizes = [None] * len(indexer.in_shape)
+        strides = [None] * len(indexer.in_shape)
         for i, ind in enumerate(indexer.indices):
             if isinstance(ind, slice):
-                maybe_size = _canonicalize_start_stop(ind.start, ind.stop, ind.step)
+                maybe_size = _maybe_compute_size(ind.start, ind.stop, ind.step)
                 if maybe_size is None:
                     raise RuntimeError(
                         f"failed to canonicalize start, stop, step: {ind=}"
                     )
                 offsets[i] = ind.start
-                static_sizes[i] = maybe_size
-                static_strides[i] = (
+                sizes[i] = maybe_size
+                strides[i] = (
                     ind.step.literal_value if isinstance(ind.step, Scalar) else ind.step
                 )
+            elif isinstance(ind, Value):
+                offsets[i] = ind
+                sizes[i] = 1
+                strides[i] = 1
             else:
                 raise RuntimeError(f"indexing of {mem=} not supported by {ind=}")
         assert all(
-            map(lambda x: x is not None, offsets + static_sizes + static_strides)
+            map(lambda x: x is not None, offsets + sizes + strides)
         ), f"not each slice is statically known: {indexer.indices}"
         out = subview(
             out,
             offsets=offsets,
-            sizes=static_sizes,
-            strides=static_strides,
+            sizes=sizes,
+            strides=strides,
             loc=loc,
             ip=ip,
         )
@@ -515,3 +525,58 @@ def get_global(
     result = global_.type_.value
     name = global_.sym_name.value
     return GetGlobalOp(result=result, name=name, loc=loc, ip=ip).result
+
+
+def reinterpret_cast(
+    source: Value,
+    offsets: MixedValues = None,
+    sizes: MixedValues = None,
+    strides: MixedValues = None,
+    *,
+    loc=None,
+    ip=None,
+) -> Value:
+
+    if offsets is None:
+        offsets = []
+    if sizes is None:
+        sizes = []
+
+    offsets_, _packed_offsets, static_offsets = _dispatch_mixed_values(offsets)
+    sizes_, _packed_sizes, static_sizes = _dispatch_mixed_values(sizes)
+    strides_, _packed_strides, static_strides = _dispatch_mixed_values(strides)
+
+    if offsets_ or sizes_ or strides_:
+        raise NotImplementedError("only static offsets and sizes and strides supported")
+
+    default_strides = None
+    if not static_strides and all(_is_static_int_like(s) for s in static_sizes):
+        default_strides = list(accumulate(list(static_sizes)[1:][::-1], operator.mul))[
+            ::-1
+        ] + [1]
+        static_strides = default_strides
+
+    target_offset = 0
+    for offset, target_stride in zip(static_offsets, static_strides):
+        target_offset += offset * target_stride
+
+    if static_strides == default_strides and target_offset == 0:
+        layout = None
+    else:
+        layout = StridedLayoutAttr.get(target_offset, static_strides)
+
+    result = MemRefType.get(
+        static_sizes, source.type.element_type, layout, source.type.memory_space
+    )
+    return ReinterpretCastOp(
+        result=result,
+        source=source,
+        offsets=offsets_,
+        sizes=sizes_,
+        strides=strides_,
+        static_offsets=static_offsets,
+        static_sizes=static_sizes,
+        static_strides=static_strides,
+        loc=loc,
+        ip=ip,
+    ).result

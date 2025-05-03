@@ -203,6 +203,8 @@ def _indices_to_indexer(
 
                 if step is None:
                     step = 1
+                if stop is None:
+                    stop = in_shape[in_axis]
                 indices[in_axis] = slice(start, stop, step)
 
                 out_axis += 1

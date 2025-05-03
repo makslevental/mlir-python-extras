@@ -3,10 +3,10 @@ from pathlib import Path
 import mlir.extras.types as T
 import numpy as np
 from hip import hip
-from mlir.ir import InsertionPoint, IntegerAttr, UnitAttr
+from mlir.ir import InsertionPoint, IntegerAttr, UnitAttr, Type
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContextModule
-from mlir.extras.dialects.ext import memref, scf, arith, gpu, llvm
+from mlir.extras.dialects.ext import memref, scf, arith, gpu, llvm, affine
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext.gpu import (
@@ -122,7 +122,7 @@ from mlir.dialects import math
 @canonicalize(using=[scf.canonicalizer, arith.canonicalizer])
 def flash_attention(
     Q: T.memref(B * nh * N * d, T.f32()),
-    K: T.memref(B * nh * N * d, T.f32()),
+    K: T.memref(B, nh, N, d, T.f32()),
     V: T.memref(B * nh * N * d, T.f32()),
     l: T.memref(B * nh * N, T.f32()),
     m: T.memref(B * nh * N, T.f32()),
@@ -151,10 +151,14 @@ def flash_attention(
         shift=Qi.n_elements + Kj.n_elements + Vj.n_elements,
     )
 
+    # K_ = memref.reinterpret_cast(K, [0], [B, nh, N, d])
+    # K_ = K_[bx : bx + 1, by : by + 1, :, :]
     for j in scf.range_(0, Tc):
+        K_ = K[bx, by, :, :]
         # Load Kj, Vj to SRAM
         for x in scf.range_(0, d):
-            Kj[tx * d + x] = K[qkv_offset + Bc * d * j + tx * d + x]
+            # Kj[tx * d + x] = K[qkv_offset + Bc * d * j + tx * d + x]
+            K_ = K_[:, :, j * Bc: (j + 1) * Bc, :]
             Vj[tx * d + x] = V[qkv_offset + Bc * d * j + tx * d + x]
 
         for i in scf.range_(0, Tr):
@@ -217,6 +221,8 @@ def flash_attention(
 
 
 ip.__exit__(None, None, None)
+
+print(gpu_module)
 
 sram_size = 4 * Bc * d * np.float32().itemsize
 
