@@ -121,12 +121,12 @@ from mlir.dialects import math
 @gpu_func(emit=True)
 @canonicalize(using=[scf.canonicalizer, arith.canonicalizer])
 def flash_attention(
-    Q: T.memref(B * nh * N * d, T.f32()),
+    Q: T.memref(B, nh, N, d, T.f32()),
     K: T.memref(B, nh, N, d, T.f32()),
-    V: T.memref(B * nh * N * d, T.f32()),
-    l: T.memref(B * nh * N, T.f32()),
-    m: T.memref(B * nh * N, T.f32()),
-    O: T.memref(B * nh * N * d, T.f32()),
+    V: T.memref(B, nh, N, d, T.f32()),
+    l: T.memref(B, nh, N, T.f32()),
+    m: T.memref(B, nh, N, T.f32()),
+    O: T.memref(B, nh, N, d, T.f32()),
 ):
     tx = thread_idx.x
     # batch idx, head_idx
@@ -134,52 +134,68 @@ def flash_attention(
     # gpu.printf("bx %ld, by %ld\n", bx, by)
 
     # Offset into Q,K,V,O,l,m - different for each batch and head
-    qkv_offset = bx * nh * N * d + by * N * d
-    lm_offset = bx * nh * N + by * N  # offset for l and m
+    K_ = K[bx, by, :, :]
+    V_ = V[bx, by, :, :]
+    Q_ = Q[bx, by, :, :]
+    O_ = O[bx, by, :, :]
+    l_ = l[bx, by, :]
+    m_ = m[bx, by, :]
 
     # Define SRAM for Q,K,V,S
     sram = gpu.dynamic_shared_memory()
-    Qi = memref.view(sram, (Br * d,), dtype=T.f32())
-    Kj = memref.view(sram, (Bc * d,), dtype=T.f32(), shift=Qi.n_elements)
+    Qi = memref.view(
+        sram,
+        (Br, d),
+        dtype=T.f32(),
+    )
+    Kj = memref.view(
+        sram,
+        (Bc, d),
+        dtype=T.f32(),
+        shift=Qi.n_elements,
+    )
     Vj = memref.view(
-        sram, (Bc * d,), dtype=T.f32(), shift=Qi.n_elements + Kj.n_elements
+        sram,
+        (Bc, d),
+        dtype=T.f32(),
+        shift=Qi.n_elements + Kj.n_elements,
     )
     S = memref.view(
         sram,
-        (Br * Bc,),
+        (Br, Bc),
         dtype=T.f32(),
         shift=Qi.n_elements + Kj.n_elements + Vj.n_elements,
     )
 
-    # K_ = memref.reinterpret_cast(K, [0], [B, nh, N, d])
-    # K_ = K_[bx : bx + 1, by : by + 1, :, :]
-    for j in scf.range_(0, Tc):
-        K_ = K[bx, by, :, :]
+    for bc in scf.range_(0, N, Bc):
         # Load Kj, Vj to SRAM
+        K_ = K_[:, :, bc : bc + 1, :]
+        V_ = V_[:, :, bc : bc + 1, :]
         for x in scf.range_(0, d):
-            # Kj[tx * d + x] = K[qkv_offset + Bc * d * j + tx * d + x]
-            K_ = K_[:, :, j * Bc: (j + 1) * Bc, :]
-            Vj[tx * d + x] = V[qkv_offset + Bc * d * j + tx * d + x]
+            Kj[tx, x] = K_[0, 0, tx, x]
+            Vj[tx, x] = V_[0, 0, tx, x]
 
-        for i in scf.range_(0, Tr):
+        for br in scf.range_(0, N, Br):
             # Load Qi to SRAM, l and m to registers
+            Q_ = Q_[:, :, br : br + 1, :]
             for x in scf.range_(0, d):
-                ii = qkv_offset + Bc * d * i + tx * d + x
-                Qi[tx * d + x] = Q[ii]
+                Qi[tx, x] = Q_[0, 0, tx, x]
 
-            row_m_prev = m[lm_offset + Br * i + tx]
-            row_l_prev = l[lm_offset + Br * i + tx]
+            l_ = l_[:, :, br : br + 1]
+            m_ = m_[:, :, br : br + 1]
+            row_l_prev = l_[0, 0, tx]
+            row_m_prev = m_[0, 0, tx]
 
             # S = QK^T, row_m = rowmax(S)
             row_m: T.f32() = float(np.finfo(np.float32).min)
             for y, row_m, _ in scf.range_(0, Bc, iter_args=[row_m]):
                 sum: T.f32() = 0.0
                 for x, sum, _ in scf.range_(0, d, iter_args=[sum]):
-                    sum += Qi[tx * d + x] * Kj[y * d + x]
+                    sum += Qi[tx, x] * Kj[y, x]
                     sum = yield sum
 
                 sum *= softmax_scale
-                S[Bc * tx + y] = sum
+                S[tx, y] = sum
 
                 if sum > row_m:
                     row_m_ = yield sum
@@ -191,8 +207,8 @@ def flash_attention(
             # P = exp(S - row_m), row_l = rowsum(P)
             row_l: T.f32() = 0.0
             for y, row_l, _ in scf.range_(0, Bc, iter_args=[row_l]):
-                S[Bc * tx + y] = math.exp(S[Bc * tx + y] - row_m)
-                row_l += S[Bc * tx + y]
+                S[tx, y] = math.exp(S[tx, y] - row_m)
+                row_l += S[tx, y]
                 row_l = yield row_l
 
             # Compute new m and l
@@ -205,24 +221,26 @@ def flash_attention(
             c = row_l_prev * math.exp(row_m_prev - row_m_new)
 
             # Write O, l, m to HBM
+            O_ = O_[:, :, br : br + 1, :]
             for x in scf.range_(0, d):
                 pv: T.f32() = 0.0  # Pij * Vj
                 for y, pv, _ in scf.range_(0, Bc, iter_args=[pv]):
-                    pv += S[Bc * tx + y] * Vj[y * d + x]
+                    pv += S[tx, y] * Vj[y, x]
                     pv = yield pv
 
-                ii = qkv_offset + Bc * d * i + tx * d + x
-                O[ii] = div * (c * O[ii] + math.exp(row_m - row_m_new) * pv)
+                O_[0, 0, tx, x] = div * (
+                    c * O_[0, 0, tx, x] + math.exp(row_m - row_m_new) * pv
+                )
 
-            m[lm_offset + Br * i + tx] = row_m_new
-            l[lm_offset + Br * i + tx] = row_l_new
+            l_[0, 0, tx] = row_l_new
+            m_[0, 0, tx] = row_m_new
 
             gpu.barrier()
 
 
 ip.__exit__(None, None, None)
 
-print(gpu_module)
+# print(gpu_module)
 
 sram_size = 4 * Bc * d * np.float32().itemsize
 
