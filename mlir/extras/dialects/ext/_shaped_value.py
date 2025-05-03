@@ -163,14 +163,13 @@ def _indices_to_indexer(
         elif isinstance(idx_e, slice):
             # Normalize the slice to use None when possible
             start, stop, step = idx_e.start, idx_e.stop, idx_e.step
-            if step is None or isinstance(step, int) and step == 1:
+            if isinstance(step, int) and step == 1:
                 step = None
             if step is None:
                 if start is None or isinstance(start, int) and start == 0:
                     start = None
                 if (
-                    stop is None
-                    or isinstance(stop, int)
+                    isinstance(stop, int)
                     and in_shape[in_axis] != ShapedType.get_dynamic_size()
                     and stop >= in_shape[in_axis]
                 ):
@@ -205,6 +204,7 @@ def _indices_to_indexer(
                     step = 1
                 if stop is None:
                     stop = in_shape[in_axis]
+
                 indices[in_axis] = slice(start, stop, step)
 
                 out_axis += 1
@@ -307,20 +307,55 @@ def _has_index_type(e: Any) -> bool:
 
 def _is_constant_index(e: Any) -> bool:
     return (
-        isinstance(e, Scalar)
-        and e.is_constant()
+        (isinstance(e, Scalar) and e.is_constant())
         or isinstance(e, (int, float, bool))
-        or isinstance(e, slice)
-        and _is_constant_scalar(e.start)
-        and _is_constant_scalar(e.stop)
-        and _is_constant_scalar(e.step)
+        or (
+            isinstance(e, slice)
+            and _is_constant_scalar(e.start)
+            and _is_constant_scalar(e.stop)
+            and _is_constant_scalar(e.step)
+        )
     )
 
 
 def _is_constant_scalar(e: Any) -> bool:
     return (
-        isinstance(e, Scalar)
-        and e.is_constant()
+        (isinstance(e, Scalar) and e.is_constant())
         or (isinstance(e, (int, float, bool)) and e != ShapedType.get_dynamic_size())
         or e is None
     )
+
+
+def _maybe_compute_size(start, stop, step):
+    from ....dialects import arith
+
+    # TODO(max): figure out how to use actual canonicalizers
+    if (
+        isinstance(start, Value)
+        and isinstance(stop, Value)
+        and stop.owner.operands[0]._eq(start)
+        and stop.owner.operands[1].is_constant()
+    ):
+        return stop.owner.operands[1].literal_value
+    elif (
+        isinstance(start, Value)
+        and isinstance(start.owner.opview, arith.MulIOp)
+        and isinstance(stop, Value)
+        and isinstance(stop.owner.opview, arith.MulIOp)
+        and isinstance(stop.owner.operands[0].owner.opview, arith.AddIOp)
+        and start.owner.operands[0] == stop.owner.operands[0].owner.operands[0]
+        and stop.owner.operands[1].is_constant()
+        and isinstance(step, int)
+        or (isinstance(step, Scalar) and step.is_constant())
+    ):
+        # looks like this
+        # l = lambda l: l * D
+        # r = lambda r: (r + 1) * D
+        # a, b, c = (
+        #     A[l(i) : r(i), l(j) : r(j)],
+        #     B[l(i) : r(i), l(j) : r(j)],
+        #     C[l(i) : r(i), l(j) : r(j)],
+        # )
+        return stop.owner.operands[1]
+    else:
+        return stop - start

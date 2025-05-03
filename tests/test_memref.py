@@ -62,12 +62,21 @@ def test_simple_slicing(ctx: MLIRContext):
     w = mem[5:]
     w = mem[:5]
 
+    one = constant(1, index=True) * 2
+    w = mem[one:]
+
     correct = dedent(
         """\
     module {
       %alloc = memref.alloc() : memref<10xi32>
       %subview = memref.subview %alloc[5] [5] [1] : memref<10xi32> to memref<5xi32, strided<[1], offset: 5>>
       %subview_0 = memref.subview %alloc[0] [5] [1] : memref<10xi32> to memref<5xi32>
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %0 = arith.muli %c1, %c2 : index
+      %c10 = arith.constant 10 : index
+      %1 = arith.subi %c10, %0 : index
+      %subview_1 = memref.subview %alloc[%0] [%1] [1] : memref<10xi32> to memref<?xi32, strided<[1], offset: ?>>
     }
     """
     )
@@ -146,14 +155,7 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
 
     one = constant(1, index=True) * 2
     w = mem[one, :, :, ...]
-
-    try:
-        w = mem[1, :, :, :, :]
-    except IndexError as e:
-        assert (
-            str(e)
-            == "Too many indices for shaped type with rank: 5 non-None/Ellipsis indices for dim 4."
-        )
+    w = mem[one:, :, :, ...]
 
     correct = dedent(
         f"""\
@@ -169,11 +171,22 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
       %c2 = arith.constant 2 : index
       %0 = arith.muli %c1_4, %c2 : index
       %subview_5 = memref.subview %alloc[%0, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<1x22x333x4444xi32, strided<{golden_w_3_strides}, offset: ?>>
-      %c1_6 = arith.constant 1 : index
+      %c10 = arith.constant 10 : index
+      %1 = arith.subi %c10, %0 : index
+      %subview_6 = memref.subview %alloc[%0, 0, 0, 0] [%1, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<?x22x333x4444xi32, strided<{golden_w_3_strides}, offset: ?>>
     }}
     """
     )
     filecheck(correct, ctx.module)
+
+    try:
+        w = mem[1, :, :, :, :]
+    except IndexError as e:
+        assert (
+                str(e)
+                == "Too many indices for shaped type with rank: 5 non-None/Ellipsis indices for dim 4."
+        )
+
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):

@@ -1088,7 +1088,7 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
 
     set_container_module(ctx.module)
 
-    M = 1024
+    M = 128
 
     @gpu_func
     def no_bank_conflicts(A: T.memref(M, M, T.f32()), B: T.memref(M, M, T.f32())):

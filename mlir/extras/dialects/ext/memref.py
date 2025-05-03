@@ -5,7 +5,7 @@ from typing import Sequence, Union, Optional
 
 import numpy as np
 
-from ._shaped_value import ShapedValue, _indices_to_indexer
+from ._shaped_value import ShapedValue, _indices_to_indexer, _maybe_compute_size
 from .arith import Scalar, constant, index_cast
 from .tensor import compute_result_shape_reassoc_list
 from .vector import Vector
@@ -26,8 +26,8 @@ from ....dialects._ods_common import (
 )
 from ....dialects.memref import (
     _is_static_int_like,
-    _infer_memref_subview_result_type,
     _generated_subview,
+    _is_constant_int_like,
 )
 from ....dialects.memref import *
 from ....ir import (
@@ -283,37 +283,44 @@ def expand_shape(
     )
 
 
-def _maybe_compute_size(start, stop, step):
-    # TODO(max): figure out how to use actual canonicalizers
-    if (
-        isinstance(start, Value)
-        and isinstance(stop, Value)
-        and stop.owner.operands[0]._eq(start)
-        and stop.owner.operands[1].is_constant()
-    ):
-        return stop.owner.operands[1].literal_value
-    elif (
-        isinstance(start, Value)
-        and isinstance(start.owner.opview, arith.MulIOp)
-        and isinstance(stop, Value)
-        and isinstance(stop.owner.opview, arith.MulIOp)
-        and isinstance(stop.owner.operands[0].owner.opview, arith.AddIOp)
-        and start.owner.operands[0] == stop.owner.operands[0].owner.operands[0]
-        and stop.owner.operands[1].is_constant()
-        and isinstance(step, int)
-        or (isinstance(step, Scalar) and step.is_constant())
-    ):
-        # looks like this
-        # l = lambda l: l * D
-        # r = lambda r: (r + 1) * D
-        # a, b, c = (
-        #     A[l(i) : r(i), l(j) : r(j)],
-        #     B[l(i) : r(i), l(j) : r(j)],
-        #     C[l(i) : r(i), l(j) : r(j)],
-        # )
-        return stop.owner.operands[1]
+def _infer_memref_subview_result_type(source_memref_type, offsets, sizes, strides):
+    source_strides, source_offset = source_memref_type.get_strides_and_offset()
+    # "canonicalize" from tuple|list -> list
+    offsets, sizes, strides, source_strides = map(
+        list, (offsets, sizes, strides, source_strides)
+    )
+
+    if any(not _is_static_int_like(i) for i in offsets + [source_offset]):
+        target_offset = ShapedType.get_dynamic_size()
     else:
-        return stop - start
+        target_offset = source_offset
+        for offset, target_stride in zip(offsets, source_strides):
+            target_offset += offset * target_stride
+
+    target_strides = []
+    for source_stride, static_stride in zip(source_strides, strides):
+        target_strides.append(source_stride * static_stride)
+
+    if all(isinstance(s, int) for s in sizes):
+        # If default striding then no need to complicate things for downstream ops (e.g., expand_shape).
+        default_strides = list(accumulate(sizes[1:][::-1], operator.mul))[::-1] + [1]
+    else:
+        default_strides = None
+        sizes = [
+            s if isinstance(s, int) else ShapedType.get_dynamic_size() for s in sizes
+        ]
+
+    if target_strides == default_strides and target_offset == 0:
+        layout = None
+    else:
+        layout = StridedLayoutAttr.get(target_offset, target_strides)
+
+    return MemRefType.get(
+        sizes,
+        source_memref_type.element_type,
+        layout,
+        source_memref_type.memory_space,
+    )
 
 
 def subview(
@@ -333,21 +340,17 @@ def subview(
         sizes = []
     if strides is None:
         strides = []
-    source_strides, source_offset = source.type.get_strides_and_offset()
-    if result_type is None and all(
-        all(_is_static_int_like(i) for i in s) for s in [sizes, strides, source_strides]
-    ):
+
+    for s in [offsets, sizes, strides]:
+        for idx, i in enumerate(s):
+            if _is_constant_int_like(i):
+                s[idx] = i.owner.opview.literal_value
+
+    if result_type is None:
         # If any are arith.constant results then this will canonicalize to python int
         # (which can then be used to fully specify the subview).
-        (
-            offsets,
-            sizes,
-            strides,
-            result_type,
-        ) = _infer_memref_subview_result_type(source.type, offsets, sizes, strides)
-    elif result_type is None:
-        raise ValueError(
-            "mixed static/dynamic offset/sizes/strides requires explicit result type."
+        result_type = _infer_memref_subview_result_type(
+            source.type, offsets, sizes, strides
         )
 
     offsets, _packed_offsets, static_offsets = _dispatch_mixed_values(offsets)
