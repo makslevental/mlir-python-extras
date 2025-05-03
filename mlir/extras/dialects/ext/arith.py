@@ -463,6 +463,9 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __rmul__ = partialmethod(_rbinary_op, op="mul")
     __rtruediv__ = partialmethod(_rbinary_op, op="truediv")
     __rfloordiv__ = partialmethod(_rbinary_op, op="floordiv")
+    __rmod__ = partialmethod(_rbinary_op, op="mod")
+    __rand__ = partialmethod(_rbinary_op, op="and")
+    __ror__ = partialmethod(_rbinary_op, op="or")
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -490,6 +493,11 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __lt__ = partialmethod(_binary_op, op="cmp", predicate="lt")
     __ge__ = partialmethod(_binary_op, op="cmp", predicate="ge")
     __gt__ = partialmethod(_binary_op, op="cmp", predicate="gt")
+
+    __rle__ = partialmethod(_rbinary_op, op="cmp", predicate="le")
+    __rlt__ = partialmethod(_rbinary_op, op="cmp", predicate="lt")
+    __rge__ = partialmethod(_rbinary_op, op="cmp", predicate="ge")
+    __rgt__ = partialmethod(_rbinary_op, op="cmp", predicate="gt")
 
     def _eq(self, other):
         return Value(self) == Value(other)
