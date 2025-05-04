@@ -2,8 +2,8 @@ from pathlib import Path
 
 import mlir.extras.types as T
 import numpy as np
-from hip import hip
 from mlir.ir import InsertionPoint, IntegerAttr, UnitAttr
+
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContextModule
 from mlir.extras.dialects.ext import memref, scf, arith, gpu, llvm
@@ -23,10 +23,12 @@ from mlir.extras.runtime.passes import run_pipeline, Pipeline
 from mlir.extras.util import find_ops
 
 # noinspection PyUnresolvedReferences
-from util import hip_check, launch_kernel, hip_synchronize
+from util import hip_check, launch_kernel, hip_synchronize, hip_bindings_not_installed, get_hip_arch
 
 
 def init_copy_host_device(B, nh, N, d):
+    from hip import hip
+
     q_h = np.random.randint(0, 10, (B, nh, N, d)).astype(dtype=np.float32)
     k_h = np.random.randint(0, 10, (B, nh, N, d)).astype(dtype=np.float32)
     v_h = np.random.randint(0, 10, (B, nh, N, d)).astype(dtype=np.float32)
@@ -48,6 +50,8 @@ def init_copy_host_device(B, nh, N, d):
 
 
 def copy_device_host(host, device):
+    from hip import hip
+
     for d, h in zip(device, host):
         hip_check(
             hip.hipMemcpy(
@@ -65,10 +69,6 @@ _ = memref
 
 ctx = RAIIMLIRContextModule()
 set_container_module(ctx.module)
-
-props = hip.hipDeviceProp_t()
-hip_check(hip.hipGetDeviceProperties(props, 0))
-arch = props.gcnArchName.decode()
 
 
 # just a default attr - actual target is set blow
@@ -215,6 +215,7 @@ def flash_attention(
 
 ip.__exit__(None, None, None)
 
+assert gpu_module.operation.verify()
 # print(gpu_module)
 
 sram_size = 4 * Bc * d * np.float32().itemsize
@@ -234,8 +235,10 @@ simplified_module = run_pipeline(
     .cse()
     .loop_invariant_code_motion()
     .loop_invariant_subset_hoisting()
-    .rocdl_attach_target(chip=arch, O=3, abi="500"),
+    .rocdl_attach_target(chip=get_hip_arch(), O=3, abi="500"),
 )
+
+assert simplified_module.operation.verify()
 
 # print(simplified_module)
 # exit()
@@ -255,6 +258,8 @@ lowered_module = run_pipeline(
     # .Nested("llvm.func", Pipeline().sroa()),
 )
 
+assert lowered_module.operation.verify()
+
 # print(lowered_module)
 gep = find_ops(lowered_module.operation, lambda o: isinstance(o.opview, llvm.GEPOp))
 for g in gep:
@@ -271,6 +276,10 @@ for k in kernel_funcs:
         T.index(), np.prod(thread_dims)
     )
 
+if hip_bindings_not_installed():
+    exit()
+from hip import hip
+
 output_format = "bin"
 # output_format = "llvm"
 # output_format = "isa"
@@ -283,6 +292,7 @@ if output_format in {"isa", "llvm", "offloading"}:
     with open(Path(__file__).parent / f"flashattention.{output_format}", "wb") as f:
         f.write(hsaco)
     exit()
+
 
 hip_module = hip_check(hip.hipModuleLoadData(hsaco))
 

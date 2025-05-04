@@ -74,6 +74,7 @@ jobs:
         run: |
           
           python examples/mwe.py
+          python examples/flash_attention.py
 
   test-other-host-bindings:
 
@@ -110,15 +111,15 @@ jobs:
             pytest --capture=tee-sys tests/test_other_hosts.py
           fi
 
-  test-jupyter:
+  test-examples:
 
     runs-on: ${{ matrix.os }}
 
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-22.04 ]
-        py_version: [ "3.10" ]
+        os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
+        py_version: [ "3.12", "3.13" ]
 
     steps:
       - name: Checkout
@@ -130,16 +131,29 @@ jobs:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
 
-      - name: Run notebook
+      - name: Install and configure
+        shell: bash
+        run: |
+          
+          pip install .[test,mlir,eudsl] -v
+
+      - name: Test jupyter notebooks
+        # sed: can't read C:\hostedtoolcache\windows\Python\3.12.10\x64/jupyter_client/runapp.py: No such file or directory
+        if: matrix.os != 'windows-2022'
         shell: bash
         run: |
           
           pip install jupyter
-          pip install -q mlir-python-bindings
-          pip install -q .
           
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 100/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
           
           jupyter execute examples/mlir_python_extras.ipynb
           jupyter execute examples/vectorization_e2e.ipynb
+          
+      - name: Test gpu examples
+        shell: bash
+        run: |
+          
+          python examples/rdna_matmul_opt.py
+          python examples/cuda_matmul_opt.py

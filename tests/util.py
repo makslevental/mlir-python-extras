@@ -125,3 +125,14 @@ def launch_kernel(
             None,
         )
     )
+
+
+def get_hip_arch():
+    if hip_bindings_not_installed():
+        return "gfx1100"
+
+    from hip import hip
+
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    return props.gcnArchName.decode()

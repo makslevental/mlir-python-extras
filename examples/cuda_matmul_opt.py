@@ -1,12 +1,11 @@
 import contextlib
 import math
 
-import cupy as cp
 import mlir.extras.types as T
 import numpy as np
-from cupy.cuda import Module
 from mlir.dialects import builtin
 
+from util import cuda_bindings_not_installed
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import (
     mlir_mod_ctx,
@@ -33,6 +32,8 @@ _ = memref
 
 
 def build_cuda_func(compiled_module, kernel_name="naive"):
+    from cupy.cuda import Module
+
     ptx = get_compile_object_bytes(compiled_module)
     mod = Module()
     mod.load(ptx)
@@ -120,6 +121,8 @@ def compile_module(
 
 @contextlib.contextmanager
 def time_cuda():
+    import cupy as cp
+
     start_gpu = cp.cuda.Event()
     end_gpu = cp.cuda.Event()
 
@@ -151,7 +154,7 @@ def sgemm_naive[
     # tid = gpu.thread_id()
     # gpu.printf("tid: %ld: (%ld, %ld)\n", tid, r, c)
 
-    for k, tmp in range_(K, iter_args=[tmp]):
+    for k, tmp, _ in range_(K, iter_args=[tmp]):
         tmp += A[r, k] * B[k, c]
         tmp = yield tmp
     C[r, c] = tmp + one
@@ -177,7 +180,7 @@ def sgemm_naive_row_order[
     # tid = gpu.thread_id()
     # gpu.printf("tid: %ld: (%ld, %ld)\n", tid, r, c)
 
-    for k, tmp in range_(K, iter_args=[tmp]):
+    for k, tmp, _ in range_(K, iter_args=[tmp]):
         tmp += A[r, k] * B[k, c]
         tmp = yield tmp
     C[r, c] = tmp + one
@@ -205,7 +208,7 @@ def sgemm_coalesce[
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
-    for k, tmp in range_(K, iter_args=[tmp]):
+    for k, tmp, _ in range_(K, iter_args=[tmp]):
         # k varies per core while c varies with tid
         # apparently that's fine? i guess all the loads can happen
         # because there's enough scratch per SM to prefetch all the data each thread needs?
@@ -269,7 +272,7 @@ def sgemm_coalesce_transpose_B[
     one = arith.constant(1.0, type=dtype)
     tmp = arith.constant(0, type=dtype)
 
-    for k, tmp in range_(K, iter_args=[tmp]):
+    for k, tmp, _ in range_(K, iter_args=[tmp]):
         # this is slower because c is incremented with each tid
         # so you break memory coalescing
         # but k now being on the row order dim doesn't help?
@@ -309,7 +312,7 @@ def sgemm_shared_mem_block[
 
     tmp = arith.constant(0, type=dtype)
 
-    for bk_idx, tmp in range_(0, K, BLOCK_SIZE, iter_args=[tmp]):
+    for bk_idx, tmp, _ in range_(0, K, BLOCK_SIZE, iter_args=[tmp]):
         A_ = A[c_row : c_row + BLOCK_SIZE, bk_idx : bk_idx + BLOCK_SIZE]
         B_ = B[bk_idx : bk_idx + BLOCK_SIZE, c_col : c_col + BLOCK_SIZE]
 
@@ -323,7 +326,7 @@ def sgemm_shared_mem_block[
         gpu.barrier()
 
         # execute the dotproduct on the currently cached block
-        for dot_idx, tmp in range_(BLOCK_SIZE, iter_args=[tmp]):
+        for dot_idx, tmp, _ in range_(BLOCK_SIZE, iter_args=[tmp]):
             tmp += A_shared[thread_row, dot_idx] * B_shared[dot_idx, thread_col]
             tmp = yield tmp
 
@@ -338,6 +341,10 @@ def sgemm_shared_mem_block[
     C_[thread_row, thread_col] = tmp + one
 
 
+class CUDABindingsNotInstalled(Exception):
+    pass
+
+
 def prepare_non_tiled_kernel(ctx: MLIRContext, kernel, M, K, N, BLOCK_SIZE=32):
     dtype = T.f32()
     npy_dtype = np.float32
@@ -348,9 +355,10 @@ def prepare_non_tiled_kernel(ctx: MLIRContext, kernel, M, K, N, BLOCK_SIZE=32):
     def matmul_mod():
         kernel[M, K, N, dtype].emit()
 
-    # print(ctx.module)
-    # print(ctx.module.operation.verify())
-    # exit()
+    assert ctx.module.operation.verify()
+
+    if cuda_bindings_not_installed():
+        raise CUDABindingsNotInstalled()
 
     kernel_name = kernel.__name__
     compiled_module = compile_module(ctx.module)
@@ -421,7 +429,7 @@ def sgemm_shared_mem_1d_block_tiling[
 
         for dot_idx in range_(BK):
             tmp_B = B_shared[dot_idx, thread_col]
-            for res_idx, tmp_B in range_(TM, iter_args=[tmp_B]):
+            for res_idx, tmp_B, _ in range_(TM, iter_args=[tmp_B]):
                 thread_results[res_idx] += (
                     A_shared[thread_row * TM + res_idx, dot_idx] * tmp_B
                 )
@@ -583,15 +591,15 @@ def sgemm_shared_mem_2d_block_tiling_vectorize[
         A_ = A[c_row : c_row + BM, bk_idx : bk_idx + BK]
         B_ = B[bk_idx : bk_idx + BK, c_col : c_col + BN]
 
-        A_vec = vector.load(
-            T.vector(VECTOR_WIDTH, dtype), A_, [inner_row_A, inner_col_A * VECTOR_WIDTH]
+        A_vec = vector.load_(
+            A_, [inner_row_A, inner_col_A * VECTOR_WIDTH], T.vector(VECTOR_WIDTH, dtype)
         )
         for j in range(VECTOR_WIDTH):
             #  transpose A while loading it
             A_shared[inner_col_A * VECTOR_WIDTH + j, inner_row_A] = A_vec[j]
 
-        B_vec = vector.load(
-            T.vector(VECTOR_WIDTH, dtype), B_, [inner_row_B, inner_col_B * VECTOR_WIDTH]
+        B_vec = vector.load_(
+            B_, [inner_row_B, inner_col_B * VECTOR_WIDTH], T.vector(VECTOR_WIDTH, dtype)
         )
         vector.store(B_vec, B_shared, [inner_row_B, inner_col_B * VECTOR_WIDTH])
 
@@ -617,10 +625,10 @@ def sgemm_shared_mem_2d_block_tiling_vectorize[
 
     for res_idx_m in range_(TM):
         for res_idx_n in range_(0, TN, VECTOR_WIDTH):
-            tmp = vector.load(
-                T.vector(VECTOR_WIDTH, dtype),
+            tmp = vector.load_(
                 C_,
                 [thread_row * TM + res_idx_m, thread_col * TN + res_idx_n],
+                T.vector(VECTOR_WIDTH, dtype),
             )
             for j in range(VECTOR_WIDTH):
                 tmp[j] = thread_results[res_idx_m, res_idx_n + j] + one
@@ -713,10 +721,10 @@ def sgemm_warp_tiling[
         B_ = B[bk_idx : bk_idx + BK, c_col : c_col + BN]
 
         for offset in range(0, BM - row_stride_A + 1, row_stride_A):
-            A_vec = vector.load(
-                T.vector(VECTOR_WIDTH, dtype),
+            A_vec = vector.load_(
                 A_,
                 [inner_row_A + offset, inner_col_A * VECTOR_WIDTH],
+                T.vector(VECTOR_WIDTH, dtype),
             )
             for j in range(VECTOR_WIDTH):
                 #  transpose A while loading it
@@ -725,10 +733,10 @@ def sgemm_warp_tiling[
                 ]
 
         for offset in range(0, BK - row_stride_B + 1, row_stride_B):
-            B_vec = vector.load(
-                T.vector(VECTOR_WIDTH, dtype),
+            B_vec = vector.load_(
                 B_,
                 [inner_row_B + offset, inner_col_B * VECTOR_WIDTH],
+                T.vector(VECTOR_WIDTH, dtype),
             )
             vector.store(
                 B_vec, B_shared, [inner_row_B + offset, inner_col_B * VECTOR_WIDTH]
@@ -780,13 +788,13 @@ def sgemm_warp_tiling[
             C_ = C[r : r + WSUBM, c : c + WSUBN]
             for res_idx_m in range_(TM):
                 for res_idx_n in range_(0, TN, VECTOR_WIDTH):
-                    tmp = vector.load(
-                        T.vector(VECTOR_WIDTH, dtype),
+                    tmp = vector.load_(
                         C_,
                         [
                             thread_row_in_warp * TM + res_idx_m,
                             thread_col_in_warp * TN + res_idx_n,
                         ],
+                        T.vector(VECTOR_WIDTH, dtype),
                     )
                     for j in range(VECTOR_WIDTH):
                         tmp[j] = (
@@ -927,9 +935,10 @@ def prepare_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
     def matmul_mod():
         kernel[M, K, N, dtype, BM, BN, BK, TM, TN].emit()
 
-    # print(ctx.module)
-    # print(ctx.module.operation.verify())
-    # exit()
+    assert ctx.module.operation.verify()
+
+    if cuda_bindings_not_installed():
+        raise CUDABindingsNotInstalled()
 
     compiled_module = compile_module(ctx.module)
     cuda_func = build_cuda_func(compiled_module, kernel_name)
@@ -979,8 +988,10 @@ def prepare_warp_tiled_kernel(ctx: MLIRContext, kernel, M, K, N):
         kernel[M, K, N, dtype, BM, BN, BK, WM, WN, WNITER, TM, TN, NUM_THREADS].emit()
 
     # print(ctx.module)
-    # print(ctx.module.operation.verify())
-    # exit()
+    assert ctx.module.operation.verify()
+
+    if cuda_bindings_not_installed():
+        raise CUDABindingsNotInstalled()
 
     compiled_module = compile_module(ctx.module)
     cuda_func = build_cuda_func(compiled_module, kernel_name)
@@ -1022,9 +1033,10 @@ def prepare_tensor_core_kernel(ctx: MLIRContext, kernel, M, K, N):
     def matmul_mod():
         kernel[M, K, N, dtype].emit()
 
-    print(ctx.module)
-    print(ctx.module.operation.verify())
-    # exit()
+    assert ctx.module.operation.verify()
+
+    if cuda_bindings_not_installed():
+        raise CUDABindingsNotInstalled()
 
     compiled_module = compile_module(
         ctx.module, chip="sm_90a", opt_level=3, full_pipeline=False
@@ -1059,6 +1071,8 @@ def run_eval(
     transpose_B,
     repeat_times=None,
 ):
+    import cupy as cp
+
     if repeat_times is None:
         repeat_times = 50
 
@@ -1118,20 +1132,23 @@ for k in [
             # enable_debug()
         ):
             print(f"{s=}", end=" ")
-            cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
-                prepare_non_tiled_kernel(ctx, k, s, s, s)
-            )
-            run_eval(
-                s,
-                s,
-                s,
-                cuda_func,
-                grid_dims,
-                block_dims,
-                shared_mem,
-                npy_dtype,
-                transpose_B,
-            )
+            try:
+                cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+                    prepare_non_tiled_kernel(ctx, k, s, s, s)
+                )
+                run_eval(
+                    s,
+                    s,
+                    s,
+                    cuda_func,
+                    grid_dims,
+                    block_dims,
+                    shared_mem,
+                    npy_dtype,
+                    transpose_B,
+                )
+            except CUDABindingsNotInstalled:
+                continue
 
 
 for k in [
@@ -1146,8 +1163,34 @@ for k in [
             # enable_debug()
         ):
             print(f"{s=}", end=" ")
+            try:
+                cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+                    prepare_tiled_kernel(ctx, k, s, s, s)
+                )
+                run_eval(
+                    s,
+                    s,
+                    s,
+                    cuda_func,
+                    grid_dims,
+                    block_dims,
+                    shared_mem,
+                    npy_dtype,
+                    transpose_B,
+                )
+            except CUDABindingsNotInstalled:
+                continue
+
+print(f"\n{sgemm_warp_tiling.__name__}")
+for s in sizes:
+    with (
+        mlir_mod_ctx() as ctx,
+        # enable_debug()
+    ):
+        print(f"{s=}", end=" ")
+        try:
             cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
-                prepare_tiled_kernel(ctx, k, s, s, s)
+                prepare_warp_tiled_kernel(ctx, sgemm_warp_tiling, s, s, s)
             )
             run_eval(
                 s,
@@ -1160,28 +1203,8 @@ for k in [
                 npy_dtype,
                 transpose_B,
             )
-
-print(f"\n{sgemm_warp_tiling.__name__}")
-for s in sizes:
-    with (
-        mlir_mod_ctx() as ctx,
-        # enable_debug()
-    ):
-        print(f"{s=}", end=" ")
-        cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
-            prepare_warp_tiled_kernel(ctx, sgemm_warp_tiling, s, s, s)
-        )
-        run_eval(
-            s,
-            s,
-            s,
-            cuda_func,
-            grid_dims,
-            block_dims,
-            shared_mem,
-            npy_dtype,
-            transpose_B,
-        )
+        except CUDABindingsNotInstalled:
+            continue
 
 
 sizes = [128, 256]
@@ -1192,17 +1215,20 @@ for s in sizes:
         # enable_debug()
     ):
         print(f"{s=}", end=" ")
-        cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
-            prepare_tensor_core_kernel(ctx, sgemm_tensor_core, s, s, s)
-        )
-        # run_eval(
-        #     s,
-        #     s,
-        #     s,
-        #     cuda_func,
-        #     grid_dims,
-        #     block_dims,
-        #     shared_mem,
-        #     npy_dtype,
-        #     transpose_B,
-        # )
+        try:
+            cuda_func, grid_dims, block_dims, shared_mem, npy_dtype, transpose_B = (
+                prepare_tensor_core_kernel(ctx, sgemm_tensor_core, s, s, s)
+            )
+            # run_eval(
+            #     s,
+            #     s,
+            #     s,
+            #     cuda_func,
+            #     grid_dims,
+            #     block_dims,
+            #     shared_mem,
+            #     npy_dtype,
+            #     transpose_B,
+            # )
+        except CUDABindingsNotInstalled:
+            continue
