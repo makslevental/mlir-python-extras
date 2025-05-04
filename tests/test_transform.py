@@ -19,6 +19,7 @@ from mlir.ir import UnitAttr, StringAttr
 from mlir.extras import types as T
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext import linalg, arith, tensor
+from mlir.extras.dialects.ext import transform
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import block_attr, thread_attr
 from mlir.extras.dialects.ext.scf import (
@@ -26,7 +27,6 @@ from mlir.extras.dialects.ext.scf import (
     canonicalizer,
 )
 from mlir.extras.dialects.ext.tensor import pad
-from mlir.extras.dialects.ext import transform
 from mlir.extras.dialects.ext.transform import (
     match,
     tile_to_scf_for,

@@ -1,5 +1,3 @@
-from textwrap import dedent
-
 import numpy as np
 import pytest
 from mlir.dialects import builtin
@@ -20,8 +18,6 @@ from mlir.ir import (
     ShapedType,
     AffineMap,
     AffineConstantExpr,
-    Attribute,
-    ArrayAttr,
 )
 
 from mlir.extras import types as T
@@ -30,14 +26,13 @@ from mlir.extras.context import ExplicitlyManagedModule
 # you need this to register the memref value caster
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext import arith, linalg, memref, transform, vector, scf, func
-from mlir.dialects import affine
-from mlir.extras.dialects.ext.vector import outer, shuffle, load
 from mlir.extras.dialects.ext.transform import (
     get_parent_op,
     match,
     tile_to_scf_for,
     transform_any_op_t,
 )
+from mlir.extras.dialects.ext.vector import outer, shuffle, load
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
 
@@ -45,8 +40,8 @@ from mlir.extras.runtime.refbackend import LLVMJITBackend
 from mlir.extras.testing import (
     MLIRContext,
     filecheck,
-    mlir_ctx as ctx,
     filecheck_with_comments,
+    mlir_ctx as ctx,
 )
 from mlir.extras.util import find_ops
 
@@ -246,35 +241,30 @@ def test_vector_wrappers(ctx: MLIRContext):
     b = vector.broadcast(T.vector(4, 8, 16, T.i32()), 5)
     e = vector.extract_strided_slice(b, [0, 2], [2, 4], [1, 1])
 
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<2x4x6xi32>
-      %c0 = arith.constant 0 : index
-      %c0_0 = arith.constant 0 : index
-      %c0_1 = arith.constant 0 : index
-      %c5_i32 = arith.constant 5 : i32
-      %0 = vector.transfer_read %alloc[%c0, %c0_0, %c0_1], %c5_i32 {in_bounds = [true, true]} : memref<2x4x6xi32>, vector<2x4xi32>
-      %1 = vector.extract %0[0] : vector<4xi32> from vector<2x4xi32>
-      %c0_2 = arith.constant 0 : index
-      %c0_3 = arith.constant 0 : index
-      %c0_4 = arith.constant 0 : index
-      vector.transfer_write %1, %alloc[%c0_2, %c0_3, %c0_4] {in_bounds = [true]} : vector<4xi32>, memref<2x4x6xi32>
-      %c5_i32_5 = arith.constant 5 : i32
-      %2 = vector.broadcast %c5_i32_5 : i32 to vector<10xi32>
-      %3 = vector.reduction <add>, %2 : vector<10xi32> into i32
-      %c5_i32_6 = arith.constant 5 : i32
-      %4 = vector.broadcast %c5_i32_6 : i32 to vector<4x8x16x32xi32>
-      %c0_i32 = arith.constant 0 : i32
-      %5 = vector.broadcast %c0_i32 : i32 to vector<4x16xi32>
-      %6 = vector.multi_reduction <add>, %4, %5 [1, 3] : vector<4x8x16x32xi32> to vector<4x16xi32>
-      %c5_i32_7 = arith.constant 5 : i32
-      %7 = vector.broadcast %c5_i32_7 : i32 to vector<4x8x16xi32>
-      %8 = vector.extract_strided_slice %7 {offsets = [0, 2], sizes = [2, 4], strides = [1, 1]} : vector<4x8x16xi32> to vector<2x4x16xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<2x4x6xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_4:.*]] = arith.constant 5 : i32
+    # CHECK:  %[[VAL_5:.*]] = vector.transfer_read %[[VAL_0]]{{\[}}%[[VAL_1]], %[[VAL_2]], %[[VAL_3]]], %[[VAL_4]] {in_bounds = [true, true]} : memref<2x4x6xi32>, vector<2x4xi32>
+    # CHECK:  %[[VAL_6:.*]] = vector.extract %[[VAL_5]][0] : vector<4xi32> from vector<2x4xi32>
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_8:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_9:.*]] = arith.constant 0 : index
+    # CHECK:  vector.transfer_write %[[VAL_6]], %[[VAL_0]]{{\[}}%[[VAL_7]], %[[VAL_8]], %[[VAL_9]]] {in_bounds = [true]} : vector<4xi32>, memref<2x4x6xi32>
+    # CHECK:  %[[VAL_10:.*]] = arith.constant 5 : i32
+    # CHECK:  %[[VAL_11:.*]] = vector.broadcast %[[VAL_10]] : i32 to vector<10xi32>
+    # CHECK:  %[[VAL_12:.*]] = vector.reduction <add>, %[[VAL_11]] : vector<10xi32> into i32
+    # CHECK:  %[[VAL_13:.*]] = arith.constant 5 : i32
+    # CHECK:  %[[VAL_14:.*]] = vector.broadcast %[[VAL_13]] : i32 to vector<4x8x16x32xi32>
+    # CHECK:  %[[VAL_15:.*]] = arith.constant 0 : i32
+    # CHECK:  %[[VAL_16:.*]] = vector.broadcast %[[VAL_15]] : i32 to vector<4x16xi32>
+    # CHECK:  %[[VAL_17:.*]] = vector.multi_reduction <add>, %[[VAL_14]], %[[VAL_16]] [1, 3] : vector<4x8x16x32xi32> to vector<4x16xi32>
+    # CHECK:  %[[VAL_18:.*]] = arith.constant 5 : i32
+    # CHECK:  %[[VAL_19:.*]] = vector.broadcast %[[VAL_18]] : i32 to vector<4x8x16xi32>
+    # CHECK:  %[[VAL_20:.*]] = vector.extract_strided_slice %[[VAL_19]] {offsets = [0, 2], sizes = [2, 4], strides = [1, 1]} : vector<4x8x16xi32> to vector<2x4x16xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 # Illustrates an 8x8 Sparse Matrix x Vector implemented with only operations

@@ -1,8 +1,7 @@
 import platform
-
-import numpy as np
 from textwrap import dedent
 
+import numpy as np
 import pytest
 
 from mlir.extras.runtime.passes import Pipeline

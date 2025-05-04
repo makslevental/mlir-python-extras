@@ -3,16 +3,17 @@ import platform
 import re
 from textwrap import dedent
 
+import mlir.extras.types as T
 import numpy as np
 import pytest
+from mlir.dialects.arith import sitofp, index_cast
+from mlir.dialects.memref import cast
 from mlir.ir import UnitAttr, Module, StridedLayoutAttr, InsertionPoint, Context
 from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
-import mlir.extras.types as T
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContext, ExplicitlyManagedModule
 from mlir.extras.dialects.ext import linalg
-from mlir.dialects.arith import sitofp, index_cast
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.memref import load, store, S
@@ -20,7 +21,6 @@ from mlir.extras.dialects.ext.scf import (
     canonicalizer,
     range_,
 )
-from mlir.dialects.memref import cast
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import (
     LLVMJITBackend,
@@ -29,7 +29,13 @@ from mlir.extras.runtime.refbackend import (
 )
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext, backend
+from mlir.extras.testing import (
+    mlir_ctx as ctx,
+    filecheck,
+    filecheck_with_comments,
+    MLIRContext,
+    backend,
+)
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -61,30 +67,26 @@ def test_smoke(ctx: MLIRContext, backend: LLVMJITBackend, capfd):
         generate_kernel_wrapper=False,
         generate_return_consumer=False,
     )
-    correct = dedent(
-        """\
-    module {
-      llvm.func @printMemrefF32(i64, !llvm.ptr) attributes {sym_visibility = "private"}
-      llvm.func @foo(%arg0: i64, %arg1: !llvm.ptr) attributes {llvm.emit_c_interface} {
-        %0 = llvm.mlir.poison : !llvm.struct<(i64, ptr)>
-        %1 = llvm.insertvalue %arg0, %0[0] : !llvm.struct<(i64, ptr)> 
-        %2 = llvm.insertvalue %arg1, %1[1] : !llvm.struct<(i64, ptr)> 
-        %3 = llvm.extractvalue %2[0] : !llvm.struct<(i64, ptr)> 
-        %4 = llvm.extractvalue %2[1] : !llvm.struct<(i64, ptr)> 
-        llvm.call @printMemrefF32(%3, %4) : (i64, !llvm.ptr) -> ()
-        llvm.return
-      }
-      llvm.func @_mlir_ciface_foo(%arg0: !llvm.ptr) attributes {llvm.emit_c_interface} {
-        %0 = llvm.load %arg0 : !llvm.ptr -> !llvm.struct<(i64, ptr)>
-        %1 = llvm.extractvalue %0[0] : !llvm.struct<(i64, ptr)> 
-        %2 = llvm.extractvalue %0[1] : !llvm.struct<(i64, ptr)> 
-        llvm.call @foo(%1, %2) : (i64, !llvm.ptr) -> ()
-        llvm.return
-      }
-    }
-    """
-    )
-    filecheck(correct, module)
+
+    # CHECK:  llvm.func @printMemrefF32(i64, !llvm.ptr) attributes {sym_visibility = "private"}
+    # CHECK:  llvm.func @foo(%[[VAL_0:.*]]: i64, %[[VAL_1:.*]]: !llvm.ptr) attributes {llvm.emit_c_interface} {
+    # CHECK:    %[[VAL_2:.*]] = llvm.mlir.poison : !llvm.struct<(i64, ptr)>
+    # CHECK:    %[[VAL_3:.*]] = llvm.insertvalue %[[VAL_0]], %[[VAL_2]][0] : !llvm.struct<(i64, ptr)>
+    # CHECK:    %[[VAL_4:.*]] = llvm.insertvalue %[[VAL_1]], %[[VAL_3]][1] : !llvm.struct<(i64, ptr)>
+    # CHECK:    %[[VAL_5:.*]] = llvm.extractvalue %[[VAL_4]][0] : !llvm.struct<(i64, ptr)>
+    # CHECK:    %[[VAL_6:.*]] = llvm.extractvalue %[[VAL_4]][1] : !llvm.struct<(i64, ptr)>
+    # CHECK:    llvm.call @printMemrefF32(%[[VAL_5]], %[[VAL_6]]) : (i64, !llvm.ptr) -> ()
+    # CHECK:    llvm.return
+    # CHECK:  }
+    # CHECK:  llvm.func @_mlir_ciface_foo(%[[VAL_7:.*]]: !llvm.ptr) attributes {llvm.emit_c_interface} {
+    # CHECK:    %[[VAL_8:.*]] = llvm.load %[[VAL_7]] : !llvm.ptr -> !llvm.struct<(i64, ptr)>
+    # CHECK:    %[[VAL_9:.*]] = llvm.extractvalue %[[VAL_8]][0] : !llvm.struct<(i64, ptr)>
+    # CHECK:    %[[VAL_10:.*]] = llvm.extractvalue %[[VAL_8]][1] : !llvm.struct<(i64, ptr)>
+    # CHECK:    llvm.call @foo(%[[VAL_9]], %[[VAL_10]]) : (i64, !llvm.ptr) -> ()
+    # CHECK:    llvm.return
+    # CHECK:  }
+
+    filecheck_with_comments(module)
 
     A = np.ones((4, 4)).astype(np.float32)
     AA = ctypes.pointer(ctypes.pointer(get_unranked_memref_descriptor(A)))
@@ -129,24 +131,19 @@ def test_munge_calling_conventions(ctx: MLIRContext, backend: LLVMJITBackend, ca
 
     foo_wrapper.emit()
 
-    correct = dedent(
-        """\
-    module {
-      func.func @foo(%arg0: memref<2x2xf32>) -> memref<2x2xf32> {
-        return %arg0 : memref<2x2xf32>
-      }
-      func.func private @refbackend_consume_return_callback_first(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
-      func.func @foo_wrapper(%arg0: memref<*xf32>) {
-        %cast = memref.cast %arg0 : memref<*xf32> to memref<2x2xf32>
-        %0 = call @foo(%cast) : (memref<2x2xf32>) -> memref<2x2xf32>
-        %cast_0 = memref.cast %0 : memref<2x2xf32> to memref<*xf32>
-        call @refbackend_consume_return_callback_first(%cast_0) : (memref<*xf32>) -> ()
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  func.func @foo(%[[VAL_0:.*]]: memref<2x2xf32>) -> memref<2x2xf32> {
+    # CHECK:    return %[[VAL_0]] : memref<2x2xf32>
+    # CHECK:  }
+    # CHECK:  func.func private @refbackend_consume_return_callback_first(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
+    # CHECK:  func.func @foo_wrapper(%[[VAL_1:.*]]: memref<*xf32>) {
+    # CHECK:    %[[VAL_2:.*]] = memref.cast %[[VAL_1]] : memref<*xf32> to memref<2x2xf32>
+    # CHECK:    %[[VAL_3:.*]] = call @foo(%[[VAL_2]]) : (memref<2x2xf32>) -> memref<2x2xf32>
+    # CHECK:    %[[VAL_4:.*]] = memref.cast %[[VAL_3]] : memref<2x2xf32> to memref<*xf32>
+    # CHECK:    call @refbackend_consume_return_callback_first(%[[VAL_4]]) : (memref<*xf32>) -> ()
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_munge_calling_conventions_setup(
@@ -237,32 +234,27 @@ def test_munge_calling_conventions_setup_mutate(
 
     foo_wrapper.emit()
 
-    correct = dedent(
-        """\
-    module {
-      func.func @foo(%arg0: memref<4x4xf32>) -> memref<4x4xf32> {
-        %c0 = arith.constant 0 : index
-        %c0_0 = arith.constant 0 : index
-        %0 = memref.load %arg0[%c0, %c0_0] : memref<4x4xf32>
-        %cst = arith.constant 2.000000e+00 : f32
-        %1 = arith.mulf %0, %cst : f32
-        %c0_1 = arith.constant 0 : index
-        %c0_2 = arith.constant 0 : index
-        memref.store %1, %arg0[%c0_1, %c0_2] : memref<4x4xf32>
-        return %arg0 : memref<4x4xf32>
-      }
-      func.func private @cb(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
-      func.func @foo_wrapper(%arg0: memref<*xf32>) {
-        %cast = memref.cast %arg0 : memref<*xf32> to memref<4x4xf32>
-        %0 = call @foo(%cast) : (memref<4x4xf32>) -> memref<4x4xf32>
-        %cast_0 = memref.cast %0 : memref<4x4xf32> to memref<*xf32>
-        call @cb(%cast_0) : (memref<*xf32>) -> ()
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  func.func @foo(%[[VAL_0:.*]]: memref<4x4xf32>) -> memref<4x4xf32> {
+    # CHECK:    %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_3:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_1]], %[[VAL_2]]] : memref<4x4xf32>
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK:    %[[VAL_5:.*]] = arith.mulf %[[VAL_3]], %[[VAL_4]] : f32
+    # CHECK:    %[[VAL_6:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_7:.*]] = arith.constant 0 : index
+    # CHECK:    memref.store %[[VAL_5]], %[[VAL_0]]{{\[}}%[[VAL_6]], %[[VAL_7]]] : memref<4x4xf32>
+    # CHECK:    return %[[VAL_0]] : memref<4x4xf32>
+    # CHECK:  }
+    # CHECK:  func.func private @cb(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
+    # CHECK:  func.func @foo_wrapper(%[[VAL_8:.*]]: memref<*xf32>) {
+    # CHECK:    %[[VAL_9:.*]] = memref.cast %[[VAL_8]] : memref<*xf32> to memref<4x4xf32>
+    # CHECK:    %[[VAL_10:.*]] = call @foo(%[[VAL_9]]) : (memref<4x4xf32>) -> memref<4x4xf32>
+    # CHECK:    %[[VAL_11:.*]] = memref.cast %[[VAL_10]] : memref<4x4xf32> to memref<*xf32>
+    # CHECK:    call @cb(%[[VAL_11]]) : (memref<*xf32>) -> ()
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
     A = np.ones((4, 4)).astype(np.float32)
     AA = ctypes.pointer(ctypes.pointer(get_unranked_memref_descriptor(A)))
@@ -322,32 +314,27 @@ def test_munge_calling_conventions_setup_auto_cb(
 
     foo_wrapper.emit()
 
-    correct = dedent(
-        """\
-    module {
-      func.func @foo(%arg0: memref<4x4xf32>) -> memref<4x4xf32> {
-        %c0 = arith.constant 0 : index
-        %c0_0 = arith.constant 0 : index
-        %0 = memref.load %arg0[%c0, %c0_0] : memref<4x4xf32>
-        %cst = arith.constant 2.000000e+00 : f32
-        %1 = arith.mulf %0, %cst : f32
-        %c0_1 = arith.constant 0 : index
-        %c0_2 = arith.constant 0 : index
-        memref.store %1, %arg0[%c0_1, %c0_2] : memref<4x4xf32>
-        return %arg0 : memref<4x4xf32>
-      }
-      func.func private @cb(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
-      func.func @foo_wrapper(%arg0: memref<*xf32>) {
-        %cast = memref.cast %arg0 : memref<*xf32> to memref<4x4xf32>
-        %0 = call @foo(%cast) : (memref<4x4xf32>) -> memref<4x4xf32>
-        %cast_0 = memref.cast %0 : memref<4x4xf32> to memref<*xf32>
-        call @cb(%cast_0) : (memref<*xf32>) -> ()
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  func.func @foo(%[[VAL_0:.*]]: memref<4x4xf32>) -> memref<4x4xf32> {
+    # CHECK:    %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_3:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_1]], %[[VAL_2]]] : memref<4x4xf32>
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK:    %[[VAL_5:.*]] = arith.mulf %[[VAL_3]], %[[VAL_4]] : f32
+    # CHECK:    %[[VAL_6:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_7:.*]] = arith.constant 0 : index
+    # CHECK:    memref.store %[[VAL_5]], %[[VAL_0]]{{\[}}%[[VAL_6]], %[[VAL_7]]] : memref<4x4xf32>
+    # CHECK:    return %[[VAL_0]] : memref<4x4xf32>
+    # CHECK:  }
+    # CHECK:  func.func private @cb(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
+    # CHECK:  func.func @foo_wrapper(%[[VAL_8:.*]]: memref<*xf32>) {
+    # CHECK:    %[[VAL_9:.*]] = memref.cast %[[VAL_8]] : memref<*xf32> to memref<4x4xf32>
+    # CHECK:    %[[VAL_10:.*]] = call @foo(%[[VAL_9]]) : (memref<4x4xf32>) -> memref<4x4xf32>
+    # CHECK:    %[[VAL_11:.*]] = memref.cast %[[VAL_10]] : memref<4x4xf32> to memref<*xf32>
+    # CHECK:    call @cb(%[[VAL_11]]) : (memref<*xf32>) -> ()
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
     A = np.ones((4, 4)).astype(np.float32)
     AA = ctypes.pointer(ctypes.pointer(get_unranked_memref_descriptor(A)))
@@ -389,31 +376,26 @@ def test_munge_calling_conventions_setup_auto_cb_auto_wrapper(
     )
     module.operation.verify()
 
-    correct = dedent(
-        """\
-    module {
-      func.func @foo(%arg0: memref<4x4xf32>) -> memref<4x4xf32> attributes {llvm.emit_c_interface} {
-        %c0 = arith.constant 0 : index
-        %c0_0 = arith.constant 0 : index
-        %0 = memref.load %arg0[%c0, %c0_0] : memref<4x4xf32>
-        %cst = arith.constant 2.000000e+00 : f32
-        %1 = arith.mulf %0, %cst : f32
-        %c0_1 = arith.constant 0 : index
-        %c0_2 = arith.constant 0 : index
-        memref.store %1, %arg0[%c0_1, %c0_2] : memref<4x4xf32>
-        return %arg0 : memref<4x4xf32>
-      }
-      func.func private @foo_return_consumer(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
-      func.func @foo_capi_wrapper(%arg0: memref<4x4xf32>) attributes {llvm.emit_c_interface} {
-        %0 = call @foo(%arg0) : (memref<4x4xf32>) -> memref<4x4xf32>
-        %cast_0 = memref.cast %0 : memref<4x4xf32> to memref<*xf32>
-        call @foo_return_consumer(%cast_0) : (memref<*xf32>) -> ()
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, module)
+    # CHECK:  func.func @foo(%[[VAL_0:.*]]: memref<4x4xf32>) -> memref<4x4xf32> attributes {llvm.emit_c_interface} {
+    # CHECK:    %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_3:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_1]], %[[VAL_2]]] : memref<4x4xf32>
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 2.000000e+00 : f32
+    # CHECK:    %[[VAL_5:.*]] = arith.mulf %[[VAL_3]], %[[VAL_4]] : f32
+    # CHECK:    %[[VAL_6:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_7:.*]] = arith.constant 0 : index
+    # CHECK:    memref.store %[[VAL_5]], %[[VAL_0]]{{\[}}%[[VAL_6]], %[[VAL_7]]] : memref<4x4xf32>
+    # CHECK:    return %[[VAL_0]] : memref<4x4xf32>
+    # CHECK:  }
+    # CHECK:  func.func private @foo_return_consumer(memref<*xf32>) attributes {llvm.emit_c_interface, refbackend_consume_return_callback}
+    # CHECK:  func.func @foo_capi_wrapper(%[[VAL_8:.*]]: memref<4x4xf32>) attributes {llvm.emit_c_interface} {
+    # CHECK:    %[[VAL_9:.*]] = call @foo(%[[VAL_8]]) : (memref<4x4xf32>) -> memref<4x4xf32>
+    # CHECK:    %[[VAL_10:.*]] = memref.cast %[[VAL_9]] : memref<4x4xf32> to memref<*xf32>
+    # CHECK:    call @foo_return_consumer(%[[VAL_10]]) : (memref<*xf32>) -> ()
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_munge_calling_conventions_setup_auto_cb_auto_wrapper_run(
@@ -779,33 +761,30 @@ def test_linalg(ctx: MLIRContext, backend: LLVMJITBackend):
                 linalg.add(a, b, c)
 
     memfoo.emit()
+
     module = run_pipeline(ctx.module, str(Pipeline().cse()))
-    correct = dedent(
-        """\
-    module {
-      func.func @memfoo(%arg0: memref<256x256xf32>, %arg1: memref<256x256xf32>, %arg2: memref<256x256xf32>) {
-        %c0 = arith.constant 0 : index
-        %c8 = arith.constant 8 : index
-        %c1 = arith.constant 1 : index
-        scf.for %arg3 = %c0 to %c8 step %c1 {
-          scf.for %arg4 = %c0 to %c8 step %c1 {
-            %c32 = arith.constant 32 : index
-            %0 = arith.muli %arg3, %c32 : index
-            %1 = arith.addi %arg3, %c1 : index
-            %2 = arith.muli %arg4, %c32 : index
-            %3 = arith.addi %arg4, %c1 : index
-            %subview = memref.subview %arg0[%0, %2] [32, 32] [1, 1] : memref<256x256xf32> to memref<32x32xf32, strided<[256, 1], offset: ?>>
-            %subview_0 = memref.subview %arg1[%0, %2] [32, 32] [1, 1] : memref<256x256xf32> to memref<32x32xf32, strided<[256, 1], offset: ?>>
-            %subview_1 = memref.subview %arg2[%0, %2] [32, 32] [1, 1] : memref<256x256xf32> to memref<32x32xf32, strided<[256, 1], offset: ?>>
-            linalg.add ins(%subview, %subview_0 : memref<32x32xf32, strided<[256, 1], offset: ?>>, memref<32x32xf32, strided<[256, 1], offset: ?>>) outs(%subview_1 : memref<32x32xf32, strided<[256, 1], offset: ?>>)
-          }
-        }
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, module)
+
+    # CHECK:  func.func @memfoo(%[[VAL_0:.*]]: memref<256x256xf32>, %[[VAL_1:.*]]: memref<256x256xf32>, %[[VAL_2:.*]]: memref<256x256xf32>) {
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 8 : index
+    # CHECK:    %[[VAL_5:.*]] = arith.constant 1 : index
+    # CHECK:    scf.for %[[VAL_6:.*]] = %[[VAL_3]] to %[[VAL_4]] step %[[VAL_5]] {
+    # CHECK:      scf.for %[[VAL_7:.*]] = %[[VAL_3]] to %[[VAL_4]] step %[[VAL_5]] {
+    # CHECK:        %[[VAL_8:.*]] = arith.constant 32 : index
+    # CHECK:        %[[VAL_9:.*]] = arith.muli %[[VAL_6]], %[[VAL_8]] : index
+    # CHECK:        %[[VAL_10:.*]] = arith.addi %[[VAL_6]], %[[VAL_5]] : index
+    # CHECK:        %[[VAL_11:.*]] = arith.muli %[[VAL_7]], %[[VAL_8]] : index
+    # CHECK:        %[[VAL_12:.*]] = arith.addi %[[VAL_7]], %[[VAL_5]] : index
+    # CHECK:        %[[VAL_13:.*]] = memref.subview %[[VAL_0]]{{\[}}%[[VAL_9]], %[[VAL_11]]] [32, 32] [1, 1] : memref<256x256xf32> to memref<32x32xf32, strided<[256, 1], offset: ?>>
+    # CHECK:        %[[VAL_14:.*]] = memref.subview %[[VAL_1]]{{\[}}%[[VAL_9]], %[[VAL_11]]] [32, 32] [1, 1] : memref<256x256xf32> to memref<32x32xf32, strided<[256, 1], offset: ?>>
+    # CHECK:        %[[VAL_15:.*]] = memref.subview %[[VAL_2]]{{\[}}%[[VAL_9]], %[[VAL_11]]] [32, 32] [1, 1] : memref<256x256xf32> to memref<32x32xf32, strided<[256, 1], offset: ?>>
+    # CHECK:        linalg.add ins(%[[VAL_13]], %[[VAL_14]] : memref<32x32xf32, strided<[256, 1], offset: ?>>, memref<32x32xf32, strided<[256, 1], offset: ?>>) outs(%[[VAL_15]] : memref<32x32xf32, strided<[256, 1], offset: ?>>)
+    # CHECK:      }
+    # CHECK:    }
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(module)
 
     module = backend.compile(
         module,
@@ -841,17 +820,13 @@ def test_linalg_tensor(ctx: MLIRContext, backend: LLVMJITBackend):
         print(x)
 
     tenfoo.emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @tenfoo(%arg0: tensor<256x256xf32>, %arg1: tensor<256x256xf32>, %arg2: tensor<256x256xf32>) {
-        %0 = linalg.add ins(%arg0, %arg1 : tensor<256x256xf32>, tensor<256x256xf32>) outs(%arg2 : tensor<256x256xf32>) -> tensor<256x256xf32>
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @tenfoo(%[[VAL_0:.*]]: tensor<256x256xf32>, %[[VAL_1:.*]]: tensor<256x256xf32>, %[[VAL_2:.*]]: tensor<256x256xf32>) {
+    # CHECK:    %[[VAL_3:.*]] = linalg.add ins(%[[VAL_0]], %[[VAL_1]] : tensor<256x256xf32>, tensor<256x256xf32>) outs(%[[VAL_2]] : tensor<256x256xf32>) -> tensor<256x256xf32>
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
     # TODO(max)
     # module = backend.compile(
@@ -887,18 +862,14 @@ def test_raii_context():
             def foo(x: T.i32()):
                 return x
 
-        correct = dedent(
-            """\
-        module {
-          func.func @foo(%arg0: i32) -> i32 {
-            return %arg0 : i32
-          }
-        }
-        """
-        )
-        filecheck(correct, mod)
+        # CHECK:  func.func @foo(%[[VAL_0:.*]]: i32) -> i32 {
+        # CHECK:    return %[[VAL_0]] : i32
+        # CHECK:  }
+
+        filecheck_with_comments(mod)
 
     foo()
+
     assert Context.current is None
 
 
@@ -912,13 +883,8 @@ def test_explicit_module():
 
     mod.finish()
 
-    correct = dedent(
-        """\
-    module {
-      func.func @foo(%arg0: i32) -> i32 {
-        return %arg0 : i32
-      }
-    }
-    """
-    )
-    filecheck(correct, mod)
+    # CHECK:  func.func @foo(%[[VAL_0:.*]]: i32) -> i32 {
+    # CHECK:    return %[[VAL_0]] : i32
+    # CHECK:  }
+
+    filecheck_with_comments(mod)

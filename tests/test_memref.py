@@ -26,7 +26,12 @@ from mlir.extras.dialects.ext.scf import (
 )
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import (
+    mlir_ctx as ctx,
+    filecheck,
+    filecheck_with_comments,
+    MLIRContext,
+)
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -46,32 +51,27 @@ def test_simple_literal_indexing(ctx: MLIRContext):
     w = mem[two, 4, 6, 8]
     mem[two, 4, 6, 8] = w
 
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x22x333x4444xi32>
-      %c2 = arith.constant 2 : index
-      %c4 = arith.constant 4 : index
-      %c6 = arith.constant 6 : index
-      %c8 = arith.constant 8 : index
-      %0 = memref.load %alloc[%c2, %c4, %c6, %c8] : memref<10x22x333x4444xi32>
-      %c1_i32 = arith.constant 1 : i32
-      %c2_i32 = arith.constant 2 : i32
-      %1 = arith.muli %c1_i32, %c2_i32 : i32
-      %c4_0 = arith.constant 4 : index
-      %c6_1 = arith.constant 6 : index
-      %c8_2 = arith.constant 8 : index
-      %2 = arith.index_cast %1 : i32 to index
-      %3 = memref.load %alloc[%2, %c4_0, %c6_1, %c8_2] : memref<10x22x333x4444xi32>
-      %c4_3 = arith.constant 4 : index
-      %c6_4 = arith.constant 6 : index
-      %c8_5 = arith.constant 8 : index
-      %4 = arith.index_cast %1 : i32 to index
-      memref.store %3, %alloc[%4, %c4_3, %c6_4, %c8_5] : memref<10x22x333x4444xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 4 : index
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 6 : index
+    # CHECK:  %[[VAL_4:.*]] = arith.constant 8 : index
+    # CHECK:  %[[VAL_5:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_1]], %[[VAL_2]], %[[VAL_3]], %[[VAL_4]]] : memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_6:.*]] = arith.constant 1 : i32
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 2 : i32
+    # CHECK:  %[[VAL_8:.*]] = arith.muli %[[VAL_6]], %[[VAL_7]] : i32
+    # CHECK:  %[[VAL_9:.*]] = arith.constant 4 : index
+    # CHECK:  %[[VAL_10:.*]] = arith.constant 6 : index
+    # CHECK:  %[[VAL_11:.*]] = arith.constant 8 : index
+    # CHECK:  %[[VAL_12:.*]] = arith.index_cast %[[VAL_8]] : i32 to index
+    # CHECK:  %[[VAL_13:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_12]], %[[VAL_9]], %[[VAL_10]], %[[VAL_11]]] : memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_14:.*]] = arith.constant 4 : index
+    # CHECK:  %[[VAL_15:.*]] = arith.constant 6 : index
+    # CHECK:  %[[VAL_16:.*]] = arith.constant 8 : index
+    # CHECK:  %[[VAL_17:.*]] = arith.index_cast %[[VAL_8]] : i32 to index
+    # CHECK:  memref.store %[[VAL_13]], %[[VAL_0]]{{\[}}%[[VAL_17]], %[[VAL_14]], %[[VAL_15]], %[[VAL_16]]] : memref<10x22x333x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_simple_slicing(ctx: MLIRContext):
@@ -83,22 +83,17 @@ def test_simple_slicing(ctx: MLIRContext):
     two = constant(1, index=True) * 2
     w = mem[two:]
 
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10xi32>
-      %subview = memref.subview %alloc[5] [5] [1] : memref<10xi32> to memref<5xi32, strided<[1], offset: 5>>
-      %subview_0 = memref.subview %alloc[0] [5] [1] : memref<10xi32> to memref<5xi32>
-      %c1 = arith.constant 1 : index
-      %c2 = arith.constant 2 : index
-      %0 = arith.muli %c1, %c2 : index
-      %c10 = arith.constant 10 : index
-      %1 = arith.subi %c10, %0 : index
-      %subview_1 = memref.subview %alloc[%0] [%1] [1] : memref<10xi32> to memref<?xi32, strided<[1], offset: ?>>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10xi32>
+    # CHECK:  %[[VAL_1:.*]] = memref.subview %[[VAL_0]][5] [5] [1] : memref<10xi32> to memref<5xi32, strided<[1], offset: 5>>
+    # CHECK:  %[[VAL_2:.*]] = memref.subview %[[VAL_0]][0] [5] [1] : memref<10xi32> to memref<5xi32>
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_5:.*]] = arith.muli %[[VAL_3]], %[[VAL_4]] : index
+    # CHECK:  %[[VAL_6:.*]] = arith.constant 10 : index
+    # CHECK:  %[[VAL_7:.*]] = arith.subi %[[VAL_6]], %[[VAL_5]] : index
+    # CHECK:  %[[VAL_8:.*]] = memref.subview %[[VAL_0]]{{\[}}%[[VAL_5]]] {{\[}}%[[VAL_7]]] [1] : memref<10xi32> to memref<?xi32, strided<[1], offset: ?>>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_simple_literal_indexing_alloca(ctx: MLIRContext):
@@ -110,21 +105,16 @@ def test_simple_literal_indexing_alloca(ctx: MLIRContext):
         assert isinstance(w, Scalar)
         alloca_scope_return([])
 
-    correct = dedent(
-        """\
-    module {
-      memref.alloca_scope  {
-        %alloca = memref.alloca() : memref<10x22x333x4444xi32>
-        %c2 = arith.constant 2 : index
-        %c4 = arith.constant 4 : index
-        %c6 = arith.constant 6 : index
-        %c8 = arith.constant 8 : index
-        %0 = memref.load %alloca[%c2, %c4, %c6, %c8] : memref<10x22x333x4444xi32>
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  memref.alloca_scope  {
+    # CHECK:    %[[VAL_0:.*]] = memref.alloca() : memref<10x22x333x4444xi32>
+    # CHECK:    %[[VAL_1:.*]] = arith.constant 2 : index
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 4 : index
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 6 : index
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 8 : index
+    # CHECK:    %[[VAL_5:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_1]], %[[VAL_2]], %[[VAL_3]], %[[VAL_4]]] : memref<10x22x333x4444xi32>
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_ellipsis_and_full_slice(ctx: MLIRContext):
@@ -140,14 +130,10 @@ def test_ellipsis_and_full_slice(ctx: MLIRContext):
     assert w == mem
     w = mem[:, :, :, :]
     assert w == mem
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x22x333x4444xi32>
-    } 
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x22x333x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
@@ -386,36 +372,32 @@ def test_none_indices(ctx: MLIRContext):
         print(w.owner)
     except IndexError as e:
         assert str(e) == "pop index out of range"
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x22x333x4444xi32>
-      %expand_shape = memref.expand_shape %alloc [[0, 1], [2], [3], [4]] output_shape [1, 10, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<1x10x22x333x4444xi32>
-      %subview = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_0 = memref.expand_shape %subview [[0, 1], [2], [3], [4]] output_shape [10, 1, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444xi32>
-      %subview_1 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_2 = memref.expand_shape %subview_1 [[0, 1, 2], [3], [4], [5]] output_shape [1, 10, 1, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<1x10x1x22x333x4444xi32>
-      %subview_3 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_4 = memref.expand_shape %subview_3 [[0], [1, 2], [3], [4]] output_shape [10, 22, 1, 333, 4444] : memref<10x22x333x4444xi32> into memref<10x22x1x333x4444xi32>
-      %subview_5 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_6 = memref.expand_shape %subview_5 [[0], [1], [2, 3], [4]] output_shape [10, 22, 333, 1, 4444] : memref<10x22x333x4444xi32> into memref<10x22x333x1x4444xi32>
-      %subview_7 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_8 = memref.expand_shape %subview_7 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
-      %subview_9 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_10 = memref.expand_shape %subview_9 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
-      %subview_11 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_12 = memref.expand_shape %subview_11 [[0, 1], [2], [3], [4, 5]] output_shape [10, 1, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444x1xi32>
-      %subview_13 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_14 = memref.expand_shape %subview_13 [[0, 1], [2, 3], [4], [5, 6]] output_shape [10, 1, 22, 1, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x4444x1xi32>
-      %subview_15 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_16 = memref.expand_shape %subview_15 [[0, 1], [2, 3], [4, 5], [6, 7]] output_shape [10, 1, 22, 1, 333, 1, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x1x4444x1xi32>
-      %subview_17 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-      %expand_shape_18 = memref.expand_shape %subview_17 [[0, 1, 2], [3, 4], [5, 6], [7, 8]] output_shape [1, 10, 1, 22, 1, 333, 1, 4444, 1] : memref<10x22x333x4444xi32> into memref<1x10x1x22x1x333x1x4444x1xi32>
-      %subview_19 = memref.subview %alloc[0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = memref.expand_shape %[[VAL_0]] {{\[\[}}0, 1], [2], [3], [4]] output_shape [1, 10, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<1x10x22x333x4444xi32>
+    # CHECK:  %[[VAL_2:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = memref.expand_shape %[[VAL_2]] {{\[\[}}0, 1], [2], [3], [4]] output_shape [10, 1, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444xi32>
+    # CHECK:  %[[VAL_4:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_5:.*]] = memref.expand_shape %[[VAL_4]] {{\[\[}}0, 1, 2], [3], [4], [5]] output_shape [1, 10, 1, 22, 333, 4444] : memref<10x22x333x4444xi32> into memref<1x10x1x22x333x4444xi32>
+    # CHECK:  %[[VAL_6:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_7:.*]] = memref.expand_shape %[[VAL_6]] {{\[\[}}0], [1, 2], [3], [4]] output_shape [10, 22, 1, 333, 4444] : memref<10x22x333x4444xi32> into memref<10x22x1x333x4444xi32>
+    # CHECK:  %[[VAL_8:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_9:.*]] = memref.expand_shape %[[VAL_8]] {{\[\[}}0], [1], [2, 3], [4]] output_shape [10, 22, 333, 1, 4444] : memref<10x22x333x4444xi32> into memref<10x22x333x1x4444xi32>
+    # CHECK:  %[[VAL_10:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_11:.*]] = memref.expand_shape %[[VAL_10]] {{\[\[}}0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
+    # CHECK:  %[[VAL_12:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_13:.*]] = memref.expand_shape %[[VAL_12]] {{\[\[}}0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x22x333x4444x1xi32>
+    # CHECK:  %[[VAL_14:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_15:.*]] = memref.expand_shape %[[VAL_14]] {{\[\[}}0, 1], [2], [3], [4, 5]] output_shape [10, 1, 22, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x333x4444x1xi32>
+    # CHECK:  %[[VAL_16:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_17:.*]] = memref.expand_shape %[[VAL_16]] {{\[\[}}0, 1], [2, 3], [4], [5, 6]] output_shape [10, 1, 22, 1, 333, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x4444x1xi32>
+    # CHECK:  %[[VAL_18:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_19:.*]] = memref.expand_shape %[[VAL_18]] {{\[\[}}0, 1], [2, 3], [4, 5], [6, 7]] output_shape [10, 1, 22, 1, 333, 1, 4444, 1] : memref<10x22x333x4444xi32> into memref<10x1x22x1x333x1x4444x1xi32>
+    # CHECK:  %[[VAL_20:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_21:.*]] = memref.expand_shape %[[VAL_20]] {{\[\[}}0, 1, 2], [3, 4], [5, 6], [7, 8]] output_shape [1, 10, 1, 22, 1, 333, 1, 4444, 1] : memref<10x22x333x4444xi32> into memref<1x10x1x22x1x333x1x4444x1xi32>
+    # CHECK:  %[[VAL_22:.*]] = memref.subview %[[VAL_0]][0, 0, 0, 0] [10, 22, 333, 4444] [1, 1, 1, 1] : memref<10x22x333x4444xi32> to memref<10x22x333x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_nontrivial_slices(ctx: MLIRContext):
@@ -554,25 +536,20 @@ def test_for_loops(ctx: MLIRContext):
 
     assert repr(res) == "MemRef(%0, memref<10x10xi32>)"
     assert res.owner.name == "scf.for"
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x10xi32>
-      %c0 = arith.constant 0 : index
-      %c10 = arith.constant 10 : index
-      %c1 = arith.constant 1 : index
-      %0 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %alloc) -> (memref<10x10xi32>) {
-        %1 = memref.load %arg1[%arg0, %arg0] : memref<10x10xi32>
-        %2 = memref.load %arg1[%arg0, %arg0] : memref<10x10xi32>
-        %3 = arith.addi %1, %2 : i32
-        memref.store %3, %arg1[%arg0, %arg0] : memref<10x10xi32>
-        scf.yield %arg1 : memref<10x10xi32>
-      }
-    }
-    """
-    )
 
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x10xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 10 : index
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = scf.for %[[VAL_5:.*]] = %[[VAL_1]] to %[[VAL_2]] step %[[VAL_3]] iter_args(%[[VAL_6:.*]] = %[[VAL_0]]) -> (memref<10x10xi32>) {
+    # CHECK:    %[[VAL_7:.*]] = memref.load %[[VAL_6]]{{\[}}%[[VAL_5]], %[[VAL_5]]] : memref<10x10xi32>
+    # CHECK:    %[[VAL_8:.*]] = memref.load %[[VAL_6]]{{\[}}%[[VAL_5]], %[[VAL_5]]] : memref<10x10xi32>
+    # CHECK:    %[[VAL_9:.*]] = arith.addi %[[VAL_7]], %[[VAL_8]] : i32
+    # CHECK:    memref.store %[[VAL_9]], %[[VAL_6]]{{\[}}%[[VAL_5]], %[[VAL_5]]] : memref<10x10xi32>
+    # CHECK:    scf.yield %[[VAL_6]] : memref<10x10xi32>
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_for_loops_canonicalizer(ctx: MLIRContext):
@@ -588,25 +565,19 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
 
     tenfoo()
 
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x10xi32>
-      %c0 = arith.constant 0 : index
-      %c10 = arith.constant 10 : index
-      %c1 = arith.constant 1 : index
-      %0 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %alloc) -> (memref<10x10xi32>) {
-        %1 = memref.load %arg1[%arg0, %arg0] : memref<10x10xi32>
-        %2 = memref.load %arg1[%arg0, %arg0] : memref<10x10xi32>
-        %3 = arith.addi %1, %2 : i32
-        memref.store %3, %arg1[%arg0, %arg0] : memref<10x10xi32>
-        scf.yield %arg1 : memref<10x10xi32>
-      }
-    }
-    """
-    )
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x10xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 10 : index
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = scf.for %[[VAL_5:.*]] = %[[VAL_1]] to %[[VAL_2]] step %[[VAL_3]] iter_args(%[[VAL_6:.*]] = %[[VAL_0]]) -> (memref<10x10xi32>) {
+    # CHECK:    %[[VAL_7:.*]] = memref.load %[[VAL_6]]{{\[}}%[[VAL_5]], %[[VAL_5]]] : memref<10x10xi32>
+    # CHECK:    %[[VAL_8:.*]] = memref.load %[[VAL_6]]{{\[}}%[[VAL_5]], %[[VAL_5]]] : memref<10x10xi32>
+    # CHECK:    %[[VAL_9:.*]] = arith.addi %[[VAL_7]], %[[VAL_8]] : i32
+    # CHECK:    memref.store %[[VAL_9]], %[[VAL_6]]{{\[}}%[[VAL_5]], %[[VAL_5]]] : memref<10x10xi32>
+    # CHECK:    scf.yield %[[VAL_6]] : memref<10x10xi32>
+    # CHECK:  }
 
-    filecheck(correct, ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 def test_subview_mixed_offsets(ctx: MLIRContext):
@@ -636,18 +607,13 @@ def test_subview_mixed_offsets(ctx: MLIRContext):
             )
 
     tenfoo()
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x10xi32>
-      %c0 = arith.constant 0 : index
-      %c0_0 = arith.constant 0 : index
-      %subview = memref.subview %alloc[0, 0] [5, 5] [1, 1] : memref<10x10xi32> to memref<5x5xi32, strided<[10, 1]>>
-    }
-    """
-    )
 
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x10xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_3:.*]] = memref.subview %[[VAL_0]][0, 0] [5, 5] [1, 1] : memref<10x10xi32> to memref<5x5xi32, strided<[10, 1]>>
+
+    filecheck_with_comments(ctx.module)
 
 
 @pytest.mark.skipif(
@@ -663,20 +629,14 @@ def test_memref_global_windows(ctx: MLIRContext):
     weight5 = memref.global_(np.ones((k,), dtype=np.int16))
     weight6 = memref.global_(np.ones((k,), dtype=np.float16))
 
-    correct = dedent(
-        """\
-    module {
-      memref.global "private" constant @weight1 : memref<32xi32> = dense<1>
-      memref.global "private" constant @weight2 : memref<32xi64> = dense<1>
-      memref.global "private" constant @weight3 : memref<32xf32> = dense<1.000000e+00>
-      memref.global "private" constant @weight4 : memref<32xf64> = dense<1.000000e+00>
-      memref.global "private" constant @weight5 : memref<32xi16> = dense<1>
-      memref.global "private" constant @weight6 : memref<32xf16> = dense<1.000000e+00>
-    }
-    """
-    )
+    # CHECK:  memref.global "private" constant @weight1 : memref<32xi32> = dense<1>
+    # CHECK:  memref.global "private" constant @weight2 : memref<32xi64> = dense<1>
+    # CHECK:  memref.global "private" constant @weight3 : memref<32xf32> = dense<1.000000e+00>
+    # CHECK:  memref.global "private" constant @weight4 : memref<32xf64> = dense<1.000000e+00>
+    # CHECK:  memref.global "private" constant @weight5 : memref<32xi16> = dense<1>
+    # CHECK:  memref.global "private" constant @weight6 : memref<32xf16> = dense<1.000000e+00>
 
-    filecheck(correct, ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 @pytest.mark.skipif(
@@ -719,24 +679,19 @@ def test_memref_view(ctx: MLIRContext):
     # TODO(max): should the type here also contain the offset...?
     c_buffer = memref.view(ab_buffer, (k, n), dtype=dtype, shift=m * k + two)
 
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<2048xi8>
-      %c0 = arith.constant 0 : index
-      %view = memref.view %alloc[%c0][] : memref<2048xi8> to memref<16x16xf32>
-      %c1024 = arith.constant 1024 : index
-      %view_0 = memref.view %alloc[%c1024][] : memref<2048xi8> to memref<16x16xf32>
-      %c1_i32 = arith.constant 1 : i32
-      %c2_i32 = arith.constant 2 : i32
-      %0 = arith.muli %c1_i32, %c2_i32 : i32
-      %c256_i32 = arith.constant 256 : i32
-      %1 = arith.addi %c256_i32, %0 : i32
-      %c4_i32 = arith.constant 4 : i32
-      %2 = arith.muli %1, %c4_i32 : i32
-      %3 = arith.index_cast %2 : i32 to index
-      %view_1 = memref.view %alloc[%3][] : memref<2048xi8> to memref<16x16xf32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<2048xi8>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = memref.view %[[VAL_0]]{{\[}}%[[VAL_1]]][] : memref<2048xi8> to memref<16x16xf32>
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1024 : index
+    # CHECK:  %[[VAL_4:.*]] = memref.view %[[VAL_0]]{{\[}}%[[VAL_3]]][] : memref<2048xi8> to memref<16x16xf32>
+    # CHECK:  %[[VAL_5:.*]] = arith.constant 1 : i32
+    # CHECK:  %[[VAL_6:.*]] = arith.constant 2 : i32
+    # CHECK:  %[[VAL_7:.*]] = arith.muli %[[VAL_5]], %[[VAL_6]] : i32
+    # CHECK:  %[[VAL_8:.*]] = arith.constant 256 : i32
+    # CHECK:  %[[VAL_9:.*]] = arith.addi %[[VAL_8]], %[[VAL_7]] : i32
+    # CHECK:  %[[VAL_10:.*]] = arith.constant 4 : i32
+    # CHECK:  %[[VAL_11:.*]] = arith.muli %[[VAL_9]], %[[VAL_10]] : i32
+    # CHECK:  %[[VAL_12:.*]] = arith.index_cast %[[VAL_11]] : i32 to index
+    # CHECK:  %[[VAL_13:.*]] = memref.view %[[VAL_0]]{{\[}}%[[VAL_12]]][] : memref<2048xi8> to memref<16x16xf32>
+
+    filecheck_with_comments(ctx.module)

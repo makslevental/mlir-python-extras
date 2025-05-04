@@ -1,8 +1,8 @@
 from textwrap import dedent
 
+import mlir.extras.types as T
 import pytest
 
-import mlir.extras.types as T
 from mlir.extras.dialects.ext import llvm
 from mlir.extras.dialects.ext.func import func
 

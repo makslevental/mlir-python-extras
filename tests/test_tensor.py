@@ -1,6 +1,7 @@
 import platform
 from textwrap import dedent
 
+import mlir.extras.types as T
 import numpy as np
 import pytest
 
@@ -15,8 +16,12 @@ from mlir.extras.dialects.ext.scf import (
 from mlir.extras.dialects.ext.tensor import Tensor, empty
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
-import mlir.extras.types as T
+from mlir.extras.testing import (
+    mlir_ctx as ctx,
+    filecheck,
+    filecheck_with_comments,
+    MLIRContext,
+)
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -37,28 +42,23 @@ def test_simple_literal_indexing(ctx: MLIRContext):
     w = ten[2, 4, 6, 8]
     assert isinstance(w, Scalar)
 
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-      %c0 = arith.constant 0 : index
-      %extracted_slice = tensor.extract_slice %0[0, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c2 = arith.constant 2 : index
-      %c4 = arith.constant 4 : index
-      %extracted_slice_0 = tensor.extract_slice %0[2, 4, 0, 0] [1, 1, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x333x4444xi32>
-      %c2_1 = arith.constant 2 : index
-      %c4_2 = arith.constant 4 : index
-      %c6 = arith.constant 6 : index
-      %extracted_slice_3 = tensor.extract_slice %0[2, 4, 6, 0] [1, 1, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x1x4444xi32>
-      %c2_4 = arith.constant 2 : index
-      %c4_5 = arith.constant 4 : index
-      %c6_6 = arith.constant 6 : index
-      %c8 = arith.constant 8 : index
-      %extracted = tensor.extract %0[%c2_4, %c4_5, %c6_6, %c8] : tensor<10x22x333x4444xi32>
-    } 
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_4:.*]] = arith.constant 4 : index
+    # CHECK:  %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_0]][2, 4, 0, 0] [1, 1, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x333x4444xi32>
+    # CHECK:  %[[VAL_6:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 4 : index
+    # CHECK:  %[[VAL_8:.*]] = arith.constant 6 : index
+    # CHECK:  %[[VAL_9:.*]] = tensor.extract_slice %[[VAL_0]][2, 4, 6, 0] [1, 1, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x1x4444xi32>
+    # CHECK:  %[[VAL_10:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_11:.*]] = arith.constant 4 : index
+    # CHECK:  %[[VAL_12:.*]] = arith.constant 6 : index
+    # CHECK:  %[[VAL_13:.*]] = arith.constant 8 : index
+    # CHECK:  %[[VAL_14:.*]] = tensor.extract %[[VAL_0]]{{\[}}%[[VAL_10]], %[[VAL_11]], %[[VAL_12]], %[[VAL_13]]] : tensor<10x22x333x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_ellipsis_and_full_slice(ctx: MLIRContext):
@@ -74,14 +74,10 @@ def test_ellipsis_and_full_slice(ctx: MLIRContext):
     assert w == ten
     w = ten[:, :, :, :]
     assert w == ten
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-    } 
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<10x22x333x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
@@ -98,21 +94,16 @@ def test_ellipsis_and_full_slice_plus_coordinate_1(ctx: MLIRContext):
             == "Too many indices for shaped type with rank: 5 non-None/Ellipsis indices for dim 4."
         )
 
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-      %c1 = arith.constant 1 : index
-      %extracted_slice = tensor.extract_slice %0[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c1_0 = arith.constant 1 : index
-      %extracted_slice_1 = tensor.extract_slice %0[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c1_2 = arith.constant 1 : index
-      %extracted_slice_3 = tensor.extract_slice %0[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c1_4 = arith.constant 1 : index
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_5:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_6:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 1 : index
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
@@ -122,24 +113,20 @@ def test_ellipsis_and_full_slice_plus_coordinate_2(ctx: MLIRContext):
     w = ten[1, :, :, :]
     w = ten[:, 1]
     w = ten[:, :, 1]
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-      %c1 = arith.constant 1 : index
-      %extracted_slice = tensor.extract_slice %0[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c1_0 = arith.constant 1 : index
-      %extracted_slice_1 = tensor.extract_slice %0[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c1_2 = arith.constant 1 : index
-      %extracted_slice_3 = tensor.extract_slice %0[1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
-      %c1_4 = arith.constant 1 : index
-      %extracted_slice_5 = tensor.extract_slice %0[0, 1, 0, 0] [10, 1, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x333x4444xi32>
-      %c1_6 = arith.constant 1 : index
-      %extracted_slice_7 = tensor.extract_slice %0[0, 0, 1, 0] [10, 22, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x22x1x4444xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_5:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_6:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 0] [1, 22, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x4444xi32>
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_8:.*]] = tensor.extract_slice %[[VAL_0]][0, 1, 0, 0] [10, 1, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x333x4444xi32>
+    # CHECK:  %[[VAL_9:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_10:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 1, 0] [10, 22, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x22x1x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
@@ -157,50 +144,45 @@ def test_ellipsis_and_full_slice_plus_coordinate_3(ctx: MLIRContext):
     w = ten[:, 1, 1, 1]
     w = ten[1, 1, 1, :]
 
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-      %c1 = arith.constant 1 : index
-      %extracted_slice = tensor.extract_slice %0[0, 0, 0, 1] [10, 22, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x22x333x1xi32>
-      %c1_0 = arith.constant 1 : index
-      %c1_1 = arith.constant 1 : index
-      %extracted_slice_2 = tensor.extract_slice %0[0, 1, 0, 1] [10, 1, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x333x1xi32>
-      %c1_3 = arith.constant 1 : index
-      %c1_4 = arith.constant 1 : index
-      %extracted_slice_5 = tensor.extract_slice %0[1, 0, 0, 1] [1, 22, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x1xi32>
-      %c1_6 = arith.constant 1 : index
-      %c1_7 = arith.constant 1 : index
-      %extracted_slice_8 = tensor.extract_slice %0[1, 1, 0, 0] [1, 1, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x333x4444xi32>
-      %c1_9 = arith.constant 1 : index
-      %c1_10 = arith.constant 1 : index
-      %extracted_slice_11 = tensor.extract_slice %0[0, 0, 1, 1] [10, 22, 1, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x22x1x1xi32>
-      %c1_12 = arith.constant 1 : index
-      %c1_13 = arith.constant 1 : index
-      %extracted_slice_14 = tensor.extract_slice %0[0, 1, 1, 0] [10, 1, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x1x4444xi32>
-      %c1_15 = arith.constant 1 : index
-      %c1_16 = arith.constant 1 : index
-      %extracted_slice_17 = tensor.extract_slice %0[1, 0, 1, 0] [1, 22, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x1x4444xi32>
-      %c1_18 = arith.constant 1 : index
-      %c1_19 = arith.constant 1 : index
-      %c1_20 = arith.constant 1 : index
-      %extracted_slice_21 = tensor.extract_slice %0[1, 1, 0, 1] [1, 1, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x333x1xi32>
-      %c1_22 = arith.constant 1 : index
-      %c1_23 = arith.constant 1 : index
-      %c1_24 = arith.constant 1 : index
-      %extracted_slice_25 = tensor.extract_slice %0[1, 0, 1, 1] [1, 22, 1, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x1x1xi32>
-      %c1_26 = arith.constant 1 : index
-      %c1_27 = arith.constant 1 : index
-      %c1_28 = arith.constant 1 : index
-      %extracted_slice_29 = tensor.extract_slice %0[0, 1, 1, 1] [10, 1, 1, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x1x1xi32>
-      %c1_30 = arith.constant 1 : index
-      %c1_31 = arith.constant 1 : index
-      %c1_32 = arith.constant 1 : index
-      %extracted_slice_33 = tensor.extract_slice %0[1, 1, 1, 0] [1, 1, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x1x4444xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0, 1] [10, 22, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x22x333x1xi32>
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_0]][0, 1, 0, 1] [10, 1, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x333x1xi32>
+    # CHECK:  %[[VAL_6:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_8:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 0, 1] [1, 22, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x333x1xi32>
+    # CHECK:  %[[VAL_9:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_10:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_11:.*]] = tensor.extract_slice %[[VAL_0]][1, 1, 0, 0] [1, 1, 333, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x333x4444xi32>
+    # CHECK:  %[[VAL_12:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_13:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_14:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 1, 1] [10, 22, 1, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x22x1x1xi32>
+    # CHECK:  %[[VAL_15:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_16:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_17:.*]] = tensor.extract_slice %[[VAL_0]][0, 1, 1, 0] [10, 1, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x1x4444xi32>
+    # CHECK:  %[[VAL_18:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_19:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_20:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 1, 0] [1, 22, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x1x4444xi32>
+    # CHECK:  %[[VAL_21:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_22:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_23:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_24:.*]] = tensor.extract_slice %[[VAL_0]][1, 1, 0, 1] [1, 1, 333, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x333x1xi32>
+    # CHECK:  %[[VAL_25:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_26:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_27:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_28:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 1, 1] [1, 22, 1, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x22x1x1xi32>
+    # CHECK:  %[[VAL_29:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_30:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_31:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_32:.*]] = tensor.extract_slice %[[VAL_0]][0, 1, 1, 1] [10, 1, 1, 1] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<10x1x1x1xi32>
+    # CHECK:  %[[VAL_33:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_34:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_35:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_36:.*]] = tensor.extract_slice %[[VAL_0]][1, 1, 1, 0] [1, 1, 1, 4444] [1, 1, 1, 1] : tensor<10x22x333x4444xi32> to tensor<1x1x1x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_none_indices(ctx: MLIRContext):
@@ -221,25 +203,21 @@ def test_none_indices(ctx: MLIRContext):
         print(w.owner)
     except IndexError as e:
         assert str(e) == "pop index out of range"
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<10x22x333x4444xi32>
-      %expanded = tensor.expand_shape %0 [[0, 1], [2], [3], [4]] output_shape [1, 10, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<1x10x22x333x4444xi32>
-      %expanded_0 = tensor.expand_shape %0 [[0, 1], [2], [3], [4]] output_shape [10, 1, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444xi32>
-      %expanded_1 = tensor.expand_shape %0 [[0, 1, 2], [3], [4], [5]] output_shape [1, 10, 1, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x333x4444xi32>
-      %expanded_2 = tensor.expand_shape %0 [[0], [1, 2], [3], [4]] output_shape [10, 22, 1, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<10x22x1x333x4444xi32>
-      %expanded_3 = tensor.expand_shape %0 [[0], [1], [2, 3], [4]] output_shape [10, 22, 333, 1, 4444] : tensor<10x22x333x4444xi32> into tensor<10x22x333x1x4444xi32>
-      %expanded_4 = tensor.expand_shape %0 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
-      %expanded_5 = tensor.expand_shape %0 [[0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
-      %expanded_6 = tensor.expand_shape %0 [[0, 1], [2], [3], [4, 5]] output_shape [10, 1, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444x1xi32>
-      %expanded_7 = tensor.expand_shape %0 [[0, 1], [2, 3], [4], [5, 6]] output_shape [10, 1, 22, 1, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x4444x1xi32>
-      %expanded_8 = tensor.expand_shape %0 [[0, 1], [2, 3], [4, 5], [6, 7]] output_shape [10, 1, 22, 1, 333, 1, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x1x4444x1xi32>
-      %expanded_9 = tensor.expand_shape %0 [[0, 1, 2], [3, 4], [5, 6], [7, 8]] output_shape [1, 10, 1, 22, 1, 333, 1, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x1x333x1x4444x1xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<10x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1], [2], [3], [4]] output_shape [1, 10, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<1x10x22x333x4444xi32>
+    # CHECK:  %[[VAL_2:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1], [2], [3], [4]] output_shape [10, 1, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1, 2], [3], [4], [5]] output_shape [1, 10, 1, 22, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x333x4444xi32>
+    # CHECK:  %[[VAL_4:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0], [1, 2], [3], [4]] output_shape [10, 22, 1, 333, 4444] : tensor<10x22x333x4444xi32> into tensor<10x22x1x333x4444xi32>
+    # CHECK:  %[[VAL_5:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0], [1], [2, 3], [4]] output_shape [10, 22, 333, 1, 4444] : tensor<10x22x333x4444xi32> into tensor<10x22x333x1x4444xi32>
+    # CHECK:  %[[VAL_6:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
+    # CHECK:  %[[VAL_7:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0], [1], [2], [3, 4]] output_shape [10, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x22x333x4444x1xi32>
+    # CHECK:  %[[VAL_8:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1], [2], [3], [4, 5]] output_shape [10, 1, 22, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x333x4444x1xi32>
+    # CHECK:  %[[VAL_9:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1], [2, 3], [4], [5, 6]] output_shape [10, 1, 22, 1, 333, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x4444x1xi32>
+    # CHECK:  %[[VAL_10:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1], [2, 3], [4, 5], [6, 7]] output_shape [10, 1, 22, 1, 333, 1, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<10x1x22x1x333x1x4444x1xi32>
+    # CHECK:  %[[VAL_11:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0, 1, 2], [3, 4], [5, 6], [7, 8]] output_shape [1, 10, 1, 22, 1, 333, 1, 4444, 1] : tensor<10x22x333x4444xi32> into tensor<1x10x1x22x1x333x1x4444x1xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_nontrivial_slices(ctx: MLIRContext):
@@ -248,18 +226,14 @@ def test_nontrivial_slices(ctx: MLIRContext):
     w = ten[:, 0:22:2, 0:330:30]
     w = ten[:, 0:22:2, 0:330:30, 0:4400:400]
     w = ten[:, :, 100:200:5, 1000:2000:50]
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<7x22x333x4444xi32>
-      %extracted_slice = tensor.extract_slice %0[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x333x4444xi32>
-      %extracted_slice_0 = tensor.extract_slice %0[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x11x4444xi32>
-      %extracted_slice_1 = tensor.extract_slice %0[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : tensor<7x22x333x4444xi32> to tensor<7x11x11x11xi32>
-      %extracted_slice_2 = tensor.extract_slice %0[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : tensor<7x22x333x4444xi32> to tensor<7x22x20x20xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x333x4444xi32>
+    # CHECK:  %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x11x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : tensor<7x22x333x4444xi32> to tensor<7x11x11x11xi32>
+    # CHECK:  %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : tensor<7x22x333x4444xi32> to tensor<7x22x20x20xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_nontrivial_slices_insertion(ctx: MLIRContext):
@@ -273,22 +247,17 @@ def test_nontrivial_slices_insertion(ctx: MLIRContext):
     w = ten[:, :, 100:200:5, 1000:2000:50]
     ten[:, :, 100:200:5, 1000:2000:50] = w
 
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<7x22x333x4444xi32>
-      %extracted_slice = tensor.extract_slice %0[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x333x4444xi32>
-      %inserted_slice = tensor.insert_slice %extracted_slice into %0[0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : tensor<7x11x333x4444xi32> into tensor<7x22x333x4444xi32>
-      %extracted_slice_0 = tensor.extract_slice %inserted_slice[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x11x4444xi32>
-      %inserted_slice_1 = tensor.insert_slice %extracted_slice_0 into %inserted_slice[0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : tensor<7x11x11x4444xi32> into tensor<7x22x333x4444xi32>
-      %extracted_slice_2 = tensor.extract_slice %inserted_slice_1[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : tensor<7x22x333x4444xi32> to tensor<7x11x11x11xi32>
-      %inserted_slice_3 = tensor.insert_slice %extracted_slice_2 into %inserted_slice_1[0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : tensor<7x11x11x11xi32> into tensor<7x22x333x4444xi32>
-      %extracted_slice_4 = tensor.extract_slice %inserted_slice_3[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : tensor<7x22x333x4444xi32> to tensor<7x22x20x20xi32>
-      %inserted_slice_5 = tensor.insert_slice %extracted_slice_4 into %inserted_slice_3[0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : tensor<7x22x20x20xi32> into tensor<7x22x333x4444xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x333x4444xi32>
+    # CHECK:  %[[VAL_2:.*]] = tensor.insert_slice %[[VAL_1]] into %[[VAL_0]][0, 0, 0, 0] [7, 11, 333, 4444] [1, 2, 1, 1] : tensor<7x11x333x4444xi32> into tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_2]][0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : tensor<7x22x333x4444xi32> to tensor<7x11x11x4444xi32>
+    # CHECK:  %[[VAL_4:.*]] = tensor.insert_slice %[[VAL_3]] into %[[VAL_2]][0, 0, 0, 0] [7, 11, 11, 4444] [1, 2, 30, 1] : tensor<7x11x11x4444xi32> into tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_4]][0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : tensor<7x22x333x4444xi32> to tensor<7x11x11x11xi32>
+    # CHECK:  %[[VAL_6:.*]] = tensor.insert_slice %[[VAL_5]] into %[[VAL_4]][0, 0, 0, 0] [7, 11, 11, 11] [1, 2, 30, 400] : tensor<7x11x11x11xi32> into tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_7:.*]] = tensor.extract_slice %[[VAL_6]][0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : tensor<7x22x333x4444xi32> to tensor<7x22x20x20xi32>
+    # CHECK:  %[[VAL_8:.*]] = tensor.insert_slice %[[VAL_7]] into %[[VAL_6]][0, 0, 100, 1000] [7, 22, 20, 20] [1, 1, 5, 50] : tensor<7x22x20x20xi32> into tensor<7x22x333x4444xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_move_slice(ctx: MLIRContext):
@@ -296,16 +265,11 @@ def test_move_slice(ctx: MLIRContext):
     w = ten[0:4, 0:4]
     ten[4:8, 4:8] = w
 
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<8x8xi32>
-      %extracted_slice = tensor.extract_slice %0[0, 0] [4, 4] [1, 1] : tensor<8x8xi32> to tensor<4x4xi32>
-      %inserted_slice = tensor.insert_slice %extracted_slice into %0[4, 4] [4, 4] [1, 1] : tensor<4x4xi32> into tensor<8x8xi32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<8x8xi32>
+    # CHECK:  %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [4, 4] [1, 1] : tensor<8x8xi32> to tensor<4x4xi32>
+    # CHECK:  %[[VAL_2:.*]] = tensor.insert_slice %[[VAL_1]] into %[[VAL_0]][4, 4] [4, 4] [1, 1] : tensor<4x4xi32> into tensor<8x8xi32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_fold_1(ctx: MLIRContext):
@@ -340,22 +304,17 @@ def test_for_loops(ctx: MLIRContext):
 
     assert str(res) == "Tensor(%1, tensor<7x22x333x4444xi32>)"
     assert res.owner.name == "scf.for"
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<7x22x333x4444xi32>
-      %c0 = arith.constant 0 : index
-      %c10 = arith.constant 10 : index
-      %c1 = arith.constant 1 : index
-      %1 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %0) -> (tensor<7x22x333x4444xi32>) {
-        %2 = arith.addi %arg1, %arg1 : tensor<7x22x333x4444xi32>
-        scf.yield %2 : tensor<7x22x333x4444xi32>
-      }
-    }
-    """
-    )
 
-    filecheck(correct, ctx.module)
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 10 : index
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = scf.for %[[VAL_5:.*]] = %[[VAL_1]] to %[[VAL_2]] step %[[VAL_3]] iter_args(%[[VAL_6:.*]] = %[[VAL_0]]) -> (tensor<7x22x333x4444xi32>) {
+    # CHECK:    %[[VAL_7:.*]] = arith.addi %[[VAL_6]], %[[VAL_6]] : tensor<7x22x333x4444xi32>
+    # CHECK:    scf.yield %[[VAL_7]] : tensor<7x22x333x4444xi32>
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_for_loops_canonicalizer(ctx: MLIRContext):
@@ -371,22 +330,16 @@ def test_for_loops_canonicalizer(ctx: MLIRContext):
 
     tenfoo()
 
-    correct = dedent(
-        """\
-    module {
-      %0 = tensor.empty() : tensor<7x22x333x4444xi32>
-      %c0 = arith.constant 0 : index
-      %c10 = arith.constant 10 : index
-      %c1 = arith.constant 1 : index
-      %1 = scf.for %arg0 = %c0 to %c10 step %c1 iter_args(%arg1 = %0) -> (tensor<7x22x333x4444xi32>) {
-        %2 = arith.addi %arg1, %arg1 : tensor<7x22x333x4444xi32>
-        scf.yield %2 : tensor<7x22x333x4444xi32>
-      }
-    }
-    """
-    )
+    # CHECK:  %[[VAL_0:.*]] = tensor.empty() : tensor<7x22x333x4444xi32>
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 0 : index
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 10 : index
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = scf.for %[[VAL_5:.*]] = %[[VAL_1]] to %[[VAL_2]] step %[[VAL_3]] iter_args(%[[VAL_6:.*]] = %[[VAL_0]]) -> (tensor<7x22x333x4444xi32>) {
+    # CHECK:    %[[VAL_7:.*]] = arith.addi %[[VAL_6]], %[[VAL_6]] : tensor<7x22x333x4444xi32>
+    # CHECK:    scf.yield %[[VAL_7]] : tensor<7x22x333x4444xi32>
+    # CHECK:  }
 
-    filecheck(correct, ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 def test_promotion_int_arr(ctx: MLIRContext):
@@ -572,18 +525,12 @@ def test_tensor_arithmetic(ctx: MLIRContext):
     assert isinstance(ten3, Tensor)
 
     ctx.module.operation.verify()
-    filecheck(
-        dedent(
-            """\
-    module {
-      %c1_i32 = arith.constant 1 : i32
-      %c2_i32 = arith.constant 2 : i32
-      %0 = arith.addi %c1_i32, %c2_i32 : i32
-      %1 = tensor.empty() : tensor<10x10x10xf32>
-      %2 = tensor.empty() : tensor<10x10x10xf32>
-      %3 = arith.addf %1, %2 : tensor<10x10x10xf32>
-    }
-    """
-        ),
-        ctx.module,
-    )
+
+    # CHECK:  %[[VAL_0:.*]] = arith.constant 1 : i32
+    # CHECK:  %[[VAL_1:.*]] = arith.constant 2 : i32
+    # CHECK:  %[[VAL_2:.*]] = arith.addi %[[VAL_0]], %[[VAL_1]] : i32
+    # CHECK:  %[[VAL_3:.*]] = tensor.empty() : tensor<10x10x10xf32>
+    # CHECK:  %[[VAL_4:.*]] = tensor.empty() : tensor<10x10x10xf32>
+    # CHECK:  %[[VAL_5:.*]] = arith.addf %[[VAL_3]], %[[VAL_4]] : tensor<10x10x10xf32>
+
+    filecheck_with_comments(ctx.module)

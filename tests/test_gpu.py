@@ -40,7 +40,12 @@ from mlir.extras.dialects.ext.vector import outer, load, shuffle, print_
 from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import (
+    mlir_ctx as ctx,
+    filecheck,
+    filecheck_with_comments,
+    MLIRContext,
+)
 from util import (
     hip_bindings_not_installed,
     hip_check,
@@ -59,16 +64,12 @@ def test_basic(ctx: MLIRContext):
     host_register(mem)
 
     ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x10xf32>
-      %cast = memref.cast %alloc : memref<10x10xf32> to memref<*xf32>
-      gpu.host_register %cast : memref<*xf32>
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x10xf32>
+    # CHECK:  %[[VAL_1:.*]] = memref.cast %[[VAL_0]] : memref<10x10xf32> to memref<*xf32>
+    # CHECK:  gpu.host_register %[[VAL_1]] : memref<*xf32>
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContext):
@@ -90,28 +91,24 @@ def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContex
         in_parallel_()
 
     ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      %alloc = memref.alloc() : memref<10x10xf32>
-      %alloc_0 = memref.alloc() : memref<10x10xf32>
-      %cst = arith.constant 1.000000e+00 : f32
-      %c1 = arith.constant 1 : index
-      %c1_1 = arith.constant 1 : index
-      %c2 = arith.constant 2 : index
-      %c2_2 = arith.constant 2 : index
-      %c3 = arith.constant 3 : index
-      %c3_3 = arith.constant 3 : index
-      scf.forall (%arg0, %arg1) = (1, 1) to (2, 2) step (3, 3) {
-        %0 = memref.load %alloc[%arg0, %arg1] : memref<10x10xf32>
-        %1 = memref.load %alloc_0[%arg0, %arg1] : memref<10x10xf32>
-        %2 = math.fma %cst, %0, %1 : f32
-        memref.store %2, %alloc_0[%arg0, %arg1] : memref<10x10xf32>
-      } {mapping = [#gpu.thread<x>, #gpu.thread<y>]}
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  %[[VAL_0:.*]] = memref.alloc() : memref<10x10xf32>
+    # CHECK:  %[[VAL_1:.*]] = memref.alloc() : memref<10x10xf32>
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 1.000000e+00 : f32
+    # CHECK:  %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_4:.*]] = arith.constant 1 : index
+    # CHECK:  %[[VAL_5:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_6:.*]] = arith.constant 2 : index
+    # CHECK:  %[[VAL_7:.*]] = arith.constant 3 : index
+    # CHECK:  %[[VAL_8:.*]] = arith.constant 3 : index
+    # CHECK:  scf.forall (%[[VAL_9:.*]], %[[VAL_10:.*]]) = (1, 1) to (2, 2) step (3, 3) {
+    # CHECK:    %[[VAL_11:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_9]], %[[VAL_10]]] : memref<10x10xf32>
+    # CHECK:    %[[VAL_12:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_9]], %[[VAL_10]]] : memref<10x10xf32>
+    # CHECK:    %[[VAL_13:.*]] = math.fma %[[VAL_2]], %[[VAL_11]], %[[VAL_12]] : f32
+    # CHECK:    memref.store %[[VAL_13]], %[[VAL_1]]{{\[}}%[[VAL_9]], %[[VAL_10]]] : memref<10x10xf32>
+    # CHECK:  } {mapping = [#gpu.thread<x>, #gpu.thread<y>]}
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_class(ctx: MLIRContext):
@@ -133,25 +130,19 @@ def test_class(ctx: MLIRContext):
             C[x, y] = a * b
             return
 
-    correct = dedent(
-        """\
-    module {
-      gpu.module @MyClass1 [#nvvm.target]  {
-        gpu.func @mat_product_kernel(%arg0: memref<4x16xf32>, %arg1: memref<16x8xf32>, %arg2: memref<4x8xf32>) kernel {
-          %0 = gpu.block_id  x
-          %1 = gpu.block_id  y
-          %2 = memref.load %arg0[%0, %1] : memref<4x16xf32>
-          %3 = memref.load %arg1[%0, %1] : memref<16x8xf32>
-          %4 = arith.mulf %2, %3 : f32
-          memref.store %4, %arg2[%0, %1] : memref<4x8xf32>
-          gpu.return
-        }
-      }
-    }
-    """
-    )
+    # CHECK:  gpu.module @MyClass1 [#nvvm.target]  {
+    # CHECK:    gpu.func @mat_product_kernel(%[[VAL_0:.*]]: memref<4x16xf32>, %[[VAL_1:.*]]: memref<16x8xf32>, %[[VAL_2:.*]]: memref<4x8xf32>) kernel {
+    # CHECK:      %[[VAL_3:.*]] = gpu.block_id  x
+    # CHECK:      %[[VAL_4:.*]] = gpu.block_id  y
+    # CHECK:      %[[VAL_5:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x16xf32>
+    # CHECK:      %[[VAL_6:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<16x8xf32>
+    # CHECK:      %[[VAL_7:.*]] = arith.mulf %[[VAL_5]], %[[VAL_6]] : f32
+    # CHECK:      memref.store %[[VAL_7]], %[[VAL_2]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x8xf32>
+    # CHECK:      gpu.return
+    # CHECK:    }
+    # CHECK:  }
 
-    filecheck(correct, ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
@@ -185,35 +176,31 @@ def test_class_call(ctx: MLIRContext):
         "MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c)"
     )
 
-    correct = dedent(
-        """\
-    module attributes {gpu.container_module} {
-      gpu.module @MyClass1 [#nvvm.target]  {
-        gpu.func @mat_product_kernel(%arg0: memref<4x16xf32>, %arg1: memref<16x8xf32>, %arg2: memref<4x8xf32>) kernel {
-          %0 = gpu.block_id  x
-          %1 = gpu.block_id  y
-          %2 = memref.load %arg0[%0, %1] : memref<4x16xf32>
-          %3 = memref.load %arg1[%0, %1] : memref<16x8xf32>
-          %4 = arith.mulf %2, %3 : f32
-          memref.store %4, %arg2[%0, %1] : memref<4x8xf32>
-          gpu.return
-        }
-      }
-      %alloc = memref.alloc() : memref<4x16xf32>
-      %alloc_0 = memref.alloc() : memref<16x8xf32>
-      %alloc_1 = memref.alloc() : memref<4x8xf32>
-      %c4 = arith.constant 4 : index
-      %c4_2 = arith.constant 4 : index
-      %c1 = arith.constant 1 : index
-      %c1_3 = arith.constant 1 : index
-      %c1_4 = arith.constant 1 : index
-      %c1_5 = arith.constant 1 : index
-      gpu.launch_func  @MyClass1::@mat_product_kernel blocks in (%c4, %c4_2, %c1) threads in (%c1_3, %c1_4, %c1_5)  args(%alloc : memref<4x16xf32>, %alloc_0 : memref<16x8xf32>, %alloc_1 : memref<4x8xf32>)
-    }
-    """
-    )
+    # CHECK-LABEL: module attributes {gpu.container_module} {
+    # CHECK:         gpu.module @MyClass1 [#nvvm.target]  {
+    # CHECK:           gpu.func @mat_product_kernel(%[[VAL_0:.*]]: memref<4x16xf32>, %[[VAL_1:.*]]: memref<16x8xf32>, %[[VAL_2:.*]]: memref<4x8xf32>) kernel {
+    # CHECK:             %[[VAL_3:.*]] = gpu.block_id  x
+    # CHECK:             %[[VAL_4:.*]] = gpu.block_id  y
+    # CHECK:             %[[VAL_5:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x16xf32>
+    # CHECK:             %[[VAL_6:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<16x8xf32>
+    # CHECK:             %[[VAL_7:.*]] = arith.mulf %[[VAL_5]], %[[VAL_6]] : f32
+    # CHECK:             memref.store %[[VAL_7]], %[[VAL_2]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x8xf32>
+    # CHECK:             gpu.return
+    # CHECK:           }
+    # CHECK:         }
+    # CHECK:         %[[VAL_8:.*]] = memref.alloc() : memref<4x16xf32>
+    # CHECK:         %[[VAL_9:.*]] = memref.alloc() : memref<16x8xf32>
+    # CHECK:         %[[VAL_10:.*]] = memref.alloc() : memref<4x8xf32>
+    # CHECK:         %[[VAL_11:.*]] = arith.constant 4 : index
+    # CHECK:         %[[VAL_12:.*]] = arith.constant 4 : index
+    # CHECK:         %[[VAL_13:.*]] = arith.constant 1 : index
+    # CHECK:         %[[VAL_14:.*]] = arith.constant 1 : index
+    # CHECK:         %[[VAL_15:.*]] = arith.constant 1 : index
+    # CHECK:         %[[VAL_16:.*]] = arith.constant 1 : index
+    # CHECK:         gpu.launch_func  @MyClass1::@mat_product_kernel blocks in (%[[VAL_11]], %[[VAL_12]], %[[VAL_13]]) threads in (%[[VAL_14]], %[[VAL_15]], %[[VAL_16]])  args(%[[VAL_8]] : memref<4x16xf32>, %[[VAL_9]] : memref<16x8xf32>, %[[VAL_10]] : memref<4x8xf32>)
+    # CHECK:       }
 
-    filecheck(correct, ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
@@ -255,38 +242,34 @@ def test_class_call_from_func(ctx: MLIRContext):
 
     ctx.module.operation.verify()
 
-    correct = dedent(
-        """\
-    module attributes {gpu.container_module} {
-      gpu.module @MyClass1 [#nvvm.target]  {
-        gpu.func @mat_product_kernel(%arg0: memref<4x16xf32>, %arg1: memref<16x8xf32>, %arg2: memref<4x8xf32>) kernel {
-          %0 = gpu.block_id  x
-          %1 = gpu.block_id  y
-          %2 = memref.load %arg0[%0, %1] : memref<4x16xf32>
-          %3 = memref.load %arg1[%0, %1] : memref<16x8xf32>
-          %4 = arith.mulf %2, %3 : f32
-          memref.store %4, %arg2[%0, %1] : memref<4x8xf32>
-          gpu.return
-        }
-      }
-      func.func @main() {
-        %alloc = memref.alloc() : memref<4x16xf32>
-        %alloc_0 = memref.alloc() : memref<16x8xf32>
-        %alloc_1 = memref.alloc() : memref<4x8xf32>
-        %c4 = arith.constant 4 : index
-        %c4_2 = arith.constant 4 : index
-        %c1 = arith.constant 1 : index
-        %c1_3 = arith.constant 1 : index
-        %c1_4 = arith.constant 1 : index
-        %c1_5 = arith.constant 1 : index
-        gpu.launch_func  @MyClass1::@mat_product_kernel blocks in (%c4, %c4_2, %c1) threads in (%c1_3, %c1_4, %c1_5)  args(%alloc : memref<4x16xf32>, %alloc_0 : memref<16x8xf32>, %alloc_1 : memref<4x8xf32>)
-        return
-      }
-    }
-    """
-    )
+    # CHECK-LABEL: module attributes {gpu.container_module} {
+    # CHECK:         gpu.module @MyClass1 [#nvvm.target]  {
+    # CHECK:           gpu.func @mat_product_kernel(%[[VAL_0:.*]]: memref<4x16xf32>, %[[VAL_1:.*]]: memref<16x8xf32>, %[[VAL_2:.*]]: memref<4x8xf32>) kernel {
+    # CHECK:             %[[VAL_3:.*]] = gpu.block_id  x
+    # CHECK:             %[[VAL_4:.*]] = gpu.block_id  y
+    # CHECK:             %[[VAL_5:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x16xf32>
+    # CHECK:             %[[VAL_6:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<16x8xf32>
+    # CHECK:             %[[VAL_7:.*]] = arith.mulf %[[VAL_5]], %[[VAL_6]] : f32
+    # CHECK:             memref.store %[[VAL_7]], %[[VAL_2]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x8xf32>
+    # CHECK:             gpu.return
+    # CHECK:           }
+    # CHECK:         }
+    # CHECK:         func.func @main() {
+    # CHECK:           %[[VAL_8:.*]] = memref.alloc() : memref<4x16xf32>
+    # CHECK:           %[[VAL_9:.*]] = memref.alloc() : memref<16x8xf32>
+    # CHECK:           %[[VAL_10:.*]] = memref.alloc() : memref<4x8xf32>
+    # CHECK:           %[[VAL_11:.*]] = arith.constant 4 : index
+    # CHECK:           %[[VAL_12:.*]] = arith.constant 4 : index
+    # CHECK:           %[[VAL_13:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_14:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_15:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_16:.*]] = arith.constant 1 : index
+    # CHECK:           gpu.launch_func  @MyClass1::@mat_product_kernel blocks in (%[[VAL_11]], %[[VAL_12]], %[[VAL_13]]) threads in (%[[VAL_14]], %[[VAL_15]], %[[VAL_16]])  args(%[[VAL_8]] : memref<4x16xf32>, %[[VAL_9]] : memref<16x8xf32>, %[[VAL_10]] : memref<4x8xf32>)
+    # CHECK:           return
+    # CHECK:         }
+    # CHECK:       }
 
-    filecheck(correct, ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="requires python3.10 or higher")
@@ -328,39 +311,36 @@ def test_async_object(ctx: MLIRContext):
             "MyClass1.mat_product_kernel[grid_size:= [4, 4, 1], block_size:= [1, 1, 1]](a, b, c, async_dependencies=[w], stream=stream)"
         )
 
-    correct = dedent(
-        """\
-    module attributes {gpu.container_module} {
-      gpu.module @MyClass1 [#nvvm.target]  {
-        gpu.func @mat_product_kernel(%arg0: memref<4x16xf32>, %arg1: memref<16x8xf32>, %arg2: memref<4x8xf32>) kernel {
-          %0 = gpu.block_id  x
-          %1 = gpu.block_id  y
-          %2 = memref.load %arg0[%0, %1] : memref<4x16xf32>
-          %3 = memref.load %arg1[%0, %1] : memref<16x8xf32>
-          %4 = arith.mulf %2, %3 : f32
-          memref.store %4, %arg2[%0, %1] : memref<4x8xf32>
-          gpu.return
-        }
-      }
-      func.func @main() {
-        %alloc = memref.alloc() : memref<4x16xf32>
-        %alloc_0 = memref.alloc() : memref<16x8xf32>
-        %alloc_1 = memref.alloc() : memref<4x8xf32>
-        %0 = gpu.wait async
-        %1 = llvm.mlir.zero : !llvm.ptr
-        %c4 = arith.constant 4 : index
-        %c4_2 = arith.constant 4 : index
-        %c1 = arith.constant 1 : index
-        %c1_3 = arith.constant 1 : index
-        %c1_4 = arith.constant 1 : index
-        %c1_5 = arith.constant 1 : index
-        %2 = gpu.launch_func async [%0]<%1 : !llvm.ptr> @MyClass1::@mat_product_kernel blocks in (%c4, %c4_2, %c1) threads in (%c1_3, %c1_4, %c1_5)  args(%alloc : memref<4x16xf32>, %alloc_0 : memref<16x8xf32>, %alloc_1 : memref<4x8xf32>)
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+    # CHECK-LABEL: module attributes {gpu.container_module} {
+    # CHECK:         gpu.module @MyClass1 [#nvvm.target]  {
+    # CHECK:           gpu.func @mat_product_kernel(%[[VAL_0:.*]]: memref<4x16xf32>, %[[VAL_1:.*]]: memref<16x8xf32>, %[[VAL_2:.*]]: memref<4x8xf32>) kernel {
+    # CHECK:             %[[VAL_3:.*]] = gpu.block_id  x
+    # CHECK:             %[[VAL_4:.*]] = gpu.block_id  y
+    # CHECK:             %[[VAL_5:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x16xf32>
+    # CHECK:             %[[VAL_6:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<16x8xf32>
+    # CHECK:             %[[VAL_7:.*]] = arith.mulf %[[VAL_5]], %[[VAL_6]] : f32
+    # CHECK:             memref.store %[[VAL_7]], %[[VAL_2]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<4x8xf32>
+    # CHECK:             gpu.return
+    # CHECK:           }
+    # CHECK:         }
+    # CHECK:         func.func @main() {
+    # CHECK:           %[[VAL_8:.*]] = memref.alloc() : memref<4x16xf32>
+    # CHECK:           %[[VAL_9:.*]] = memref.alloc() : memref<16x8xf32>
+    # CHECK:           %[[VAL_10:.*]] = memref.alloc() : memref<4x8xf32>
+    # CHECK:           %[[VAL_11:.*]] = gpu.wait async
+    # CHECK:           %[[VAL_12:.*]] = llvm.mlir.zero : !llvm.ptr
+    # CHECK:           %[[VAL_13:.*]] = arith.constant 4 : index
+    # CHECK:           %[[VAL_14:.*]] = arith.constant 4 : index
+    # CHECK:           %[[VAL_15:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_16:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_17:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_18:.*]] = arith.constant 1 : index
+    # CHECK:           %[[VAL_19:.*]] = gpu.launch_func async {{\[}}%[[VAL_11]]]<%[[VAL_12]] : !llvm.ptr> @MyClass1::@mat_product_kernel blocks in (%[[VAL_13]], %[[VAL_14]], %[[VAL_15]]) threads in (%[[VAL_16]], %[[VAL_17]], %[[VAL_18]])  args(%[[VAL_8]] : memref<4x16xf32>, %[[VAL_9]] : memref<16x8xf32>, %[[VAL_10]] : memref<4x8xf32>)
+    # CHECK:           return
+    # CHECK:         }
+    # CHECK:       }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_launch_op(ctx: MLIRContext):
@@ -401,62 +381,57 @@ def test_launch_op(ctx: MLIRContext):
             return
 
     module = run_pipeline(ctx.module, Pipeline().cse())
-    correct = dedent(
-        """\
-    module {
-      func.func @main() {
-        %alloc = memref.alloc() : memref<2x6xi32>
-        %alloc_0 = memref.alloc() : memref<2xi32>
-        %c0_i32 = arith.constant 0 : i32
-        %c1_i32 = arith.constant 1 : i32
-        %c2_i32 = arith.constant 2 : i32
-        %c4_i32 = arith.constant 4 : i32
-        %c8_i32 = arith.constant 8 : i32
-        %c16_i32 = arith.constant 16 : i32
-        %c3_i32 = arith.constant 3 : i32
-        %c6_i32 = arith.constant 6 : i32
-        %c7_i32 = arith.constant 7 : i32
-        %c10_i32 = arith.constant 10 : i32
-        %c11_i32 = arith.constant 11 : i32
-        %cast = memref.cast %alloc : memref<2x6xi32> to memref<*xi32>
-        gpu.host_register %cast : memref<*xi32>
-        %cast_1 = memref.cast %alloc_0 : memref<2xi32> to memref<*xi32>
-        gpu.host_register %cast_1 : memref<*xi32>
-        %c0 = arith.constant 0 : index
-        memref.store %c0_i32, %alloc[%c0, %c0] : memref<2x6xi32>
-        %c1 = arith.constant 1 : index
-        memref.store %c1_i32, %alloc[%c0, %c1] : memref<2x6xi32>
-        %c2 = arith.constant 2 : index
-        memref.store %c2_i32, %alloc[%c0, %c2] : memref<2x6xi32>
-        %c3 = arith.constant 3 : index
-        memref.store %c4_i32, %alloc[%c0, %c3] : memref<2x6xi32>
-        %c4 = arith.constant 4 : index
-        memref.store %c8_i32, %alloc[%c0, %c4] : memref<2x6xi32>
-        %c5 = arith.constant 5 : index
-        memref.store %c16_i32, %alloc[%c0, %c5] : memref<2x6xi32>
-        memref.store %c2_i32, %alloc[%c1, %c0] : memref<2x6xi32>
-        memref.store %c3_i32, %alloc[%c1, %c1] : memref<2x6xi32>
-        memref.store %c6_i32, %alloc[%c1, %c2] : memref<2x6xi32>
-        memref.store %c7_i32, %alloc[%c1, %c3] : memref<2x6xi32>
-        memref.store %c10_i32, %alloc[%c1, %c4] : memref<2x6xi32>
-        memref.store %c11_i32, %alloc[%c1, %c5] : memref<2x6xi32>
-        %c6 = arith.constant 6 : index
-        gpu.launch blocks(%arg0, %arg1, %arg2) in (%arg6 = %c2, %arg7 = %c1, %arg8 = %c1) threads(%arg3, %arg4, %arg5) in (%arg9 = %c6, %arg10 = %c1, %arg11 = %c1) {
-          %0 = memref.load %alloc[%arg0, %arg3] : memref<2x6xi32>
-          %1 = gpu.all_reduce  %0 uniform {
-          ^bb0(%arg12: i32, %arg13: i32):
-            gpu.yield %arg12 : i32
-          } : (i32) -> i32
-          memref.store %1, %alloc_0[%arg0] : memref<2xi32>
-          gpu.terminator
-        }
-        return
-      }
-    }
-    """
-    )
 
-    filecheck(correct, module)
+    # CHECK:  func.func @main() {
+    # CHECK:    %[[VAL_0:.*]] = memref.alloc() : memref<2x6xi32>
+    # CHECK:    %[[VAL_1:.*]] = memref.alloc() : memref<2xi32>
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 0 : i32
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 1 : i32
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 2 : i32
+    # CHECK:    %[[VAL_5:.*]] = arith.constant 4 : i32
+    # CHECK:    %[[VAL_6:.*]] = arith.constant 8 : i32
+    # CHECK:    %[[VAL_7:.*]] = arith.constant 16 : i32
+    # CHECK:    %[[VAL_8:.*]] = arith.constant 3 : i32
+    # CHECK:    %[[VAL_9:.*]] = arith.constant 6 : i32
+    # CHECK:    %[[VAL_10:.*]] = arith.constant 7 : i32
+    # CHECK:    %[[VAL_11:.*]] = arith.constant 10 : i32
+    # CHECK:    %[[VAL_12:.*]] = arith.constant 11 : i32
+    # CHECK:    %[[VAL_13:.*]] = memref.cast %[[VAL_0]] : memref<2x6xi32> to memref<*xi32>
+    # CHECK:    gpu.host_register %[[VAL_13]] : memref<*xi32>
+    # CHECK:    %[[VAL_14:.*]] = memref.cast %[[VAL_1]] : memref<2xi32> to memref<*xi32>
+    # CHECK:    gpu.host_register %[[VAL_14]] : memref<*xi32>
+    # CHECK:    %[[VAL_15:.*]] = arith.constant 0 : index
+    # CHECK:    memref.store %[[VAL_2]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_15]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_16:.*]] = arith.constant 1 : index
+    # CHECK:    memref.store %[[VAL_3]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_16]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_17:.*]] = arith.constant 2 : index
+    # CHECK:    memref.store %[[VAL_4]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_17]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_18:.*]] = arith.constant 3 : index
+    # CHECK:    memref.store %[[VAL_5]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_18]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_19:.*]] = arith.constant 4 : index
+    # CHECK:    memref.store %[[VAL_6]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_19]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_20:.*]] = arith.constant 5 : index
+    # CHECK:    memref.store %[[VAL_7]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_20]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_4]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_15]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_8]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_16]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_9]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_17]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_10]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_18]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_11]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_19]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_12]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_20]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_21:.*]] = arith.constant 6 : index
+    # CHECK:    gpu.launch blocks(%[[VAL_22:.*]], %[[VAL_23:.*]], %[[VAL_24:.*]]) in (%[[VAL_25:.*]] = %[[VAL_17]], %[[VAL_26:.*]] = %[[VAL_16]], %[[VAL_27:.*]] = %[[VAL_16]]) threads(%[[VAL_28:.*]], %[[VAL_29:.*]], %[[VAL_30:.*]]) in (%[[VAL_31:.*]] = %[[VAL_21]], %[[VAL_32:.*]] = %[[VAL_16]], %[[VAL_33:.*]] = %[[VAL_16]]) {
+    # CHECK:      %[[VAL_34:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_22]], %[[VAL_28]]] : memref<2x6xi32>
+    # CHECK:      %[[VAL_35:.*]] = gpu.all_reduce  %[[VAL_34]] uniform {
+    # CHECK:      ^bb0(%[[VAL_36:.*]]: i32, %[[VAL_37:.*]]: i32):
+    # CHECK:        gpu.yield %[[VAL_36]] : i32
+    # CHECK:      } : (i32) -> i32
+    # CHECK:      memref.store %[[VAL_38:.*]], %[[VAL_1]]{{\[}}%[[VAL_22]]] : memref<2xi32>
+    # CHECK:      gpu.terminator
+    # CHECK:    }
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(module)
 
 
 def test_launch_op_reduce_op(ctx: MLIRContext):
@@ -496,60 +471,54 @@ def test_launch_op_reduce_op(ctx: MLIRContext):
 
     module = run_pipeline(ctx.module, Pipeline().cse())
 
-    correct = dedent(
-        """\
-    module {
-      func.func @main() {
-        %alloc = memref.alloc() : memref<2x6xi32>
-        %alloc_0 = memref.alloc() : memref<2xi32>
-        %c0_i32 = arith.constant 0 : i32
-        %c1_i32 = arith.constant 1 : i32
-        %c2_i32 = arith.constant 2 : i32
-        %c4_i32 = arith.constant 4 : i32
-        %c8_i32 = arith.constant 8 : i32
-        %c16_i32 = arith.constant 16 : i32
-        %c3_i32 = arith.constant 3 : i32
-        %c6_i32 = arith.constant 6 : i32
-        %c7_i32 = arith.constant 7 : i32
-        %c10_i32 = arith.constant 10 : i32
-        %c11_i32 = arith.constant 11 : i32
-        %cast = memref.cast %alloc : memref<2x6xi32> to memref<*xi32>
-        gpu.host_register %cast : memref<*xi32>
-        %cast_1 = memref.cast %alloc_0 : memref<2xi32> to memref<*xi32>
-        gpu.host_register %cast_1 : memref<*xi32>
-        %c0 = arith.constant 0 : index
-        memref.store %c0_i32, %alloc[%c0, %c0] : memref<2x6xi32>
-        %c1 = arith.constant 1 : index
-        memref.store %c1_i32, %alloc[%c0, %c1] : memref<2x6xi32>
-        %c2 = arith.constant 2 : index
-        memref.store %c2_i32, %alloc[%c0, %c2] : memref<2x6xi32>
-        %c3 = arith.constant 3 : index
-        memref.store %c4_i32, %alloc[%c0, %c3] : memref<2x6xi32>
-        %c4 = arith.constant 4 : index
-        memref.store %c8_i32, %alloc[%c0, %c4] : memref<2x6xi32>
-        %c5 = arith.constant 5 : index
-        memref.store %c16_i32, %alloc[%c0, %c5] : memref<2x6xi32>
-        memref.store %c2_i32, %alloc[%c1, %c0] : memref<2x6xi32>
-        memref.store %c3_i32, %alloc[%c1, %c1] : memref<2x6xi32>
-        memref.store %c6_i32, %alloc[%c1, %c2] : memref<2x6xi32>
-        memref.store %c7_i32, %alloc[%c1, %c3] : memref<2x6xi32>
-        memref.store %c10_i32, %alloc[%c1, %c4] : memref<2x6xi32>
-        memref.store %c11_i32, %alloc[%c1, %c5] : memref<2x6xi32>
-        %c6 = arith.constant 6 : index
-        gpu.launch blocks(%arg0, %arg1, %arg2) in (%arg6 = %c2, %arg7 = %c1, %arg8 = %c1) threads(%arg3, %arg4, %arg5) in (%arg9 = %c6, %arg10 = %c1, %arg11 = %c1) {
-          %0 = memref.load %alloc[%arg0, %arg3] : memref<2x6xi32>
-          %1 = gpu.all_reduce  and %0 uniform {
-          } : (i32) -> i32
-          memref.store %1, %alloc_0[%arg0] : memref<2xi32>
-          gpu.terminator
-        }
-        return
-      }
-    }
-    """
-    )
+    # CHECK:  func.func @main() {
+    # CHECK:    %[[VAL_0:.*]] = memref.alloc() : memref<2x6xi32>
+    # CHECK:    %[[VAL_1:.*]] = memref.alloc() : memref<2xi32>
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 0 : i32
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 1 : i32
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 2 : i32
+    # CHECK:    %[[VAL_5:.*]] = arith.constant 4 : i32
+    # CHECK:    %[[VAL_6:.*]] = arith.constant 8 : i32
+    # CHECK:    %[[VAL_7:.*]] = arith.constant 16 : i32
+    # CHECK:    %[[VAL_8:.*]] = arith.constant 3 : i32
+    # CHECK:    %[[VAL_9:.*]] = arith.constant 6 : i32
+    # CHECK:    %[[VAL_10:.*]] = arith.constant 7 : i32
+    # CHECK:    %[[VAL_11:.*]] = arith.constant 10 : i32
+    # CHECK:    %[[VAL_12:.*]] = arith.constant 11 : i32
+    # CHECK:    %[[VAL_13:.*]] = memref.cast %[[VAL_0]] : memref<2x6xi32> to memref<*xi32>
+    # CHECK:    gpu.host_register %[[VAL_13]] : memref<*xi32>
+    # CHECK:    %[[VAL_14:.*]] = memref.cast %[[VAL_1]] : memref<2xi32> to memref<*xi32>
+    # CHECK:    gpu.host_register %[[VAL_14]] : memref<*xi32>
+    # CHECK:    %[[VAL_15:.*]] = arith.constant 0 : index
+    # CHECK:    memref.store %[[VAL_2]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_15]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_16:.*]] = arith.constant 1 : index
+    # CHECK:    memref.store %[[VAL_3]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_16]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_17:.*]] = arith.constant 2 : index
+    # CHECK:    memref.store %[[VAL_4]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_17]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_18:.*]] = arith.constant 3 : index
+    # CHECK:    memref.store %[[VAL_5]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_18]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_19:.*]] = arith.constant 4 : index
+    # CHECK:    memref.store %[[VAL_6]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_19]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_20:.*]] = arith.constant 5 : index
+    # CHECK:    memref.store %[[VAL_7]], %[[VAL_0]]{{\[}}%[[VAL_15]], %[[VAL_20]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_4]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_15]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_8]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_16]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_9]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_17]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_10]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_18]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_11]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_19]]] : memref<2x6xi32>
+    # CHECK:    memref.store %[[VAL_12]], %[[VAL_0]]{{\[}}%[[VAL_16]], %[[VAL_20]]] : memref<2x6xi32>
+    # CHECK:    %[[VAL_21:.*]] = arith.constant 6 : index
+    # CHECK:    gpu.launch blocks(%[[VAL_22:.*]], %[[VAL_23:.*]], %[[VAL_24:.*]]) in (%[[VAL_25:.*]] = %[[VAL_17]], %[[VAL_26:.*]] = %[[VAL_16]], %[[VAL_27:.*]] = %[[VAL_16]]) threads(%[[VAL_28:.*]], %[[VAL_29:.*]], %[[VAL_30:.*]]) in (%[[VAL_31:.*]] = %[[VAL_21]], %[[VAL_32:.*]] = %[[VAL_16]], %[[VAL_33:.*]] = %[[VAL_16]]) {
+    # CHECK:      %[[VAL_34:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_22]], %[[VAL_28]]] : memref<2x6xi32>
+    # CHECK:      %[[VAL_35:.*]] = gpu.all_reduce  and %[[VAL_34]] uniform {
+    # CHECK:      } : (i32) -> i32
+    # CHECK:      memref.store %[[VAL_36:.*]], %[[VAL_1]]{{\[}}%[[VAL_22]]] : memref<2xi32>
+    # CHECK:      gpu.terminator
+    # CHECK:    }
+    # CHECK:    return
+    # CHECK:  }
 
-    filecheck(correct, module)
+    filecheck_with_comments(module)
 
 
 @pytest.mark.skipif(sys.version_info < (3, 12), reason="requires python3.12 or higher")
@@ -741,7 +710,6 @@ def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
 
 
 def test_amdgpu(ctx: MLIRContext):
-
     set_container_module(ctx.module)
 
     M, K, N, dtype = 32, 32, 32, T.f32()

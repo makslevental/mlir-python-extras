@@ -1,12 +1,13 @@
 import difflib
 import inspect
 import platform
+import re
 import shutil
 import sys
 import tempfile
 from pathlib import Path
 from subprocess import PIPE, Popen
-from textwrap import dedent
+from textwrap import dedent, indent
 
 import pytest
 
@@ -14,6 +15,25 @@ from .generate_test_checks import main
 from ..context import MLIRContext, mlir_mod_ctx
 from ..runtime.refbackend import LLVMJITBackend
 from ...ir import Module
+
+
+def replace_correct_str_with_comments(fun, correct_with_checks):
+    # fun = inspect.currentframe().f_back.f_code
+    lines, lnum = inspect.findsource(fun)
+    fun_src = inspect.getsource(fun)
+    fun_src = re.sub(
+        r'dedent\(\s+""".*"""\s+\)',
+        "#####"
+        + indent(correct_with_checks, "    ")
+        + "\n    filecheck_with_comments(ctx.module)\n#####",
+        fun_src,
+        flags=re.DOTALL,
+    )
+    fun_src = fun_src.splitlines(keepends=True)
+    lines[lnum : lnum + len(fun_src)] = fun_src
+
+    with open(inspect.getfile(fun), "w") as f:
+        f.writelines(lines)
 
 
 def filecheck(correct: str, module):
