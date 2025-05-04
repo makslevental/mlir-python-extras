@@ -34,7 +34,6 @@ def _fields(n: ast.AST, show_offsets: bool = True) -> Tuple[str, ...]:
 # astpretty._leaf = _leaf
 astpretty._fields = _fields
 
-
 if sys.version_info.minor != 12:
     pytest.skip("only check latest", allow_module_level=True)
 
@@ -4338,7 +4337,6 @@ def test_while_canonicalize(ctx: MLIRContext):
 
 
 def test_decorators_and_closed_vars(ctx: MLIRContext):
-
     dtype = None
     K = None
 

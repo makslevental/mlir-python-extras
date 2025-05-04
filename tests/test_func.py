@@ -1,19 +1,17 @@
 import inspect
 import sys
 import threading
-from textwrap import dedent
 from typing import TypeVar
 
-import pytest
-
 import mlir.extras.types as T
+import pytest
+from mlir.ir import FunctionType
 
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import mlir_mod_ctx, RAIIMLIRContextModule
+from mlir.extras.dialects.ext import linalg, arith, scf
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
-from mlir.extras.dialects.ext import linalg, arith, scf, memref
-from mlir.ir import FunctionType
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import (
@@ -171,7 +169,6 @@ def test_func_no_context_2(ctx: MLIRContext):
 
 
 def test_generics_just_args(ctx: MLIRContext):
-
     @func(generics=generics)
     def mat_product_kernel(
         A: "T.memref(M, K, dtype)",
@@ -212,7 +209,6 @@ def test_generics_closure(ctx: MLIRContext):
 
 
 def test_generics_with_canonicalizations(ctx: MLIRContext):
-
     generics = M, K, N, dtype = list(map(TypeVar, ["M", "K", "N", "dtype"]))
 
     @func(generics=generics)

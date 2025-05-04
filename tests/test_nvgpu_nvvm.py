@@ -418,7 +418,6 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
 
 CUDA_RUNTIME_LIB_PATH = Path(_mlir_libs.__file__).parent / f"libmlir_cuda_runtime.so"
 
-
 NVIDIA_GPU = False
 try:
     subprocess.check_output("nvidia-smi")
@@ -669,7 +668,6 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
 
 
 def test_tma(ctx: MLIRContext):
-
     M = K = N = 64
 
     @gpu.func

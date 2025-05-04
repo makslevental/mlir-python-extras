@@ -1,6 +1,7 @@
 import platform
 from textwrap import dedent
 
+import mlir.extras.types as T
 import numpy as np
 import pytest
 
@@ -21,7 +22,6 @@ from mlir.extras.testing import (
     filecheck_with_comments,
     MLIRContext,
 )
-import mlir.extras.types as T
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")

@@ -710,7 +710,6 @@ def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
 
 
 def test_amdgpu(ctx: MLIRContext):
-
     set_container_module(ctx.module)
 
     M, K, N, dtype = 32, 32, 32, T.f32()

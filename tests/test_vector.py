@@ -1,5 +1,3 @@
-from textwrap import dedent
-
 import numpy as np
 import pytest
 from mlir.dialects import builtin
@@ -20,8 +18,6 @@ from mlir.ir import (
     ShapedType,
     AffineMap,
     AffineConstantExpr,
-    Attribute,
-    ArrayAttr,
 )
 
 from mlir.extras import types as T
@@ -30,14 +26,13 @@ from mlir.extras.context import ExplicitlyManagedModule
 # you need this to register the memref value caster
 # noinspection PyUnresolvedReferences
 from mlir.extras.dialects.ext import arith, linalg, memref, transform, vector, scf, func
-from mlir.dialects import affine
-from mlir.extras.dialects.ext.vector import outer, shuffle, load
 from mlir.extras.dialects.ext.transform import (
     get_parent_op,
     match,
     tile_to_scf_for,
     transform_any_op_t,
 )
+from mlir.extras.dialects.ext.vector import outer, shuffle, load
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
 

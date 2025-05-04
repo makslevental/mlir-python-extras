@@ -1,13 +1,12 @@
-from textwrap import dedent
-
-import pytest
-
 import mlir.extras.types as T
+import pytest
+from mlir.dialects.builtin import module
 from mlir.dialects.func import return_
 from mlir.dialects.memref import alloca_scope, alloca_scope_return
 from mlir.dialects.scf import yield_ as scf_yield
 from mlir.dialects.tensor import rank, yield_ as tensor_yield
-from mlir.dialects.builtin import module
+from mlir.extras.types import tensor
+
 from mlir.extras.dialects.ext import linalg, memref
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.cf import br, cond_br
@@ -15,7 +14,6 @@ from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.memref import alloca_scope
 from mlir.extras.dialects.ext.scf import execute_region
 from mlir.extras.dialects.ext.tensor import S, generate
-from mlir.extras.util import bb
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import (
@@ -24,7 +22,7 @@ from mlir.extras.testing import (
     filecheck_with_comments,
     MLIRContext,
 )
-from mlir.extras.types import tensor
+from mlir.extras.util import bb
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -409,7 +407,6 @@ def matmul_i16_i16(
 
 
 def test_defer_emit_1(ctx: MLIRContext):
-
     matmul_i16_i16.emit(decl=True)
 
     @module
@@ -428,7 +425,6 @@ def test_defer_emit_1(ctx: MLIRContext):
 
 
 def test_defer_emit_2(ctx: MLIRContext):
-
     matmul_i16_i16.emit(force=True)
 
     @module
@@ -459,7 +455,6 @@ def matmul_i16_i16(
 
 
 def test_defer_emit_3(ctx: MLIRContext):
-
     matmul_i16_i16.emit(force=True)
 
     @module

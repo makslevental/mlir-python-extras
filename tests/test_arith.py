@@ -1,11 +1,8 @@
-from textwrap import dedent
-
 import mlir.extras.types as T
 import pytest
 
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext import arith
-from mlir.extras.dialects.ext.arith import Scalar
 from mlir.extras.dialects.ext.func import func
 
 # noinspection PyUnresolvedReferences

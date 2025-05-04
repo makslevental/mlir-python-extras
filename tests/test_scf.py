@@ -1,12 +1,14 @@
 from textwrap import dedent
 
-import pytest
-
 import mlir.extras.types as T
+import pytest
+from mlir.dialects.memref import alloca_scope_return
+
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.dialects.ext import scf
 from mlir.extras.dialects.ext import tensor
 from mlir.extras.dialects.ext.arith import constant, Scalar
+from mlir.extras.dialects.ext.memref import alloca_scope
 from mlir.extras.dialects.ext.scf import (
     for__,
     range_,
@@ -27,8 +29,6 @@ from mlir.extras.dialects.ext.scf import (
     another_reduce,
 )
 from mlir.extras.dialects.ext.tensor import empty, Tensor
-from mlir.dialects.memref import alloca_scope_return
-from mlir.extras.dialects.ext.memref import alloca_scope
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import (

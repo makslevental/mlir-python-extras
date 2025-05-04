@@ -1,8 +1,6 @@
-from textwrap import dedent
-
+import mlir.extras.types as T
 import pytest
 
-import mlir.extras.types as T
 from mlir.extras.dialects.ext import linalg, memref, tensor
 
 # noinspection PyUnresolvedReferences

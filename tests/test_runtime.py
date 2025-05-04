@@ -3,16 +3,17 @@ import platform
 import re
 from textwrap import dedent
 
+import mlir.extras.types as T
 import numpy as np
 import pytest
+from mlir.dialects.arith import sitofp, index_cast
+from mlir.dialects.memref import cast
 from mlir.ir import UnitAttr, Module, StridedLayoutAttr, InsertionPoint, Context
 from mlir.runtime import get_unranked_memref_descriptor, get_ranked_memref_descriptor
 
-import mlir.extras.types as T
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContext, ExplicitlyManagedModule
 from mlir.extras.dialects.ext import linalg
-from mlir.dialects.arith import sitofp, index_cast
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.memref import load, store, S
@@ -20,7 +21,6 @@ from mlir.extras.dialects.ext.scf import (
     canonicalizer,
     range_,
 )
-from mlir.dialects.memref import cast
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import (
     LLVMJITBackend,
@@ -867,6 +867,8 @@ def test_raii_context():
         # CHECK:  }
 
         filecheck_with_comments(mod)
+
+    foo()
 
     assert Context.current is None
 
