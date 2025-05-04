@@ -66,6 +66,29 @@ def hip_bindings_not_installed():
         # don't skip
         return False
 
+    except ImportError:
+        return True
+
+    except Exception as e:
+        print(e, file=sys.stderr)
+        # skip
+        return True
+
+
+def cuda_bindings_not_installed():
+    try:
+        import cupy as cp
+        import numpy as np
+
+        A = np.random.randint(0, 10, (10, 10))
+        dA = cp.asarray(A)
+
+        # don't skip
+        return False
+
+    except ImportError:
+        return True
+
     except Exception as e:
         print(e, file=sys.stderr)
         # skip
@@ -138,3 +161,14 @@ def launch_kernel(
     chip_check(r)
 
     return time_compute
+
+
+def get_hip_arch():
+    if hip_bindings_not_installed():
+        return "gfx1100"
+
+    from hip import hip
+
+    props = hip.hipDeviceProp_t()
+    hip_check(hip.hipGetDeviceProperties(props, 0))
+    return props.gcnArchName.decode()

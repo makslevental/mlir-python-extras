@@ -1,4 +1,5 @@
 import difflib
+import inspect
 import platform
 import shutil
 import sys
@@ -54,6 +55,45 @@ def filecheck(correct: str, module):
             diff.insert(1, "delta from module to correct")
             print("lit report:", err, file=sys.stderr)
             raise ValueError("\n" + "\n".join(diff))
+
+
+def filecheck_with_comments(module):
+    if isinstance(module, Module):
+        assert module.operation.verify()
+    filecheck_name = "FileCheck"
+    if platform.system() == "Windows":
+        filecheck_name += ".exe"
+
+    # try from mlir-native-tools
+    filecheck_path = Path(sys.prefix) / "bin" / filecheck_name
+    # try to find using which
+    if not filecheck_path.exists():
+        filecheck_path = shutil.which(filecheck_name)
+    assert (
+        filecheck_path is not None and Path(filecheck_path).exists() is not None
+    ), "couldn't find FileCheck"
+
+    fun = inspect.currentframe().f_back.f_code
+    _, lnum = inspect.findsource(fun)
+    fun_with_checks = inspect.getsource(fun)
+
+    op = str(module).strip()
+    op = "\n".join(filter(None, op.splitlines()))
+    op = dedent(op)
+    with tempfile.NamedTemporaryFile() as tmp:
+        tmp.write(("\n" * lnum + fun_with_checks).encode())
+        tmp.flush()
+        p = Popen(
+            [filecheck_path, tmp.name],
+            stdout=PIPE,
+            stdin=PIPE,
+            stderr=PIPE,
+            env={"FILECHECK_OPTS": "-dump-input-filter=annotation -vv -color"},
+        )
+        out, err = map(lambda o: o.decode(), p.communicate(input=op.encode()))
+        if p.returncode:
+            err = err.replace(tmp.name, inspect.getfile(fun))
+            raise ValueError(f"\n{err}")
 
 
 @pytest.fixture

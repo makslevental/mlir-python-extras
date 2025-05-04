@@ -42,7 +42,12 @@ from mlir.extras.runtime.passes import Pipeline, run_pipeline
 from mlir.extras.runtime.refbackend import LLVMJITBackend
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import MLIRContext, filecheck, mlir_ctx as ctx
+from mlir.extras.testing import (
+    MLIRContext,
+    filecheck,
+    mlir_ctx as ctx,
+    filecheck_with_comments,
+)
 from mlir.extras.util import find_ops
 
 # needed since the fix isn't defined here nor conftest.py
@@ -453,3 +458,15 @@ def test_memref_of_vector_linalg_generic_3(ctx: MLIRContext):
 
     assert np.allclose(B, [21, 39, 73, 24, 20, 36, 37, 29])
     assert np.allclose(B, A.T @ X)
+
+
+def test_vector_load(ctx: MLIRContext):
+    vcf32 = T.vector(5, T.i32())
+    # CHECK: %alloc = memref.alloc() : memref<10x10xi32>
+    mem = memref.alloc((10, 10), T.i32())
+    # CHECK: %c2 = arith.constant 2 : index
+    # CHECK: %c0 = arith.constant 0 : index
+    # CHECK: %{{.*}} = vector.load %alloc[%c2, %c0] : memref<10x10xi32>, vector<5xi32>
+    mem @ load(vcf32) @ [2, 0]
+
+    filecheck_with_comments(ctx.module)

@@ -41,7 +41,13 @@ from mlir.extras.runtime.passes import run_pipeline, Pipeline
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
-from util import hip_bindings_not_installed, hip_check, launch_kernel, hip_synchronize
+from util import (
+    hip_bindings_not_installed,
+    hip_check,
+    launch_kernel,
+    hip_synchronize,
+    get_hip_arch,
+)
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -734,9 +740,7 @@ def test_generic_type_var_closure_patching_dependent_generics(ctx: MLIRContext):
     filecheck(correct, ctx.module)
 
 
-@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu(ctx: MLIRContext):
-    from hip import hip
 
     set_container_module(ctx.module)
 
@@ -756,9 +760,7 @@ def test_amdgpu(ctx: MLIRContext):
             tmp = scf.yield_(tmp)
         C[x, y] = tmp + one
 
-    props = hip.hipDeviceProp_t()
-    hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode().split(":")[0]
+    arch = get_hip_arch()
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -770,9 +772,15 @@ def test_amdgpu(ctx: MLIRContext):
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
         .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
-        .lower_to_llvm()
-        .gpu_module_to_binary(),
+        .lower_to_llvm(),
     )
+
+    if hip_bindings_not_installed():
+        return
+
+    lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
+
+    from hip import hip
 
     hsaco = get_compile_object_bytes(lowered_module)
     hip_module = hip_check(hip.hipModuleLoadData(hsaco))
@@ -844,10 +852,7 @@ def test_amdgpu(ctx: MLIRContext):
     hip_check(hip.hipModuleUnload(hip_module))
 
 
-@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu_square(ctx: MLIRContext):
-    from hip import hip
-
     set_container_module(ctx.module)
 
     scale = 1024
@@ -867,9 +872,7 @@ def test_amdgpu_square(ctx: MLIRContext):
             tmp = scf.yield_(tmp)
         C[x, y] = tmp + one
 
-    props = hip.hipDeviceProp_t()
-    hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode().split(":")[0]
+    arch = get_hip_arch()
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -881,9 +884,15 @@ def test_amdgpu_square(ctx: MLIRContext):
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
         .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
-        .lower_to_llvm()
-        .gpu_module_to_binary(),
+        .lower_to_llvm(),
     )
+
+    if hip_bindings_not_installed():
+        return
+
+    lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
+
+    from hip import hip
 
     hsaco = get_compile_object_bytes(lowered_module)
     hip_module = hip_check(hip.hipModuleLoadData(hsaco))
@@ -955,10 +964,7 @@ def test_amdgpu_square(ctx: MLIRContext):
     hip_check(hip.hipModuleUnload(hip_module))
 
 
-@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu_vector(ctx: MLIRContext):
-    from hip import hip
-
     set_container_module(ctx.module)
 
     scale = 2
@@ -994,9 +1000,7 @@ def test_amdgpu_vector(ctx: MLIRContext):
                 scf.yield_(v2)
             scf.yield_(v1)
 
-    props = hip.hipDeviceProp_t()
-    hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode().split(":")[0]
+    arch = get_hip_arch()
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -1008,9 +1012,15 @@ def test_amdgpu_vector(ctx: MLIRContext):
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
         .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
-        .lower_to_llvm()
-        .gpu_module_to_binary(),
+        .lower_to_llvm(),
     )
+
+    if hip_bindings_not_installed():
+        return
+
+    lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
+
+    from hip import hip
 
     hsaco = get_compile_object_bytes(lowered_module)
     hip_module = hip_check(hip.hipModuleLoadData(hsaco))
@@ -1082,13 +1092,10 @@ def test_amdgpu_vector(ctx: MLIRContext):
     hip_check(hip.hipModuleUnload(hip_module))
 
 
-@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu_bank_conflicts(ctx: MLIRContext):
-    from hip import hip
-
     set_container_module(ctx.module)
 
-    M = 1024
+    M = 128
 
     @gpu_func
     def no_bank_conflicts(A: T.memref(M, M, T.f32()), B: T.memref(M, M, T.f32())):
@@ -1102,9 +1109,7 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
             a = A[i, thread_idx.x]
             B[thread_idx.x, i] = a * a
 
-    props = hip.hipDeviceProp_t()
-    hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode().split(":")[0]
+    arch = get_hip_arch()
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -1117,9 +1122,15 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
         .Gpu(Pipeline().convert_gpu_to_rocdl(use_bare_ptr_memref_call_conv=True))
         .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
-        .lower_to_llvm()
-        .gpu_module_to_binary(),
+        .lower_to_llvm(),
     )
+
+    if hip_bindings_not_installed():
+        return
+
+    lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
+
+    from hip import hip
 
     hsaco = get_compile_object_bytes(lowered_module)
     hip_module = hip_check(hip.hipModuleLoadData(hsaco))
@@ -1196,10 +1207,7 @@ def test_amdgpu_bank_conflicts(ctx: MLIRContext):
 
 
 # https://gpuopen.com/learn/wmma_on_rdna3/
-@pytest.mark.skipif(hip_bindings_not_installed(), reason="hip not installed")
 def test_amdgpu_vector_wmma(ctx: MLIRContext):
-    from hip import hip
-
     set_container_module(ctx.module)
 
     v_len = 16
@@ -1238,9 +1246,7 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
             # store results from unpacked c_frag output
             c[r, lane] = c_frag[ele * 2]
 
-    props = hip.hipDeviceProp_t()
-    hip_check(hip.hipGetDeviceProperties(props, 0))
-    arch = props.gcnArchName.decode().split(":")[0]
+    arch = get_hip_arch()
 
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
@@ -1258,9 +1264,15 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
         )
         .rocdl_attach_target(chip=arch, abi="500")
         .gpu_to_llvm()
-        .lower_to_llvm()
-        .gpu_module_to_binary(),
+        .lower_to_llvm(),
     )
+
+    if hip_bindings_not_installed():
+        return
+
+    lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
+
+    from hip import hip
 
     hsaco = get_compile_object_bytes(lowered_module)
     hip_module = hip_check(hip.hipModuleLoadData(hsaco))

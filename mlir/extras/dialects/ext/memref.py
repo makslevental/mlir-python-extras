@@ -1,10 +1,12 @@
 import inspect
-from typing import Sequence, Union
+import operator
+from itertools import accumulate, zip_longest
+from typing import Sequence, Union, Optional
 
 import numpy as np
 
-from ._shaped_value import ShapedValue, _indices_to_indexer
-from .arith import Scalar, constant
+from ._shaped_value import ShapedValue, _indices_to_indexer, _maybe_compute_size
+from .arith import Scalar, constant, index_cast
 from .tensor import compute_result_shape_reassoc_list
 from .vector import Vector
 from ... import types as T
@@ -16,16 +18,29 @@ from ...util import (
 )
 from ...._mlir_libs._mlir import register_value_caster
 from ....dialects import memref, arith, vector, builtin
-from ....dialects._ods_common import get_op_result_or_op_results
+from ....dialects.linalg.opdsl.lang.emitter import _is_index_type
+from ....dialects._ods_common import (
+    get_op_result_or_op_results,
+    MixedValues,
+    _dispatch_mixed_values,
+)
+from ....dialects.memref import (
+    _is_static_int_like,
+    _generated_subview,
+    _is_constant_int_like,
+)
 from ....dialects.memref import *
 from ....ir import (
     DenseElementsAttr,
     MemRefType,
+    UnrankedMemRefType,
     ShapedType,
+    IndexType,
     Type,
     Value,
     SymbolTable,
     InsertionPoint,
+    StridedLayoutAttr,
 )
 
 S = ShapedType.get_dynamic_size()
@@ -123,6 +138,12 @@ def load(memref: Value, indices: Sequence[Union[Value, int]], *, loc=None, ip=No
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
+        elif isinstance(i, Value):
+            if not _is_index_type(i.type):
+                i = index_cast(i, to=IndexType.get(), loc=loc, ip=ip)
+                indices[idx] = i
+        else:
+            raise TypeError(f"expected {i=} to be either int or Value")
     return get_op_result_or_op_results(LoadOp(memref, indices, loc=loc, ip=ip))
 
 
@@ -140,7 +161,16 @@ def store(
     for idx, i in enumerate(indices):
         if isinstance(i, int):
             indices[idx] = constant(i, index=True)
+        elif isinstance(i, Value):
+            if not _is_index_type(i.type):
+                i = index_cast(i, to=IndexType.get(), loc=loc, ip=ip)
+                indices[idx] = i
+        else:
+            raise TypeError(f"expected {i=} to be either int or Value")
     return get_op_result_or_op_results(StoreOp(value, memref, indices, loc=loc, ip=ip))
+
+
+rank_reduce = object()
 
 
 @register_value_caster(MemRefType.static_typeid)
@@ -166,6 +196,10 @@ class MemRef(Value):
             return expand_shape(self, (0,), loc=loc)
 
         idx = list((idx,) if isinstance(idx, (int, Scalar, slice)) else idx)
+        should_rank_reduce = rank_reduce in idx
+        if should_rank_reduce:
+            idx.remove(rank_reduce)
+
         for i, d in enumerate(idx):
             # TODO(max): rethink this since subview and etc probably take constant attributes?
             if isinstance(d, int):
@@ -174,7 +208,7 @@ class MemRef(Value):
         if all(isinstance(d, Scalar) for d in idx) and len(idx) == len(self.shape):
             return load(self, idx, loc=loc)
         else:
-            return _subview(self, tuple(idx), loc=loc)
+            return _subview(self, tuple(idx), rank_reduce=should_rank_reduce, loc=loc)
 
     def __setitem__(self, idx, val):
         loc = get_user_code_loc()
@@ -193,7 +227,7 @@ class MemRef(Value):
                 val = Scalar(val, dtype=self.dtype)
             assert isinstance(
                 val, (Scalar, Vector)
-            ), "coordinate insert requires scalar element"
+            ), f"coordinate insert on ranked memref {self.type} requires scalar element but got {val=}"
             if isinstance(val, Scalar):
                 store(val, self, idx, loc=loc)
             elif isinstance(val, Vector):
@@ -250,44 +284,125 @@ def expand_shape(
     )
 
 
-def _canonicalize_start_stop(start, stop, step):
-    # TODO(max): figure out how to use actual canonicalizers
-    if (
-        isinstance(start, Value)
-        and isinstance(stop, Value)
-        and stop.owner.operands[0]._eq(start)
-        and stop.owner.operands[1].is_constant()
-    ):
-        return stop.owner.operands[1].literal_value
-    elif (
-        isinstance(start.owner.opview, arith.MulIOp)
-        and isinstance(stop.owner.opview, arith.MulIOp)
-        and isinstance(stop.owner.operands[0].owner.opview, arith.AddIOp)
-        and start.owner.operands[0] == stop.owner.operands[0].owner.operands[0]
-        and stop.owner.operands[1].is_constant()
-        and isinstance(step, int)
-        or isinstance(step, Scalar)
-        and step.is_constant()
-    ):
-        # looks like this
-        # l = lambda l: l * D
-        # r = lambda r: (r + 1) * D
-        # a, b, c = (
-        #     A[l(i) : r(i), l(j) : r(j)],
-        #     B[l(i) : r(i), l(j) : r(j)],
-        #     C[l(i) : r(i), l(j) : r(j)],
-        # )
-        return stop.owner.operands[1]
-    elif isinstance(start, int) and isinstance(stop, int):
-        return stop - start
+def _infer_memref_subview_result_type(source_memref_type, offsets, sizes, strides):
+    source_strides, source_offset = source_memref_type.get_strides_and_offset()
+    # "canonicalize" from tuple|list -> list
+    offsets, sizes, strides, source_strides = map(
+        list, (offsets, sizes, strides, source_strides)
+    )
 
-    raise NotImplementedError
+    if any(not _is_static_int_like(i) for i in offsets + [source_offset]):
+        target_offset = ShapedType.get_dynamic_size()
+    else:
+        target_offset = source_offset
+        for offset, target_stride in zip(offsets, source_strides):
+            target_offset += offset * target_stride
+
+    target_strides = []
+    for source_stride, static_stride in zip(source_strides, strides):
+        target_strides.append(source_stride * static_stride)
+
+    if all(isinstance(s, int) for s in sizes):
+        # If default striding then no need to complicate things for downstream ops (e.g., expand_shape).
+        default_strides = list(accumulate(sizes[1:][::-1], operator.mul))[::-1] + [1]
+    else:
+        default_strides = None
+        sizes = [
+            s if isinstance(s, int) else ShapedType.get_dynamic_size() for s in sizes
+        ]
+
+    if target_strides == default_strides and target_offset == 0:
+        layout = None
+    else:
+        layout = StridedLayoutAttr.get(target_offset, target_strides)
+
+    return MemRefType.get(
+        sizes,
+        source_memref_type.element_type,
+        layout,
+        source_memref_type.memory_space,
+    )
+
+
+def subview(
+    source: Value,
+    offsets: MixedValues,
+    sizes: MixedValues,
+    strides: MixedValues,
+    *,
+    rank_reduce=False,
+    result_type: Optional[MemRefType] = None,
+    loc=None,
+    ip=None,
+):
+    if offsets is None:
+        offsets = []
+    if sizes is None:
+        sizes = []
+    if strides is None:
+        strides = []
+
+    for s in [offsets, sizes, strides]:
+        for idx, i in enumerate(s):
+            if _is_constant_int_like(i):
+                s[idx] = i.owner.opview.literal_value
+
+    if result_type is None:
+        # If any are arith.constant results then this will canonicalize to python int
+        # (which can then be used to fully specify the subview).
+        result_type = _infer_memref_subview_result_type(
+            source.type, offsets, sizes, strides
+        )
+
+    offsets, _packed_offsets, static_offsets = _dispatch_mixed_values(offsets)
+    sizes, _packed_sizes, static_sizes = _dispatch_mixed_values(sizes)
+    strides, _packed_strides, static_strides = _dispatch_mixed_values(strides)
+
+    if rank_reduce:
+        result_shape = list(result_type.shape)
+        layout_strides = None
+        if result_type.layout:
+            layout_strides = result_type.layout.strides
+        for i, (s, ss) in reversed(
+            list(enumerate(list(zip_longest(sizes, static_sizes))))
+        ):
+            if (
+                s is not None and _is_static_int_like(s) and s.literal_value == 1
+            ) or ss == 1:
+                del result_shape[i]
+                if layout_strides is not None:
+                    del layout_strides[i]
+        reduced_layout = None
+        if layout_strides is not None:
+            reduced_layout = StridedLayoutAttr.get(
+                result_type.layout.offset, layout_strides
+            )
+        result_type = MemRefType.get(
+            result_shape,
+            result_type.element_type,
+            reduced_layout,
+            result_type.memory_space,
+        )
+
+    return _generated_subview(
+        result_type,
+        source,
+        offsets,
+        sizes,
+        strides,
+        static_offsets,
+        static_sizes,
+        static_strides,
+        loc=loc,
+        ip=ip,
+    )
 
 
 def _subview(
     mem: MemRef,
     idx,
     *,
+    rank_reduce=False,
     loc=None,
     ip=None,
 ) -> MemRef:
@@ -298,40 +413,45 @@ def _subview(
     out = mem
 
     if indexer.is_constant():
-        out = subview(
-            out,
-            offsets=indexer.static_offsets(),
-            sizes=indexer.static_sizes(),
-            strides=indexer.static_strides(),
-            loc=loc,
-            ip=ip,
-        )
+        offsets = indexer.static_offsets()
+        sizes = indexer.static_sizes()
+        strides = indexer.static_strides()
     else:
         # special tile case
         offsets = [None] * len(indexer.in_shape)
-        static_sizes = [None] * len(indexer.in_shape)
-        static_strides = [None] * len(indexer.in_shape)
+        sizes = [None] * len(indexer.in_shape)
+        strides = [None] * len(indexer.in_shape)
         for i, ind in enumerate(indexer.indices):
-            maybe_size = _canonicalize_start_stop(ind.start, ind.stop, ind.step)
-            if maybe_size is not None:
+            if isinstance(ind, slice):
+                maybe_size = _maybe_compute_size(ind.start, ind.stop, ind.step)
+                if maybe_size is None:
+                    raise RuntimeError(
+                        f"failed to canonicalize start, stop, step: {ind=}"
+                    )
                 offsets[i] = ind.start
-                static_sizes[i] = maybe_size
-                static_strides[i] = (
+                sizes[i] = maybe_size
+                strides[i] = (
                     ind.step.literal_value if isinstance(ind.step, Scalar) else ind.step
                 )
+            elif isinstance(ind, Value):
+                offsets[i] = ind
+                sizes[i] = 1
+                strides[i] = 1
             else:
-                raise RuntimeError(f"indexing not supported {indexer.indices}")
+                raise RuntimeError(f"indexing of {mem=} not supported by {ind=}")
         assert all(
-            map(lambda x: x is not None, offsets + static_sizes + static_strides)
+            map(lambda x: x is not None, offsets + sizes + strides)
         ), f"not each slice is statically known: {indexer.indices}"
-        out = subview(
-            out,
-            offsets=offsets,
-            sizes=static_sizes,
-            strides=static_strides,
-            loc=loc,
-            ip=ip,
-        )
+
+    out = subview(
+        out,
+        offsets=offsets,
+        sizes=sizes,
+        strides=strides,
+        rank_reduce=rank_reduce,
+        loc=loc,
+        ip=ip,
+    )
 
     # This adds newaxis/None dimensions.
     return expand_shape(out, indexer.newaxis_dims, loc=loc, ip=ip)
@@ -423,14 +543,33 @@ def view(source, shape, dtype=None, shift=0, memory_space=None, loc=None, ip=Non
         dtype = source.type.element_type
     byte_width_dtype = dtype.width // 8
     byte_shift = shift * byte_width_dtype
-    byte_shift = constant(byte_shift, index=True)
+    if isinstance(byte_shift, int):
+        byte_shift = constant(byte_shift, index=True)
+    elif isinstance(byte_shift, Value):
+        if not _is_index_type(byte_shift.type):
+            byte_shift = index_cast(byte_shift, to=IndexType.get(), loc=loc, ip=ip)
+    else:
+        raise TypeError(f"expected {byte_shift=} to be either int or Value")
+    assert _is_index_type(byte_shift.type), "expected index type for byte-shift"
     if memory_space is None and source:
         memory_space = source.type.memory_space
+
+    dynamic_sizes = []
+    memref_shape = []
+    for s in shape:
+        if isinstance(s, int):
+            memref_shape.append(s)
+        else:
+            memref_shape.append(ShapedType.get_dynamic_size())
+            if not _is_index_type(s.type):
+                s = index_cast(s, to=IndexType.get(), loc=loc, ip=ip)
+            dynamic_sizes.append(s)
+
     return memref.view(
-        T.memref(*shape, element_type=dtype, memory_space=memory_space),
+        T.memref(*memref_shape, element_type=dtype, memory_space=memory_space),
         source,
         byte_shift,
-        [],
+        dynamic_sizes,
         loc=loc,
         ip=ip,
     )
@@ -476,3 +615,58 @@ def get_global(
     result = global_.type_.value
     name = global_.sym_name.value
     return GetGlobalOp(result=result, name=name, loc=loc, ip=ip).result
+
+
+def reinterpret_cast(
+    source: Value,
+    offsets: MixedValues = None,
+    sizes: MixedValues = None,
+    strides: MixedValues = None,
+    *,
+    loc=None,
+    ip=None,
+) -> Value:
+
+    if offsets is None:
+        offsets = []
+    if sizes is None:
+        sizes = []
+
+    offsets_, _packed_offsets, static_offsets = _dispatch_mixed_values(offsets)
+    sizes_, _packed_sizes, static_sizes = _dispatch_mixed_values(sizes)
+    strides_, _packed_strides, static_strides = _dispatch_mixed_values(strides)
+
+    if offsets_ or sizes_ or strides_:
+        raise NotImplementedError("only static offsets and sizes and strides supported")
+
+    default_strides = None
+    if not static_strides and all(_is_static_int_like(s) for s in static_sizes):
+        default_strides = list(accumulate(list(static_sizes)[1:][::-1], operator.mul))[
+            ::-1
+        ] + [1]
+        static_strides = default_strides
+
+    target_offset = 0
+    for offset, target_stride in zip(static_offsets, static_strides):
+        target_offset += offset * target_stride
+
+    if static_strides == default_strides and target_offset == 0:
+        layout = None
+    else:
+        layout = StridedLayoutAttr.get(target_offset, static_strides)
+
+    result = MemRefType.get(
+        static_sizes, source.type.element_type, layout, source.type.memory_space
+    )
+    return ReinterpretCastOp(
+        result=result,
+        source=source,
+        offsets=offsets_,
+        sizes=sizes_,
+        strides=strides_,
+        static_offsets=static_offsets,
+        static_sizes=static_sizes,
+        static_strides=static_strides,
+        loc=loc,
+        ip=ip,
+    ).result

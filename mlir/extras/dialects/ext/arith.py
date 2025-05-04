@@ -11,14 +11,9 @@ from bytecode import ConcreteBytecode
 from einspect.structs import PyTypeObject
 
 from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
-from ...ast.util import ast_call
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
 from ...._mlir_libs._mlir import register_value_caster
-from ....dialects import (
-    arith as arith_dialect,
-    complex as complex_dialect,
-    math as math_dialect,
-)
+from ....dialects import complex as complex_dialect
 from ....dialects._arith_enum_gen import (
     _arith_cmpfpredicateattr,
     _arith_cmpipredicateattr,
@@ -59,6 +54,7 @@ def constant(
     type: Optional[Type] = None,
     index: Optional[bool] = None,
     *,
+    result: Optional[Type] = None,
     vector: Optional[bool] = False,
     loc: Location = None,
     ip: InsertionPoint = None,
@@ -81,6 +77,10 @@ def constant(
         loc = get_user_code_loc()
     if index is not None and index:
         type = IndexType.get()
+
+    if type is not None and result is not None:
+        raise ValueError("only type XOR result expected")
+    type = type or result
     if type is None:
         type = infer_mlir_type(value, vector=vector)
 
@@ -119,9 +119,7 @@ def constant(
             type=type,
         )
 
-    return get_op_result_or_op_results(
-        arith_dialect.ConstantOp(type, value, loc=loc, ip=ip)
-    )
+    return get_op_result_or_op_results(ConstantOp(type, value, loc=loc, ip=ip))
 
 
 def index_cast(
@@ -138,9 +136,7 @@ def index_cast(
     res_type = out or to
     if res_type is None:
         res_type = IndexType.get()
-    return get_op_result_or_op_results(
-        arith_dialect.IndexCastOp(res_type, in_, loc=loc, ip=ip)
-    )
+    return get_op_result_or_op_results(IndexCastOp(res_type, in_, loc=loc, ip=ip))
 
 
 nb_meta_cls = type(Value)
@@ -238,26 +234,26 @@ class ArithValueMeta(nb_meta_cls):
 @register_attribute_builder("Arith_CmpIPredicateAttr", replace=True)
 def _arith_CmpIPredicateAttr(predicate: Union[str, Attribute], context: Context):
     predicates = {
-        "eq": arith_dialect.CmpIPredicate.eq,
-        "ne": arith_dialect.CmpIPredicate.ne,
-        "slt": arith_dialect.CmpIPredicate.slt,
-        "sle": arith_dialect.CmpIPredicate.sle,
-        "sgt": arith_dialect.CmpIPredicate.sgt,
-        "sge": arith_dialect.CmpIPredicate.sge,
-        "ult": arith_dialect.CmpIPredicate.ult,
-        "ule": arith_dialect.CmpIPredicate.ule,
-        "ugt": arith_dialect.CmpIPredicate.ugt,
-        "uge": arith_dialect.CmpIPredicate.uge,
-        0: arith_dialect.CmpIPredicate.eq,
-        1: arith_dialect.CmpIPredicate.ne,
-        2: arith_dialect.CmpIPredicate.slt,
-        3: arith_dialect.CmpIPredicate.sle,
-        4: arith_dialect.CmpIPredicate.sgt,
-        5: arith_dialect.CmpIPredicate.sge,
-        6: arith_dialect.CmpIPredicate.ult,
-        7: arith_dialect.CmpIPredicate.ule,
-        8: arith_dialect.CmpIPredicate.ugt,
-        9: arith_dialect.CmpIPredicate.uge,
+        "eq": CmpIPredicate.eq,
+        "ne": CmpIPredicate.ne,
+        "slt": CmpIPredicate.slt,
+        "sle": CmpIPredicate.sle,
+        "sgt": CmpIPredicate.sgt,
+        "sge": CmpIPredicate.sge,
+        "ult": CmpIPredicate.ult,
+        "ule": CmpIPredicate.ule,
+        "ugt": CmpIPredicate.ugt,
+        "uge": CmpIPredicate.uge,
+        0: CmpIPredicate.eq,
+        1: CmpIPredicate.ne,
+        2: CmpIPredicate.slt,
+        3: CmpIPredicate.sle,
+        4: CmpIPredicate.sgt,
+        5: CmpIPredicate.sge,
+        6: CmpIPredicate.ult,
+        7: CmpIPredicate.ule,
+        8: CmpIPredicate.ugt,
+        9: CmpIPredicate.uge,
     }
     if isinstance(predicate, Attribute):
         return predicate
@@ -268,29 +264,29 @@ def _arith_CmpIPredicateAttr(predicate: Union[str, Attribute], context: Context)
 @register_attribute_builder("Arith_CmpFPredicateAttr", replace=True)
 def _arith_CmpFPredicateAttr(predicate: Union[str, Attribute], context: Context):
     predicates = {
-        "false": arith_dialect.CmpFPredicate.AlwaysFalse,
+        "false": CmpFPredicate.AlwaysFalse,
         # ordered comparison
         # An ordered comparison checks if neither operand is NaN.
-        "oeq": arith_dialect.CmpFPredicate.OEQ,
-        "ogt": arith_dialect.CmpFPredicate.OGT,
-        "oge": arith_dialect.CmpFPredicate.OGE,
-        "olt": arith_dialect.CmpFPredicate.OLT,
-        "ole": arith_dialect.CmpFPredicate.OLE,
-        "one": arith_dialect.CmpFPredicate.ONE,
+        "oeq": CmpFPredicate.OEQ,
+        "ogt": CmpFPredicate.OGT,
+        "oge": CmpFPredicate.OGE,
+        "olt": CmpFPredicate.OLT,
+        "ole": CmpFPredicate.OLE,
+        "one": CmpFPredicate.ONE,
         # no clue what this one is
-        "ord": arith_dialect.CmpFPredicate.ORD,
+        "ord": CmpFPredicate.ORD,
         # unordered comparison
         # Conversely, an unordered comparison checks if either operand is a NaN.
-        "ueq": arith_dialect.CmpFPredicate.UEQ,
-        "ugt": arith_dialect.CmpFPredicate.UGT,
-        "uge": arith_dialect.CmpFPredicate.UGE,
-        "ult": arith_dialect.CmpFPredicate.ULT,
-        "ule": arith_dialect.CmpFPredicate.ULE,
-        "une": arith_dialect.CmpFPredicate.UNE,
+        "ueq": CmpFPredicate.UEQ,
+        "ugt": CmpFPredicate.UGT,
+        "uge": CmpFPredicate.UGE,
+        "ult": CmpFPredicate.ULT,
+        "ule": CmpFPredicate.ULE,
+        "une": CmpFPredicate.UNE,
         # no clue what this one is
-        "uno": arith_dialect.CmpFPredicate.UNO,
+        "uno": CmpFPredicate.UNO,
         # return always true
-        "true": arith_dialect.CmpFPredicate.AlwaysTrue,
+        "true": CmpFPredicate.AlwaysTrue,
     }
     if isinstance(predicate, Attribute):
         return predicate
@@ -321,11 +317,12 @@ def _binary_op(
     if loc is None:
         loc = get_user_code_loc()
     if (
-        isinstance(rhs, Value)
-        and lhs.type != rhs.type
-        or isinstance(rhs, (float, int, bool, np.ndarray))
-    ):
-        lhs, rhs = lhs.coerce(rhs)
+        isinstance(lhs, Value) and isinstance(rhs, Value) and lhs.type != rhs.type
+    ) or isinstance(rhs, (float, int, bool, np.ndarray)):
+        rhs = lhs.coerce(rhs)
+    elif isinstance(rhs, Value) and isinstance(lhs, (float, int, bool, np.ndarray)):
+        lhs = rhs.coerce(lhs)
+
     assert lhs.type == rhs.type, f"{lhs=} {rhs=} must have the same type."
 
     assert op in {"add", "and", "or", "sub", "mul", "cmp", "truediv", "floordiv", "mod"}
@@ -369,7 +366,8 @@ def _binary_op(
     else:
         raise NotImplementedError(f"Unsupported '{op}' operands: {lhs}, {rhs}")
 
-    op = getattr(arith_dialect, f"{op}Op")
+    # because up above we have from arith import *
+    op = globals()[f"{op}Op"]
 
     if predicate is not None:
         if _is_floating_point_type(lhs.dtype):
@@ -389,6 +387,18 @@ def _binary_op(
         return lhs.__class__(op(predicate, lhs, rhs, loc=loc), dtype=lhs.dtype)
     else:
         return lhs.__class__(op(lhs, rhs, loc=loc), dtype=lhs.dtype)
+
+
+def _rbinary_op(
+    rhs: "ArithValue",
+    lhs: "ArithValue",
+    op: str,
+    predicate: str = None,
+    signedness: str = None,
+    *,
+    loc: Location = None,
+) -> "ArithValue":
+    return _binary_op(lhs, rhs, op, predicate, signedness, loc=loc)
 
 
 # TODO(max): these could be generic in the dtype
@@ -412,7 +422,7 @@ class ArithValue(Value, metaclass=ArithValueMeta):
 
     def is_constant(self) -> bool:
         return isinstance(self.owner, Operation) and isinstance(
-            self.owner.opview, arith_dialect.ConstantOp
+            self.owner.opview, ConstantOp
         )
 
     @property
@@ -444,13 +454,18 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __truediv__ = partialmethod(_binary_op, op="truediv")
     __floordiv__ = partialmethod(_binary_op, op="floordiv")
     __mod__ = partialmethod(_binary_op, op="mod")
-
-    __radd__ = partialmethod(_binary_op, op="add")
-    __rsub__ = partialmethod(_binary_op, op="sub")
-    __rmul__ = partialmethod(_binary_op, op="mul")
-
     __and__ = partialmethod(_binary_op, op="and")
     __or__ = partialmethod(_binary_op, op="or")
+    # TODO(max): powi/powf using math
+
+    __radd__ = partialmethod(_rbinary_op, op="add")
+    __rsub__ = partialmethod(_rbinary_op, op="sub")
+    __rmul__ = partialmethod(_rbinary_op, op="mul")
+    __rtruediv__ = partialmethod(_rbinary_op, op="truediv")
+    __rfloordiv__ = partialmethod(_rbinary_op, op="floordiv")
+    __rmod__ = partialmethod(_rbinary_op, op="mod")
+    __rand__ = partialmethod(_rbinary_op, op="and")
+    __ror__ = partialmethod(_rbinary_op, op="or")
 
     def __eq__(self, other):
         if not isinstance(other, self.__class__):
@@ -478,6 +493,11 @@ class ArithValue(Value, metaclass=ArithValueMeta):
     __lt__ = partialmethod(_binary_op, op="cmp", predicate="lt")
     __ge__ = partialmethod(_binary_op, op="cmp", predicate="ge")
     __gt__ = partialmethod(_binary_op, op="cmp", predicate="gt")
+
+    __rle__ = partialmethod(_rbinary_op, op="cmp", predicate="le")
+    __rlt__ = partialmethod(_rbinary_op, op="cmp", predicate="lt")
+    __rge__ = partialmethod(_rbinary_op, op="cmp", predicate="ge")
+    __rgt__ = partialmethod(_rbinary_op, op="cmp", predicate="gt")
 
     def _eq(self, other):
         return Value(self) == Value(other)
@@ -514,22 +534,44 @@ class Scalar(ArithValue):
     def coerce(self, other) -> Tuple["Scalar", "Scalar"]:
         if isinstance(other, (int, float, bool)):
             other = Scalar(other, dtype=self.dtype)
-        elif isinstance(other, Scalar) and _is_index_type(self.type):
-            other = index_cast(other)
-        elif isinstance(other, Scalar) and _is_index_type(other.type):
+        elif isinstance(other, Scalar) and (
+            _is_index_type(self.type) or _is_index_type(other.type)
+        ):
             other = index_cast(other, to=self.type)
         else:
             raise ValueError(f"can't coerce {other=} to {self=}")
-        return self, other
+        return other
 
 
 for t in [BF16Type, F16Type, F32Type, F64Type, IndexType, IntegerType, ComplexType]:
     register_value_caster(t.static_typeid)(Scalar)
 
-_FMA_BUILDER_NAME = "math_dialect_fma"
-
 
 class CanonicalizeFMA(StrictTransformer):
+    def visit_AnnAssign(
+        self, updated_node: ast.AnnAssign
+    ) -> Union[ast.AnnAssign, ast.Assign]:
+        updated_node: ast.AnnAssign = self.generic_visit(updated_node)
+        target = copy.deepcopy(updated_node.target)
+        target.ctx = ast.Load()
+        arith_constant_func_call = ast.Call(
+            func=ast.Attribute(
+                value=ast.Name(id="arith_dialect", ctx=ast.Load()),
+                attr="constant",
+                ctx=ast.Load(),
+            ),
+            args=[],
+            keywords=[
+                ast.keyword("result", updated_node.annotation),
+                ast.keyword("value", updated_node.value),
+            ],
+        )
+        updated_node = ast.Assign(
+            targets=[updated_node.target], value=arith_constant_func_call
+        )
+        updated_node = ast.fix_missing_locations(updated_node)
+        return updated_node
+
     def visit_AugAssign(
         self, updated_node: ast.AugAssign
     ) -> Union[ast.AugAssign, ast.Assign]:
@@ -541,16 +583,21 @@ class CanonicalizeFMA(StrictTransformer):
         ):
             target = copy.deepcopy(updated_node.target)
             target.ctx = ast.Load()
-            updated_node = ast.Assign(
-                targets=[updated_node.target],
-                value=ast_call(
-                    _FMA_BUILDER_NAME,
-                    [
-                        updated_node.value.left,
-                        updated_node.value.right,
-                        target,
-                    ],
+            math_fma_func_call = ast.Call(
+                func=ast.Attribute(
+                    value=ast.Name(id="math_dialect", ctx=ast.Load()),
+                    attr="fma",
+                    ctx=ast.Load(),
                 ),
+                args=[
+                    updated_node.value.left,
+                    updated_node.value.right,
+                    target,
+                ],
+                keywords=[],
+            )
+            updated_node = ast.Assign(
+                targets=[updated_node.target], value=math_fma_func_call
             )
             updated_node = ast.fix_missing_locations(updated_node)
 
@@ -560,7 +607,10 @@ class CanonicalizeFMA(StrictTransformer):
 class ArithPatchByteCode(BytecodePatcher):
     def patch_bytecode(self, code: ConcreteBytecode, f):
         # TODO(max): this is bad and should be in the closure rather than as a global
-        f.__globals__[_FMA_BUILDER_NAME] = math_dialect.fma
+        from ....dialects import arith, math
+
+        f.__globals__["math_dialect"] = math
+        f.__globals__["arith_dialect"] = arith
         return code
 
 

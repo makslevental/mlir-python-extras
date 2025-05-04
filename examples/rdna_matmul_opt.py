@@ -1,5 +1,4 @@
 import numpy as np
-from hip import hip
 
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import RAIIMLIRContextModule
@@ -29,7 +28,13 @@ from mlir.extras.runtime.passes import run_pipeline, Pipeline
 from mlir.extras.util import find_ops
 
 # noinspection PyUnresolvedReferences
-from util import hip_check, launch_kernel, hip_synchronize
+from util import (
+    hip_check,
+    launch_kernel,
+    hip_synchronize,
+    hip_bindings_not_installed,
+    get_hip_arch,
+)
 
 
 def time_to_gflops(time_ms, N):
@@ -42,10 +47,6 @@ _ = memref
 
 ctx = RAIIMLIRContextModule()
 set_container_module(ctx.module)
-
-props = hip.hipDeviceProp_t()
-hip_check(hip.hipGetDeviceProperties(props, 0))
-arch = props.gcnArchName.decode()
 
 
 # just a default attr - actual target is set blow
@@ -707,6 +708,8 @@ launch_params[kernel5_lds_optim.__name__] = (
 
 ip.__exit__(None, None, None)
 
+assert gpu_module.operation.verify()
+
 simplified_module = run_pipeline(
     ctx.module,
     Pipeline()
@@ -714,9 +717,10 @@ simplified_module = run_pipeline(
     .cse()
     .loop_invariant_code_motion()
     .loop_invariant_subset_hoisting()
-    .rocdl_attach_target(chip=arch, O=3, abi="500"),
+    .rocdl_attach_target(chip=get_hip_arch(), O=3, abi="500"),
 )
 
+assert simplified_module.operation.verify()
 # print(simplified_module)
 
 lowered_module = run_pipeline(
@@ -728,7 +732,9 @@ lowered_module = run_pipeline(
     # .Nested("llvm.func", Pipeline().sroa()),
 )
 
+assert lowered_module.operation.verify()
 # print(lowered_module)
+
 gep = find_ops(lowered_module.operation, lambda o: isinstance(o.opview, llvm.GEPOp))
 for g in gep:
     g.attributes["inbounds"] = UnitAttr.get()
@@ -751,35 +757,10 @@ for k in kernel_funcs:
     )
 
 
-# lowered_module_llvm = run_pipeline(
-#     lowered_module, Pipeline().gpu_module_to_binary(format="llvm")
-# )
-# hsaco = get_compile_object_bytes(lowered_module_llvm)
-# with open("llvm.bc", "wb") as f:
-#     f.write(hsaco)
-# llvm_opt_pipeline = "annotation2metadata,forceattrs,declare-to-assign,inferattrs,coro-early,function<eager-inv>(lower-expect,simplifycfg<bonus-inst-threshold=1no-forward-switch-condno-switch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,sroa<modify-cfg>,early-cse<>,callsite-splitting),openmp-opt,ipsccp,called-value-propagation,globalopt,function<eager-inv>(mem2reg,instcombine<max-iterations=1no-verify-fixpoint>,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>),require<globals-aa>,function(invalidate<aa>),require<profile-summary>,cgscc(devirt<4>(inline<only-mandatory>,inline,function-attrs<skip-non-recursive-function-attrs>,argpromotion,openmp-opt-cgscc,function<eager-invno-rerun>(sroa<modify-cfg>,early-cse<memssa>,speculative-execution<only-if-divergent-target>,jump-threading,correlated-propagation,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,instcombine<max-iterations=1no-verify-fixpoint>,aggressive-instcombine,libcalls-shrinkwrap,tailcallelim,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,reassociate,constraint-elimination,loop-mssa(loop-instsimplify,loop-simplifycfg,licm<no-allowspeculation>,loop-rotate<header-duplicationno-prepare-for-lto>,licm<allowspeculation>,simple-loop-unswitch<nontrivialtrivial>),simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>,instcombine<max-iterations=1no-verify-fixpoint>,loop(loop-idiom,indvars,loop-deletion,loop-unroll-full),sroa<modify-cfg>,vector-combine,mldst-motion<no-split-footer-bb>,gvn<>,sccp,bdce,instcombine<max-iterations=1no-verify-fixpoint>,jump-threading,correlated-propagation,adce,memcpyopt,dse,move-auto-init,loop-mssa(licm<allowspeculation>),coro-elide,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopshoist-common-instssink-common-instsspeculate-blockssimplify-cond-branch>,instcombine<max-iterations=1no-verify-fixpoint>),function-attrs,function(require<should-not-run-function-passes>),coro-split)),deadargelim,coro-cleanup,globalopt,globaldce,elim-avail-extern,rpo-function-attrs,recompute-globalsaa,function<eager-inv>(float2int,lower-constant-intrinsics,chr,loop(loop-rotate<header-duplicationno-prepare-for-lto>,loop-deletion),loop-distribute,inject-tli-mappings,loop-vectorize<no-interleave-forced-onlyno-vectorize-forced-only>,infer-alignment,loop-load-elim,instcombine<max-iterations=1no-verify-fixpoint>,simplifycfg<bonus-inst-threshold=1forward-switch-condswitch-range-to-icmpswitch-to-lookupno-keep-loopshoist-common-instssink-common-instsspeculate-blockssimplify-cond-branch>,slp-vectorizer,vector-combine,instcombine<max-iterations=1no-verify-fixpoint>,loop-unroll<O3>,transform-warning,sroa<preserve-cfg>,infer-alignment,instcombine<max-iterations=1no-verify-fixpoint>,loop-mssa(licm<allowspeculation>),alignment-from-assumptions,loop-sink,instsimplify,div-rem-pairs,tailcallelim,simplifycfg<bonus-inst-threshold=1no-forward-switch-condswitch-range-to-icmpno-switch-to-lookupkeep-loopsno-hoist-common-instsno-sink-common-instsspeculate-blockssimplify-cond-branch>),globaldce,constmerge,cg-profile,rel-lookup-table-converter,function(annotation-remarks),print"
-# import subprocess
-#
-# subprocess.check_call(
-#     [
-#         "/home/mlevental/dev_projects/llvm-project/cmake-build-debug/bin/llvm-dis",
-#         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.bc",
-#         "-o",
-#         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.ll",
-#     ]
-# )
-# subprocess.check_call(
-#     [
-#         "/home/mlevental/dev_projects/llvm-project/cmake-build-debug/bin/opt",
-#         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.ll",
-#         f"--passes={llvm_opt_pipeline}",
-#         "--disable-output",
-#         "-S",
-#         # "-emit-llvm",
-#         "-o",
-#         "/home/mlevental/dev_projects/mlir-python-extras/examples/llvm.opt.ll",
-#     ]
-# )
+if hip_bindings_not_installed():
+    exit()
+from hip import hip
+
 
 lowered_module = run_pipeline(lowered_module, Pipeline().gpu_module_to_binary())
 hsaco = get_compile_object_bytes(lowered_module)
