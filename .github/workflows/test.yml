@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           
-          pytest tests
+          pytest -v tests
 
       - name: Test mwe
         shell: bash
@@ -106,9 +106,9 @@ jobs:
         shell: bash
         run: |
           if [ ${{ matrix.os }} == 'windows-2022' ]; then
-            pytest -s tests/test_other_hosts.py
+            pytest -v -s tests/test_other_hosts.py
           else
-            pytest --capture=tee-sys tests/test_other_hosts.py
+            pytest -v --capture=tee-sys tests/test_other_hosts.py
           fi
 
   test-examples:
