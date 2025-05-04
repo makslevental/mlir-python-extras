@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 
 from mlir.extras.ast.canonicalize import canonicalize
-from mlir.extras.dialects.ext.arith import Scalar, constant
+from mlir.extras.dialects.ext import arith
+from mlir.extras.dialects.ext.arith import Scalar
 from mlir.extras.dialects.ext.scf import (
     range_,
     yield_,
@@ -529,12 +530,12 @@ def test_promotion_python_constant_win(ctx: MLIRContext):
 def test_promotion_arith(ctx: MLIRContext):
     ten_arr_int = np.random.randint(0, 10, (2, 2)).astype(np.int32)
     ten = Tensor(ten_arr_int)
-    one = constant(1, type=T.i32())
+    one = arith.constant(1, type=T.i32())
     x = ten + one
 
     ten_arr_float = np.random.randint(0, 10, (3, 3)).astype(np.float32)
     ten = Tensor(ten_arr_float)
-    one = constant(1.0, type=T.f32())
+    one = arith.constant(1.0, type=T.f32())
     x = ten + one
 
     ctx.module.operation.verify()
@@ -553,3 +554,36 @@ def test_promotion_arith(ctx: MLIRContext):
     """
     )
     filecheck(correct, str(ctx.module).replace("00000e+00", ""))
+
+
+def test_tensor_arithmetic(ctx: MLIRContext):
+    one = arith.constant(1)
+    assert isinstance(one, Scalar)
+    two = arith.constant(2)
+    assert isinstance(two, Scalar)
+    three = one + two
+    assert isinstance(three, Scalar)
+
+    ten1 = empty(10, 10, 10, T.f32())
+    assert isinstance(ten1, Tensor)
+    ten2 = empty(10, 10, 10, T.f32())
+    assert isinstance(ten2, Tensor)
+    ten3 = ten1 + ten2
+    assert isinstance(ten3, Tensor)
+
+    ctx.module.operation.verify()
+    filecheck(
+        dedent(
+            """\
+    module {
+      %c1_i32 = arith.constant 1 : i32
+      %c2_i32 = arith.constant 2 : i32
+      %0 = arith.addi %c1_i32, %c2_i32 : i32
+      %1 = tensor.empty() : tensor<10x10x10xf32>
+      %2 = tensor.empty() : tensor<10x10x10xf32>
+      %3 = arith.addf %1, %2 : tensor<10x10x10xf32>
+    }
+    """
+        ),
+        ctx.module,
+    )
