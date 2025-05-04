@@ -16,7 +16,12 @@ from mlir.extras.dialects.ext import linalg, arith, scf, memref
 from mlir.ir import FunctionType
 
 # noinspection PyUnresolvedReferences
-from mlir.extras.testing import mlir_ctx as ctx, filecheck, MLIRContext
+from mlir.extras.testing import (
+    mlir_ctx as ctx,
+    filecheck,
+    filecheck_with_comments,
+    MLIRContext,
+)
 
 # needed since the fix isn't defined here nor conftest.py
 pytest.mark.usefixtures("ctx")
@@ -31,17 +36,13 @@ def test_emit(ctx: MLIRContext):
     assert hasattr(demo_fun1, "emit")
     assert inspect.ismethod(demo_fun1.emit)
     demo_fun1.emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @demo_fun1() -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @demo_fun1() -> i32 {
+    # CHECK:    %[[VAL_0:.*]] = arith.constant 1 : i32
+    # CHECK:    return %[[VAL_0]] : i32
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_declare_byte_rep(ctx: MLIRContext):
@@ -79,22 +80,18 @@ def test_declare(ctx: MLIRContext):
     demo_fun4(one, one)
 
     ctx.module.operation.verify()
-    correct = dedent(
-        """\
-    module {
-      func.func private @demo_fun1() -> i32
-      func.func private @demo_fun2() -> (i32, i32)
-      func.func private @demo_fun3(i32) -> (i32, i32)
-      func.func private @demo_fun4(i32, i32) -> (i32, i32)
-      %0 = func.call @demo_fun1() : () -> i32
-      %1:2 = func.call @demo_fun2() : () -> (i32, i32)
-      %c1_i32 = arith.constant 1 : i32
-      %2:2 = func.call @demo_fun3(%c1_i32) : (i32) -> (i32, i32)
-      %3:2 = func.call @demo_fun4(%c1_i32, %c1_i32) : (i32, i32) -> (i32, i32)
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func private @demo_fun1() -> i32
+    # CHECK:  func.func private @demo_fun2() -> (i32, i32)
+    # CHECK:  func.func private @demo_fun3(i32) -> (i32, i32)
+    # CHECK:  func.func private @demo_fun4(i32, i32) -> (i32, i32)
+    # CHECK:  %[[VAL_0:.*]] = func.call @demo_fun1() : () -> i32
+    # CHECK:  %[[VAL_1:.*]]:2 = func.call @demo_fun2() : () -> (i32, i32)
+    # CHECK:  %[[VAL_2:.*]] = arith.constant 1 : i32
+    # CHECK:  %[[VAL_3:.*]]:2 = func.call @demo_fun3(%[[VAL_2]]) : (i32) -> (i32, i32)
+    # CHECK:  %[[VAL_4:.*]]:2 = func.call @demo_fun4(%[[VAL_2]], %[[VAL_2]]) : (i32, i32) -> (i32, i32)
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_func_base_meta(ctx: MLIRContext):
@@ -104,31 +101,15 @@ def test_func_base_meta(ctx: MLIRContext):
         return one
 
     foo1.emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @foo1() -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
-
     foo1()
-    correct = dedent(
-        """\
-    module {
-      func.func @foo1() -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-      %0 = func.call @foo1() : () -> i32
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @foo1() -> i32 {
+    # CHECK:    %[[VAL_0:.*]] = arith.constant 1 : i32
+    # CHECK:    return %[[VAL_0]] : i32
+    # CHECK:  }
+    # CHECK:  %[[VAL_1:.*]] = func.call @foo1() : () -> i32
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_func_base_meta2(ctx: MLIRContext):
@@ -138,18 +119,14 @@ def test_func_base_meta2(ctx: MLIRContext):
         return one
 
     foo1()
-    correct = dedent(
-        """\
-    module {
-      func.func @foo1() -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-      %0 = func.call @foo1() : () -> i32
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @foo1() -> i32 {
+    # CHECK:    %[[VAL_0:.*]] = arith.constant 1 : i32
+    # CHECK:    return %[[VAL_0]] : i32
+    # CHECK:  }
+    # CHECK:  %[[VAL_1:.*]] = func.call @foo1() : () -> i32
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_func_no_context():
@@ -160,18 +137,14 @@ def test_func_no_context():
 
     with mlir_mod_ctx() as mod_ctx:
         foo1()
-    correct = dedent(
-        """\
-    module {
-      func.func @foo1() -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-      %0 = func.call @foo1() : () -> i32
-    }
-    """
-    )
-    filecheck(correct, mod_ctx.module)
+
+        # CHECK:  func.func @foo1() -> i32 {
+        # CHECK:    %[[VAL_0:.*]] = arith.constant 1 : i32
+        # CHECK:    return %[[VAL_0]] : i32
+        # CHECK:  }
+        # CHECK:  %[[VAL_1:.*]] = func.call @foo1() : () -> i32
+
+        filecheck_with_comments(mod_ctx.module)
 
 
 generics = M, K, N, dtype = list(map(TypeVar, ["M", "K", "N", "dtype"]))
@@ -188,17 +161,13 @@ def matmul_i32_i32(
 
 def test_func_no_context_2(ctx: MLIRContext):
     matmul_i32_i32[16, 16].emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @matmul_i32_i32(%arg0: memref<16x16xi32>, %arg1: memref<16x16xi32>, %arg2: memref<16x16xi32>) {
-        linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%arg0, %arg1 : memref<16x16xi32>, memref<16x16xi32>) outs(%arg2 : memref<16x16xi32>)
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @matmul_i32_i32(%[[VAL_0:.*]]: memref<16x16xi32>, %[[VAL_1:.*]]: memref<16x16xi32>, %[[VAL_2:.*]]: memref<16x16xi32>) {
+    # CHECK:    linalg.matmul {cast = #linalg.type_fn<cast_signed>} ins(%[[VAL_0]], %[[VAL_1]] : memref<16x16xi32>, memref<16x16xi32>) outs(%[[VAL_2]] : memref<16x16xi32>)
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_generics_just_args(ctx: MLIRContext):
@@ -212,17 +181,13 @@ def test_generics_just_args(ctx: MLIRContext):
         one = arith.constant(1.0, dtype)
 
     mat_product_kernel[32, 32, 32, T.f32()].emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @mat_product_kernel(%arg0: memref<32x32xf32>, %arg1: memref<32x32xf32>, %arg2: memref<32x32xf32>) {
-        %cst = arith.constant 1.000000e+00 : f32
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @mat_product_kernel(%[[VAL_0:.*]]: memref<32x32xf32>, %[[VAL_1:.*]]: memref<32x32xf32>, %[[VAL_2:.*]]: memref<32x32xf32>) {
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 1.000000e+00 : f32
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_generics_closure(ctx: MLIRContext):
@@ -237,17 +202,13 @@ def test_generics_closure(ctx: MLIRContext):
         one = arith.constant(1, dtype)
 
     mat_product_kernel[32, 32, 32, T.i32()].emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @mat_product_kernel(%arg0: memref<32x32xi32>, %arg1: memref<32x32xi32>, %arg2: memref<32x32xi32>) {
-        %c1_i32 = arith.constant 1 : i32
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @mat_product_kernel(%[[VAL_0:.*]]: memref<32x32xi32>, %[[VAL_1:.*]]: memref<32x32xi32>, %[[VAL_2:.*]]: memref<32x32xi32>) {
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 1 : i32
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_generics_with_canonicalizations(ctx: MLIRContext):
@@ -271,31 +232,27 @@ def test_generics_with_canonicalizations(ctx: MLIRContext):
         C[x, y] = tmp + one
 
     mat_product_kernel[32, 32, 32, T.f32()].emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @mat_product_kernel(%arg0: memref<32x32xf32>, %arg1: memref<32x32xf32>, %arg2: memref<32x32xf32>) {
-        %c1 = arith.constant 1 : index
-        %c1_0 = arith.constant 1 : index
-        %cst = arith.constant 1.000000e+00 : f32
-        %cst_1 = arith.constant 0.000000e+00 : f32
-        %c0 = arith.constant 0 : index
-        %c32 = arith.constant 32 : index
-        %c1_2 = arith.constant 1 : index
-        %0 = scf.for %arg3 = %c0 to %c32 step %c1_2 iter_args(%arg4 = %cst_1) -> (f32) {
-          %2 = memref.load %arg0[%c1, %arg3] : memref<32x32xf32>
-          %3 = memref.load %arg1[%arg3, %c1_0] : memref<32x32xf32>
-          %4 = math.fma %2, %3, %arg4 : f32
-          scf.yield %4 : f32
-        }
-        %1 = arith.addf %0, %cst : f32
-        memref.store %1, %arg2[%c1, %c1_0] : memref<32x32xf32>
-        return
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @mat_product_kernel(%[[VAL_0:.*]]: memref<32x32xf32>, %[[VAL_1:.*]]: memref<32x32xf32>, %[[VAL_2:.*]]: memref<32x32xf32>) {
+    # CHECK:    %[[VAL_3:.*]] = arith.constant 1 : index
+    # CHECK:    %[[VAL_4:.*]] = arith.constant 1 : index
+    # CHECK:    %[[VAL_5:.*]] = arith.constant 1.000000e+00 : f32
+    # CHECK:    %[[VAL_6:.*]] = arith.constant 0.000000e+00 : f32
+    # CHECK:    %[[VAL_7:.*]] = arith.constant 0 : index
+    # CHECK:    %[[VAL_8:.*]] = arith.constant 32 : index
+    # CHECK:    %[[VAL_9:.*]] = arith.constant 1 : index
+    # CHECK:    %[[VAL_10:.*]] = scf.for %[[VAL_11:.*]] = %[[VAL_7]] to %[[VAL_8]] step %[[VAL_9]] iter_args(%[[VAL_12:.*]] = %[[VAL_6]]) -> (f32) {
+    # CHECK:      %[[VAL_13:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_3]], %[[VAL_11]]] : memref<32x32xf32>
+    # CHECK:      %[[VAL_14:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_11]], %[[VAL_4]]] : memref<32x32xf32>
+    # CHECK:      %[[VAL_15:.*]] = math.fma %[[VAL_13]], %[[VAL_14]], %[[VAL_12]] : f32
+    # CHECK:      scf.yield %[[VAL_15]] : f32
+    # CHECK:    }
+    # CHECK:    %[[VAL_16:.*]] = arith.addf %[[VAL_17:.*]], %[[VAL_5]] : f32
+    # CHECK:    memref.store %[[VAL_16]], %[[VAL_2]]{{\[}}%[[VAL_3]], %[[VAL_4]]] : memref<32x32xf32>
+    # CHECK:    return
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
 
 
 def test_raii_mlir_context_module():
@@ -310,17 +267,13 @@ def test_raii_mlir_context_module():
     assert hasattr(demo_fun1, "emit")
     assert inspect.ismethod(demo_fun1.emit)
     demo_fun1.emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @demo_fun1() -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-    }
-    """
-    )
-    filecheck(correct, tls.ctx.module)
+
+    # CHECK:  func.func @demo_fun1() -> i32 {
+    # CHECK:    %[[VAL_0:.*]] = arith.constant 1 : i32
+    # CHECK:    return %[[VAL_0]] : i32
+    # CHECK:  }
+
+    filecheck_with_comments(tls.ctx.module)
 
 
 def test_explicit_function_type(ctx: MLIRContext):
@@ -334,14 +287,10 @@ def test_explicit_function_type(ctx: MLIRContext):
         return one
 
     demo_fun1.emit()
-    correct = dedent(
-        """\
-    module {
-      func.func @demo_fun1(%arg0: i32, %arg1: i32) -> i32 {
-        %c1_i32 = arith.constant 1 : i32
-        return %c1_i32 : i32
-      }
-    }
-    """
-    )
-    filecheck(correct, ctx.module)
+
+    # CHECK:  func.func @demo_fun1(%[[VAL_0:.*]]: i32, %[[VAL_1:.*]]: i32) -> i32 {
+    # CHECK:    %[[VAL_2:.*]] = arith.constant 1 : i32
+    # CHECK:    return %[[VAL_2]] : i32
+    # CHECK:  }
+
+    filecheck_with_comments(ctx.module)
