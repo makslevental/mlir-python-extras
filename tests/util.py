@@ -38,6 +38,18 @@ def llvm_bindings_not_installed():
         return True
 
 
+def llvm_amdgcn_bindings_not_installed():
+    try:
+        from mlir.extras.dialects.ext.llvm import amdgcn
+
+        # don't skip
+        return False
+
+    except ImportError:
+        # skip
+        return True
+
+
 def hip_check(call_result):
     from hip import hip
 
