@@ -141,16 +141,21 @@ jobs:
         # sed: can't read C:\hostedtoolcache\windows\Python\3.12.10\x64/jupyter_client/runapp.py: No such file or directory
         if: matrix.os != 'windows-2022'
         shell: bash
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           
-          pip install jupyter
+          pip install -q jupyter
           
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 100/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
           
           jupyter execute examples/mlir_python_extras.ipynb
           jupyter execute examples/vectorization_e2e.ipynb
-          
+          if [ ${{ matrix.os }} == 'ubuntu-22.04' ]; then
+            jupyter execute examples/cuda_e2e.ipynb
+          fi
+
       - name: Test gpu examples
         shell: bash
         run: |
