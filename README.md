@@ -77,7 +77,7 @@ The few main features/affordances:
 1. `region_op`s (like `@func` above)
    \
    &nbsp;
-   1. These are decorators around ops (bindings for MLIR operations) that have regions (e.g., [in_parallel](https://github.com/makslevental/mlir-python-extras/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_extras/dialects/ext/scf.py#L185)). 
+   1. These are decorators around ops (bindings for MLIR operations) that have regions (e.g., [in_parallel](https://github.com/makslevental/mlir-python-extras/blob/40c8c44e767fd9ee8fec35a3c3342b3c8623ef1c/mlir/extras/dialects/ext/scf.py#L205)). 
    They turn decorated functions, by executing them "eagerly", into an instance of such an op, e.g., 
       ```python
       @func
@@ -87,7 +87,7 @@ The few main features/affordances:
       becomes `func.func @foo(%arg0: i32) { }`; if the region carrying op produces a result, the identifier for the python function (`foo`) becomes the corresponding `ir.Value` of the result (if the op doesn't produce a result then the identifier becomes the corresponding `ir.OpView`).
       \
       \
-      See [mlir_extras.util.op_region_builder](https://github.com/makslevental/mlir-python-extras/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_extras/util.py#L123) for details.
+      This has been upstreamed to [mlir/python/mlir/extras/meta.py](https://github.com/llvm/llvm-project/blob/24038650d9ca5d66b07d3075afdebe81012ab1f2/mlir/python/mlir/extras/meta.py#L12)
       \
       &nbsp;
 2. `@canonicalize` (like `@canonicalize(using=scf)` above)
@@ -96,16 +96,16 @@ The few main features/affordances:
    1. These are decorators that **rewrite the python AST**. They transform a select few forms (basically only `if`s) into a more "canonical" form, in order to more easily map to MLIR. If that scares you, fear not; they are not essential and all target MLIR can still be mapped to without using them (by using the slightly more verbose `region_op`).
       \
       \
-      See [mlir_extras.ast.canonicalize](https://github.com/makslevental/mlir-python-extras/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_extras/ast/canonicalize.py) for details.
+      See [mlir/extras.ast.canonicalize](https://github.com/makslevental/mlir-python-extras/blob/40c8c44e767fd9ee8fec35a3c3342b3c8623ef1c/mlir/extras/ast/canonicalize.py) for details.
       \
       &nbsp;
-3. `mlir_extras.types` (like `T.memref(K, K, T.i64)` above)
+3. `mlir/extras.types` (like `T.memref(K, K, T.i64)` above)
    \
    &nbsp;
-   1. These are just convenient wrappers around upstream type constructors. Note, because MLIR types are uniqued to a `ir.Context`, these are all actually functions that return the type (yes, even `T.i64`, which uses [`__getattr__` on the module](https://github.com/makslevental/mlir-python-extras/blob/2ca62e9c1540b1624c302bc9efb4666ff5d1c133/mlir_extras/types.py#L98)).
+   1. These are just convenient wrappers around upstream type constructors. Note, because MLIR types are uniqued to a `ir.Context`, these are all actually functions that return the type.
       \
       \
-      See [mlir_extras.types](https://github.com/makslevental/mlir-python-extras/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_extras/types.py) for details.
+      These have been upstreamed to [mlir/python/mlir/extras/types.py](https://github.com/llvm/llvm-project/blob/52b18b4e82d412a7d755e89591c6ebcc41c257a1/mlir/python/mlir/extras/types.py)
       \
       &nbsp;
 4. `Pipeline()`
@@ -114,8 +114,8 @@ The few main features/affordances:
    1. This is just a (generated) wrapper around available **upstream** passes; it can be used to build pass pipelines (by `str(Pipeline())`). It is mainly convenient with IDEs/editors that will tab-complete the available methods on the `Pipeline` class (which correspond to passes), Note, if your host bindings don't register some upstream passes, then this will generate "illegal" pass pipelines.
       \
       \
-      See [mlir_extras._configuration.generate_pass_pipeline.py](https://github.com/makslevental/mlir-python-extras/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_extras/_configuration/generate_pass_pipeline.py) for details on generation
-      [mlir_extras.runtime.passes.py](https://github.com/makslevental/mlir-python-extras/blob/a9885db18096a610d29a26293396d860d40ad213/mlir_extras/runtime/passes.py#L80) for the passes themselves.
+      See [scripts/generate_pass_pipeline.py](https://github.com/makslevental/mlir-python-extras/blob/40c8c44e767fd9ee8fec35a3c3342b3c8623ef1c/scripts/generate_pass_pipeline.py) for details on generation
+      [mlir/extras.runtime.passes.py](https://github.com/makslevental/mlir-python-extras/blob/40c8c44e767fd9ee8fec35a3c3342b3c8623ef1c/mlir/extras/runtime/passes.py#L80) for the passes themselves.
       \
       &nbsp;
 
@@ -153,4 +153,4 @@ $ pip install git+https://github.com/makslevental/mlir-python-extras
 
 ## Examples/Demo
 
-Check [tests](tests) for a plethora of example code.
+Check [examples](examples) and [tests](tests) for a plethora of example code.
