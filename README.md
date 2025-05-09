@@ -1,6 +1,13 @@
 # mlir-python-extras
 
+[![Test](https://github.com/makslevental/mlir-python-extras/actions/workflows/test.yml/badge.svg)](https://github.com/makslevental/mlir-python-extras/actions/workflows/test.yml)
+
 The missing pieces (as far as boilerplate reduction goes) of the MLIR python bindings.
+
+* [TL;DR](#tl-dr)
+* [5s Intro](#5s-intro)
+* [Install](#install)
+* [Examples/Demo](#examples-demo)
 
 ## TL;DR
 
