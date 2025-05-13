@@ -100,7 +100,7 @@ def transfer_write(
         result=None,
         value_to_store=val,
         # no clue why they chose this name...
-        source=dest,
+        base=dest,
         indices=indices,
         permutation_map=permutation_map,
         mask=mask,
@@ -115,7 +115,7 @@ _transfer_read = transfer_read
 
 def transfer_read(
     vector_t,
-    source,
+    base,
     indices,
     *,
     permutation_map=None,
@@ -128,20 +128,20 @@ def transfer_read(
     if loc is None:
         loc = get_user_code_loc()
     if permutation_map is None:
-        permutation_map = AffineMap.get_minor_identity(source.type.rank, vector_t.rank)
+        permutation_map = AffineMap.get_minor_identity(base.type.rank, vector_t.rank)
     for j, i in enumerate(indices):
         if isinstance(i, int):
             indices[j] = constant(i, index=True)
     if padding is None:
         padding = 0
     if isinstance(padding, int):
-        padding = constant(padding, type=source.type.element_type)
+        padding = constant(padding, type=base.type.element_type)
     if in_bounds is None:
         raise ValueError("in_bounds cannot be None")
 
     return _transfer_read(
         vector=vector_t,
-        source=source,
+        base=base,
         indices=indices,
         permutation_map=permutation_map,
         padding=padding,
