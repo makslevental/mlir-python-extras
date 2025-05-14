@@ -134,29 +134,27 @@ But, open an issue if something isn't clear.
 
 ## Install
 
-This package is meant to work in concert with host bindings.
-Practically speaking that means you need to have *some* package installed that includes mlir python bindings.
-
-So
+If you want to just get started/play around:
 
 ```shell
-$ HOST_MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX> pip install git+https://github.com/makslevental/mlir-python-extras
+$ pip install mlir-python-bindings -f https://makslevental.github.io/wheels/
+$ pip install git+https://github.com/makslevental/mlir-python-extras
+```
+
+Alternatively, this [colab notebook](https://drive.google.com/file/d/1NAtf2Yxj_VVnzwn8u_kxtajfVzgbuWhi/view?usp=sharing) (which is the same as [examples/mlir_python_extras.ipynb](examples/mlir_python_extras.ipynb)) has a MWE if you don't want to install anything even.
+
+In reality, this package is meant to work in concert with "host bindings" (some distribution of the actual MLIR Python bindings).
+Practically speaking that means you need to have *some* package installed that includes mlir python bindings.
+
+So that means the second line should be amended to
+
+```shell
+$ HOST_MLIR_PYTHON_PACKAGE_PREFIX=<YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX> \
+      pip install git+https://github.com/makslevental/mlir-python-extras
 ```
 
 where `YOUR_HOST_MLIR_PYTHON_PACKAGE_PREFIX` is (as it says) the package prefix for your chosen host bindings.
 **When in doubt about this prefix**, it is everything up until `ir` when you import your bindings, e.g., in `import torch_mlir.ir`, `torch_mlir` is the `HOST_MLIR_PYTHON_PACKAGE_PREFIX` for the torch-mlir bindings.
-
-If you don't have any such package, but you want to experiment anyway, you can install the "stock" upstream bindings first:
-
-```shell
-$ pip install mlir-python-bindings -f https://makslevental.github.io/wheels/
-```
-
-and then
-
-```shell
-$ pip install git+https://github.com/makslevental/mlir-python-extras
-```
 
 ## Examples/Demo
 
