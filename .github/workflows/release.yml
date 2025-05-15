@@ -1,0 +1,117 @@
+name: Build and upload to wheels page
+
+on:
+  workflow_dispatch:
+  release:
+    types:
+      - published
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+
+concurrency:
+  group: ci-build-release-${{ github.event.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  SYSTEM_VERSION_COMPAT: 0
+  PIP_FIND_LINKS: "https://github.com/llvm/eudsl/releases/expanded_assets/latest https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
+
+jobs:
+
+  build:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
+        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+
+        exclude:
+          - os: macos-13
+            py_version: "3.9"
+
+          - os: macos-14
+            py_version: "3.9"
+
+    name: "${{ matrix.os }}-${{ matrix.py_version }}"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.py_version }}
+          allow-prereleases: true
+
+      - name: Build wheel
+        shell: bash
+        run: |
+          
+          pip index versions mlir-python-bindings 2>&1 1> bindings_version.txt
+          export BINDINGS_VERSION=$(cat bindings_version.txt)
+          export BUNDLE_MLIR_PYTHON_BINDINGS=1
+          pip install mlir-python-bindings -t tmp
+          cp -R tmp/mlir $PWD
+          pip wheel . -v -w wheelhouse
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          path: wheelhouse/mlir_python_extras-*.whl
+          name: build_artifact-${{ matrix.os }}-${{ matrix.py_version }}
+
+
+  upload_bindings_wheels:
+
+    # if: github.event_name != 'pull_request'
+
+    needs: [build]
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: build_artifact-*
+          path: dist
+          merge-multiple: true
+
+      - name: Release current commit
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          artifacts: "dist/*.whl"
+          token: "${{ secrets.GITHUB_TOKEN }}"
+          tag: "latest"
+          name: "latest"
+          removeArtifacts: false
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+          artifactErrorsFailBuild: true
+
+      - name: Release current commit
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          owner: makslevental
+          repo: wheels
+          artifacts: "dist/*.whl"
+          token: "${{ secrets.WHEELS_REPO }}"
+          tag: "i"
+          name: "i"
+          removeArtifacts: false
+          allowUpdates: true
+          replacesArtifacts: true
+          makeLatest: true
+          artifactErrorsFailBuild: true
