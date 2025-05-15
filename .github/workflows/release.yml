@@ -60,7 +60,7 @@ jobs:
           - os: ubuntu-22.04-arm
             gpu: "amdgpu"
 
-    name: "${{ matrix.os }}-${{ matrix.py_version }} ${{ matrix.gpu != 'none' && matrix.gpu || '' }}"
+    name: Release "${{ matrix.os }}-${{ matrix.py_version }} ${{ matrix.gpu != 'none' && matrix.gpu || '' }}"
 
     steps:
       - name: Checkout
@@ -106,7 +106,7 @@ jobs:
 
   upload_bindings_wheels:
 
-    # if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'
 
     needs: [build]
 
