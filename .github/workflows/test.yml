@@ -137,6 +137,34 @@ jobs:
           
           pip install .[test,mlir,eudsl] -v
 
+      - name: Test gpu examples
+        shell: bash
+        run: |
+          
+          python examples/rdna_matmul_opt.py
+          python examples/cuda_matmul_opt.py
+
+  test-jupyter-notebooks:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
+        py_version: [ "3.12", "3.13" ]
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.py_version }}
+          allow-prereleases: true
+
       - name: Test jupyter notebooks
         # sed: can't read C:\hostedtoolcache\windows\Python\3.12.10\x64/jupyter_client/runapp.py: No such file or directory
         if: matrix.os != 'windows-2022'
@@ -147,18 +175,14 @@ jobs:
           
           pip install -q jupyter
           
-          sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 100/g' \
+          sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 1000/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
           
-          jupyter execute examples/mlir_python_extras.ipynb
-          jupyter execute examples/vectorization_e2e.ipynb
+          jupyter execute examples/mlir_python_extras.ipynb --output=mlir_python_extras_output
+          cat examples/mlir_python_extras_output.ipynb | jq '.cells[].outputs | select(length > 0) | .[0] | .text'
+          jupyter execute examples/vectorization_e2e.ipynb --output=vectorization_e2e_output
+          cat examples/vectorization_e2e_output.ipynb | jq '.cells[].outputs | select(length > 0) | .[0] | .text'
           if [ ${{ matrix.os }} == 'ubuntu-22.04' ]; then
-            jupyter execute examples/cuda_e2e.ipynb
+            jupyter execute examples/cuda_e2e.ipynb --output=cuda_e2e_output
+            cat examples/cuda_e2e_output.ipynb | jq '.cells[].outputs | select(length > 0) | .[0] | .text'
           fi
-
-      - name: Test gpu examples
-        shell: bash
-        run: |
-          
-          python examples/rdna_matmul_opt.py
-          python examples/cuda_matmul_opt.py
