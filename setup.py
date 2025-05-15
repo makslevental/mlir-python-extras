@@ -18,6 +18,10 @@ HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
 PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-extras"
 
 
+def check_env(build):
+    return os.environ.get(build, 0) in {"1", "true", "True", "ON", "YES"}
+
+
 def load_requirements(fname):
     reqs = parse_requirements(fname, session="hack")
     return [str(ir.requirement) for ir in reqs]
@@ -54,6 +58,12 @@ class CMakeBuild(build_ext):
 now = datetime.now()
 version_s = f"0.0.8.{now.year}{now.month:02}{now.day:02}{now.hour:02}+"
 
+
+local_version = []
+GPU = os.getenv("GPU", None)
+if GPU not in {None, "none"}:
+    local_version += [GPU]
+
 try:
     short_hash = run_git(
         ["rev-parse", "--short", "HEAD"],
@@ -62,9 +72,13 @@ try:
         parse=str,
         error_msg="branch err (abbrev-err)",
     )
-    version_s += short_hash
 except Exception as e:
-    version_s += "no-hash"
+    short_hash = "no-hash"
+
+if local_version:
+    version_s += ".".join(local_version + [short_hash])
+else:
+    version_s += short_hash
 
 packages = (
     [HOST_MLIR_PYTHON_PACKAGE_PREFIX]

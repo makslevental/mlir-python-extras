@@ -31,6 +31,7 @@ jobs:
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
         py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        gpu: [ "cuda", "amdgpu", "none" ]
 
         exclude:
           - os: macos-13
@@ -39,7 +40,27 @@ jobs:
           - os: macos-14
             py_version: "3.9"
 
-    name: "${{ matrix.os }}-${{ matrix.py_version }}"
+          - os: macos-13
+            gpu: "cuda"
+          - os: macos-13
+            gpu: "amdgpu"
+            
+          - os: macos-14
+            gpu: "cuda"
+          - os: macos-14
+            gpu: "amdgpu"
+            
+          - os: windows-2022
+            gpu: "cuda"
+          - os: windows-2022
+            gpu: "amdgpu"
+            
+          - os: ubuntu-22.04-arm
+            gpu: "cuda"
+          - os: ubuntu-22.04-arm
+            gpu: "amdgpu"
+
+    name: "${{ matrix.os }}-${{ matrix.py_version }} ${{ matrix.gpu != 'none' && matrix.gpu || '' }}"
 
     steps:
       - name: Checkout
@@ -51,23 +72,37 @@ jobs:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
 
+      - name: Get bindings metadata
+        shell: bash
+        run: |
+          
+          echo "BINDINGS_VERSION=$(python scripts/get_latest_bindings.py ${{ matrix.gpu }})" >> $GITHUB_ENV
+          echo "BUNDLE_MLIR_PYTHON_BINDINGS=1" >> $GITHUB_ENV
+          echo "PLAT=$(python scripts/get_latest_bindings.py ${{ matrix.gpu }} --only-plat)" >> $GITHUB_ENV
+          echo "GPU=${{ matrix.gpu }}" >> $GITHUB_ENV
+
       - name: Build wheel
         shell: bash
         run: |
           
-          pip index versions mlir-python-bindings 2>&1 1> bindings_version.txt
-          export BINDINGS_VERSION=$(cat bindings_version.txt)
-          export BUNDLE_MLIR_PYTHON_BINDINGS=1
-          pip install mlir-python-bindings -t tmp
+          pip install mlir-python-bindings==$BINDINGS_VERSION -t tmp
           cp -R tmp/mlir $PWD
           pip wheel . -v -w wheelhouse
+  
+      - name: auditwheel
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          
+          pip install auditwheel
+          mv wheelhouse/mlir_python_extras-*.whl $PWD
+          auditwheel repair mlir_python_extras-*.whl -w wheelhouse --plat $PLAT --exclude libmlir_float16_utils* --exclude libcuda*
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
           path: wheelhouse/mlir_python_extras-*.whl
-          name: build_artifact-${{ matrix.os }}-${{ matrix.py_version }}
-
+          name: build_artifact-${{ matrix.os }}-${{ matrix.py_version }}-${{ matrix.gpu }}
 
   upload_bindings_wheels:
 
