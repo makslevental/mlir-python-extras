@@ -1,6 +1,7 @@
 # mlir-python-extras
 
 [![Test](https://github.com/makslevental/mlir-python-extras/actions/workflows/test.yml/badge.svg)](https://github.com/makslevental/mlir-python-extras/actions/workflows/test.yml)
+[![Release](https://github.com/makslevental/mlir-python-extras/actions/workflows/release.yml/badge.svg)](https://github.com/makslevental/mlir-python-extras/actions/workflows/release.yml)
 
 The missing pieces (as far as boilerplate reduction goes) of the MLIR python bindings.
 
@@ -137,8 +138,7 @@ But, open an issue if something isn't clear.
 If you want to just get started/play around:
 
 ```shell
-$ pip install mlir-python-bindings -f https://makslevental.github.io/wheels/
-$ pip install git+https://github.com/makslevental/mlir-python-extras
+$ pip install mlir-python-extras -f https://makslevental.github.io/wheels
 ```
 
 Alternatively, this [colab notebook](https://drive.google.com/file/d/1NAtf2Yxj_VVnzwn8u_kxtajfVzgbuWhi/view?usp=sharing) (which is the same as [examples/mlir_python_extras.ipynb](examples/mlir_python_extras.ipynb)) has a MWE if you don't want to install anything even.
