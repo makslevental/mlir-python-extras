@@ -175,6 +175,12 @@ jobs:
           
           pip install -q jupyter
           
+          SCRIPT_ADDRESS="https://raw.githubusercontent.com/makslevental/mlir-python-extras/refs/heads/${BRANCH}/scripts/get_latest_bindings.py"
+          curl $SCRIPT_ADDRESS -o get_latest_bindings.py
+          LATEST_VERSION=$(python get_latest_bindings.py "none")
+          pip install mlir_python_bindings==$LATEST_VERSION -f https://makslevental.github.io/wheels
+          pip install "git+https://github.com/makslevental/mlir-python-extras@$BRANCH"
+          
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 1000/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
           
