@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
   schedule:
     # At minute 0 past hour 6. (see https://crontab.guru)
-    - cron: '00 06 * * *'
+    - cron: '00 07 * * *'
 
 concurrency:
   # A PR number if a pull request and otherwise the commit hash. This cancels
