@@ -175,17 +175,11 @@ jobs:
           
           pip install -q jupyter
           
-          SCRIPT_ADDRESS="https://raw.githubusercontent.com/makslevental/mlir-python-extras/refs/heads/${BRANCH}/scripts/get_latest_bindings.py"
-          curl $SCRIPT_ADDRESS -o get_latest_bindings.py
-          LATEST_VERSION=$(python get_latest_bindings.py "none")
-          pip install mlir_python_bindings==$LATEST_VERSION -f https://makslevental.github.io/wheels
-          pip install "git+https://github.com/makslevental/mlir-python-extras@$BRANCH"
-          
           sed -i.bak 's/OUTPUT_TIMEOUT = 10/OUTPUT_TIMEOUT = 1000/g' \
             $(python -c 'import site; print(site.getsitepackages()[0])')/jupyter_client/runapp.py
           
-          jupyter execute examples/mlir_python_extras.ipynb --output=mlir_python_extras_output || true
-          cat examples/mlir_python_extras_output.ipynb
+          jupyter execute examples/mlir_python_extras.ipynb --output=mlir_python_extras_output
+          cat examples/mlir_python_extras_output.ipynb | jq '.cells[].outputs | select(length > 0) | .[0] | .text'
           jupyter execute examples/vectorization_e2e.ipynb --output=vectorization_e2e_output
           cat examples/vectorization_e2e_output.ipynb | jq '.cells[].outputs | select(length > 0) | .[0] | .text'
           if [ ${{ matrix.os }} == 'ubuntu-22.04' ]; then
