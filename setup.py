@@ -12,9 +12,7 @@ from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
 
 # TODO: find from extras maybe
-HOST_MLIR_PYTHON_PACKAGE_PREFIX = os.environ.get(
-    "HOST_MLIR_PYTHON_PACKAGE_PREFIX", "mlir"
-)
+HOST_MLIR_PYTHON_PACKAGE_PREFIX = "triton_mlir"
 PACKAGE_NAME = f"{HOST_MLIR_PYTHON_PACKAGE_PREFIX.replace('.', '-').replace('_', '-')}-python-extras"
 
 
