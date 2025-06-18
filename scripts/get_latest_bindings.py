@@ -50,7 +50,7 @@ def get_latest_bindings_cand(all_candidates, gpu_platform: str, no_gpu=False):
 
     assert len(bindings_cands), "couldn't find any bindings versions"
     bindings_cands.sort(key=lambda x: x.version.release)
-    return bindings_cands[0]
+    return bindings_cands[-1]
 
 
 def get_latest_bindings_version_name(gpu_platform, no_gpu=False):
