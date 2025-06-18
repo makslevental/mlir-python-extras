@@ -165,6 +165,18 @@ jobs:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
 
+      - name: install mlir-python-extras
+        shell: bash
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+        
+          SCRIPT_ADDRESS="https://raw.githubusercontent.com/makslevental/mlir-python-extras/refs/heads/${BRANCH}/scripts/get_latest_bindings.py"Add commentMore actions
+          curl $SCRIPT_ADDRESS -o get_latest_bindings.py
+          LATEST_VERSION=$(python get_latest_bindings.py "none")
+          pip install mlir_python_bindings==$LATEST_VERSION -f https://makslevental.github.io/wheels
+          pip install "git+https://github.com/makslevental/mlir-python-extras@$BRANCH"
+
       - name: Test jupyter notebooks
         # sed: can't read C:\hostedtoolcache\windows\Python\3.12.10\x64/jupyter_client/runapp.py: No such file or directory
         if: matrix.os != 'windows-2022'
