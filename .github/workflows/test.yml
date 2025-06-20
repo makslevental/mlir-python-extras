@@ -75,6 +75,7 @@ jobs:
           
           python examples/mwe.py
           python examples/flash_attention.py
+          python examples/liveness_analysis.py
 
   test-other-host-bindings:
 

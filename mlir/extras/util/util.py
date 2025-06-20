@@ -12,9 +12,9 @@ from typing import Callable, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from .meta import op_region_builder
-from ..extras import types as T
-from ..ir import (
+from ..meta import op_region_builder
+from ...extras import types as T
+from ...ir import (
     Block,
     Context,
     F32Type,
@@ -35,7 +35,7 @@ from ..ir import (
 )
 
 try:
-    from ..ir import TypeID
+    from ...ir import TypeID
 except ImportError:
     warnings.warn(
         f"TypeID not supported by host bindings; value casting won't work correctly"
@@ -48,7 +48,7 @@ def is_relative_to(self, other):
 
 
 def get_user_code_loc(user_base: Optional[Path] = None):
-    from .. import extras
+    from ... import extras
 
     if Context.current is None:
         return
@@ -105,23 +105,61 @@ def shlib_prefix():
     return shlib_pref
 
 
+def walk_blocks(block, pred=None):
+    if pred is None:
+        pred = lambda b: True
+    for op in block.operations:
+        for r in op.regions:
+            for b in r.blocks:
+                if pred(b):
+                    yield b
+                yield from walk_blocks(b, pred)
+
+
+def walk_blocks_in_operation(op, pred=None):
+    if pred is None:
+        pred = lambda b: True
+    for r in op.regions:
+        for b in r.blocks:
+            yield from walk_blocks(b, pred)
+
+
+def walk_operations(op, pred=None):
+    if pred is None:
+        pred = lambda o: True
+    for r in op.regions:
+        for b in r.blocks:
+            for o in b.operations:
+                if pred(o):
+                    yield o
+                yield from walk_operations(o, pred)
+
+
+def find_ancestor_block_in_region(block: Block):
+    curr_block = block
+    while curr_block and curr_block.region != block.region:
+        parent_op = curr_block.owner
+        if not parent_op or not parent_op.operation.block:
+            return None
+        curr_block = parent_op.operation.block
+    return curr_block
+
+
+def find_ancestor_op_in_block(block: Block, op: Operation):
+    curr_op = op
+    while curr_op and curr_op.operation.block != block:
+        curr_op = curr_op.parent
+        if not curr_op.parent:
+            return None
+    return curr_op
+
+
 def find_ops(op, pred: Callable[[OpView, Operation, Module], bool], single=False):
     if isinstance(op, (OpView, Module)):
         op = op.operation
 
-    matching = []
+    matching = list(walk_operations(op, pred))
 
-    def find(op: Operation):
-        if single and len(matching):
-            return
-        for r in op.regions:
-            for b in r.blocks:
-                for o in b.operations:
-                    if pred(o):
-                        matching.append(o)
-                    find(o)
-
-    find(op)
     if single and matching:
         matching = matching[0]
     return matching
