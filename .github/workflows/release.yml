@@ -2,6 +2,15 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      USE_LOCAL_VERSION:
+        description: 'use local version for wheel'
+        type: number
+        default: 1
+      BUNDLE_MLIR_PYTHON_BINDINGS:
+        description: 'bundle mlir python bindings'
+        type: number
+        default: 1
   release:
     types:
       - published
@@ -77,7 +86,8 @@ jobs:
         run: |
           
           echo "BINDINGS_VERSION=$(python scripts/get_latest_bindings.py ${{ matrix.gpu }})" >> $GITHUB_ENV
-          echo "BUNDLE_MLIR_PYTHON_BINDINGS=1" >> $GITHUB_ENV
+          echo "BUNDLE_MLIR_PYTHON_BINDINGS=${{ inputs.BUNDLE_MLIR_PYTHON_BINDINGS && inputs.BUNDLE_MLIR_PYTHON_BINDINGS || 1 }}" >> $GITHUB_ENV
+          echo "USE_LOCAL_VERSION=${{ inputs.USE_LOCAL_VERSION && inputs.USE_LOCAL_VERSION || 1 }}" >> $GITHUB_ENV
           echo "PLAT=$(python scripts/get_latest_bindings.py ${{ matrix.gpu }} --only-plat)" >> $GITHUB_ENV
           echo "GPU=${{ matrix.gpu }}" >> $GITHUB_ENV
 
@@ -171,32 +181,3 @@ jobs:
         with:
           path: dist/*.tar.gz
           name: build_artifact-sdist
-
-  upload_pypi:
-
-    needs: [build, build_sdist]
-
-    if: github.event_name != 'pull_request'
-
-    runs-on: ubuntu-latest
-
-    environment: pypi
-
-    permissions:
-      id-token: write
-
-    steps:
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: build_artifact-*
-          path: dist
-          merge-multiple: true
-
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          user: __token__
-          password: ${{ secrets.TEST_PYPI_PASSWORD }}
-          skip-existing: false
-          verbose: true
