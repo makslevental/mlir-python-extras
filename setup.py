@@ -56,29 +56,30 @@ class CMakeBuild(build_ext):
 
 
 now = datetime.now()
-version_s = f"0.0.8.{now.year}{now.month:02}{now.day:02}{now.hour:02}+"
+version_s = f"0.0.8.{now.year}{now.month:02}{now.day:02}{now.hour:02}"
 
+if bool(int(os.getenv("USE_LOCAL_VERSION", True) or 1)):
+    version_s += "+"
+    local_version = []
+    GPU = os.getenv("GPU", None)
+    if GPU not in {None, "none"}:
+        local_version += [GPU]
 
-local_version = []
-GPU = os.getenv("GPU", None)
-if GPU not in {None, "none"}:
-    local_version += [GPU]
+    try:
+        short_hash = run_git(
+            ["rev-parse", "--short", "HEAD"],
+            Path(__file__).parent,
+        ).parse_success(
+            parse=str,
+            error_msg="branch err (abbrev-err)",
+        )
+    except Exception as e:
+        short_hash = "no-hash"
 
-try:
-    short_hash = run_git(
-        ["rev-parse", "--short", "HEAD"],
-        Path(__file__).parent,
-    ).parse_success(
-        parse=str,
-        error_msg="branch err (abbrev-err)",
-    )
-except Exception as e:
-    short_hash = "no-hash"
-
-if local_version:
-    version_s += ".".join(local_version + [short_hash])
-else:
-    version_s += short_hash
+    if local_version:
+        version_s += ".".join(local_version + [short_hash])
+    else:
+        version_s += short_hash
 
 packages = (
     [HOST_MLIR_PYTHON_PACKAGE_PREFIX]
@@ -96,7 +97,7 @@ if BINDINGS_VERSION is not None:
 
 cmdclass = {"build_py": MyInstallData}
 ext_modules = []
-if bool(os.getenv("BUNDLE_MLIR_PYTHON_BINDINGS", False)):
+if bool(int(os.getenv("BUNDLE_MLIR_PYTHON_BINDINGS", False) or 0)):
     cmdclass["build_ext"] = CMakeBuild
     ext_modules += [CMakeExtension(HOST_MLIR_PYTHON_PACKAGE_PREFIX, sourcedir=".")]
 
