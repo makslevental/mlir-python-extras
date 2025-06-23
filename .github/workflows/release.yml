@@ -5,11 +5,11 @@ on:
     inputs:
       USE_LOCAL_VERSION:
         description: 'use local version for wheel'
-        type: number
+        type: string
         default: 1
       BUNDLE_MLIR_PYTHON_BINDINGS:
         description: 'bundle mlir python bindings'
-        type: number
+        type: string
         default: 1
   release:
     types:
@@ -94,13 +94,15 @@ jobs:
       - name: Build wheel
         shell: bash
         run: |
-          
-          pip install mlir-python-bindings==$BINDINGS_VERSION -t tmp
-          cp -R tmp/mlir $PWD
+
+          if [ "$BUNDLE_MLIR_PYTHON_BINDINGS" == "1" ]; then
+            pip install mlir-python-bindings==$BINDINGS_VERSION -t tmp
+            cp -R tmp/mlir $PWD
+          fi
           pip wheel . -v -w wheelhouse
   
       - name: auditwheel
-        if: startsWith(matrix.os, 'ubuntu')
+        if: (startsWith(matrix.os, 'ubuntu') && env.BUNDLE_MLIR_PYTHON_BINDINGS == '1')
         shell: bash
         run: |
           
