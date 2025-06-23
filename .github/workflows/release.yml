@@ -5,11 +5,11 @@ on:
     inputs:
       USE_LOCAL_VERSION:
         description: 'use local version for wheel'
-        type: number
+        type: string
         default: 1
       BUNDLE_MLIR_PYTHON_BINDINGS:
         description: 'bundle mlir python bindings'
-        type: number
+        type: string
         default: 1
   release:
     types:
@@ -102,7 +102,7 @@ jobs:
           pip wheel . -v -w wheelhouse
   
       - name: auditwheel
-        if: startsWith(matrix.os, 'ubuntu') && ${{ env.BUNDLE_MLIR_PYTHON_BINDINGS == '1' }}
+        if: (startsWith(matrix.os, 'ubuntu') && ${{ env.BUNDLE_MLIR_PYTHON_BINDINGS == '1' }})
         shell: bash
         run: |
           
