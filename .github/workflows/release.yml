@@ -94,9 +94,11 @@ jobs:
       - name: Build wheel
         shell: bash
         run: |
-          
-          pip install mlir-python-bindings==$BINDINGS_VERSION -t tmp
-          cp -R tmp/mlir $PWD
+
+          if [ "$USE_LOCAL_VERSION" == "1" ]; then
+            pip install mlir-python-bindings==$BINDINGS_VERSION -t tmp
+            cp -R tmp/mlir $PWD
+          fi
           pip wheel . -v -w wheelhouse
   
       - name: auditwheel
