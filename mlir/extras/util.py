@@ -84,7 +84,7 @@ def enable_debug():
 def shlib_ext():
     if platform.system() == "Darwin":
         shlib_ext = "dylib"
-    elif platform.system() == "Linux":
+    elif platform.system() == {"Linux", "Emscripten"}:
         shlib_ext = "so"
     elif platform.system() == "Windows":
         shlib_ext = "lib"
@@ -95,7 +95,7 @@ def shlib_ext():
 
 
 def shlib_prefix():
-    if platform.system() in {"Darwin", "Linux"}:
+    if platform.system() in {"Darwin", "Linux", "Emscripten"}:
         shlib_pref = "lib"
     elif platform.system() == "Windows":
         shlib_pref = ""
