@@ -95,7 +95,7 @@ jobs:
         shell: bash
         run: |
 
-          if [ "$USE_LOCAL_VERSION" == "1" ]; then
+          if [ "$BUNDLE_MLIR_PYTHON_BINDINGS" == "1" ]; then
             pip install mlir-python-bindings==$BINDINGS_VERSION -t tmp
             cp -R tmp/mlir $PWD
           fi
