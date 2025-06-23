@@ -86,8 +86,8 @@ jobs:
         run: |
           
           echo "BINDINGS_VERSION=$(python scripts/get_latest_bindings.py ${{ matrix.gpu }})" >> $GITHUB_ENV
-          echo "BUNDLE_MLIR_PYTHON_BINDINGS=${{ inputs.BUNDLE_MLIR_PYTHON_BINDINGS && inputs.BUNDLE_MLIR_PYTHON_BINDINGS || 1 }}" >> $GITHUB_ENV
-          echo "USE_LOCAL_VERSION=${{ inputs.USE_LOCAL_VERSION && inputs.USE_LOCAL_VERSION || 1 }}" >> $GITHUB_ENV
+          echo "BUNDLE_MLIR_PYTHON_BINDINGS=${{ inputs.BUNDLE_MLIR_PYTHON_BINDINGS != '' && inputs.BUNDLE_MLIR_PYTHON_BINDINGS || 1 }}" >> $GITHUB_ENV
+          echo "USE_LOCAL_VERSION=${{ inputs.USE_LOCAL_VERSION != '' && inputs.USE_LOCAL_VERSION || 1 }}" >> $GITHUB_ENV
           echo "PLAT=$(python scripts/get_latest_bindings.py ${{ matrix.gpu }} --only-plat)" >> $GITHUB_ENV
           echo "GPU=${{ matrix.gpu }}" >> $GITHUB_ENV
 
