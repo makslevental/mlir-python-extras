@@ -1,6 +1,4 @@
 PyYAML>=6.0.2
-astpretty
-astunparse
 bytecode
 cloudpickle>=3.0.0
 einspect @ git+https://github.com/makslevental/einspect@makslevental/bump-py.3.13

@@ -76,6 +76,36 @@ jobs:
           python examples/mwe.py
           python examples/flash_attention.py
 
+  test-mlir-bindings-pyodide:
+
+    runs-on: ubuntu-latest
+    name: test pyodide
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.12
+
+      - name: Install pyodide and test
+        shell: bash
+        run: |
+        
+          pip install pyodide-build
+          pyodide venv venv
+          . venv/bin/activate
+          
+          pip install pytest astpretty
+          pip install .[mlir] -v
+          
+          pytest -v tests
+
+          python examples/mwe.py
+          python examples/flash_attention.py
+
   test-other-host-bindings:
 
     runs-on: ${{ matrix.os }}

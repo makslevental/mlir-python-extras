@@ -1,3 +1,5 @@
+import platform
+
 import numpy as np
 import pytest
 from mlir.dialects import builtin
@@ -135,6 +137,9 @@ def test_e2e(ctx: MLIRContext):
     B = np.random.randint(0, 10, (K, N)).astype(np.float32)
     C = np.zeros((M, N), dtype=np.float32)
 
+    if platform.system().lower() == "emscripten":
+        return
+
     backend.load(compiled_module).smol_matmul_capi_wrapper(A, B, C)
     assert np.allclose(A @ B, C)
 
@@ -207,6 +212,9 @@ def test_e2e_sugar(ctx: MLIRContext, tz_a, tz_b, tz_c):
     A = np.random.randint(0, 10, (M, K)).astype(np.float32)
     B = np.random.randint(0, 10, (K, N)).astype(np.float32)
     C = np.zeros((M, N), dtype=np.float32)
+
+    if platform.system().lower() == "emscripten":
+        return
 
     backend.load(compiled_module).smol_matmul_capi_wrapper(A, B, C)
     assert np.allclose(A @ B, C)
@@ -387,10 +395,12 @@ def test_memref_of_vector_linalg_generic_2(ctx: MLIRContext):
     B = np.zeros_like(X).astype(np.float32).T.copy()
     AVAL, AIDX, X, B = map(lambda x: aligned(x, 64), [AVAL, AIDX, X, B])
 
+    if platform.system().lower() == "emscripten":
+        return
+
     backend.load(compiled_module).spmv8x8_capi_wrapper(AVAL, AIDX, X, B)
 
     assert np.allclose(B, [21, 39, 73, 24, 20, 36, 37, 29])
-
     assert np.allclose(B, np.array(sparse_A) @ X)
 
 
@@ -443,6 +453,9 @@ def test_memref_of_vector_linalg_generic_3(ctx: MLIRContext):
     X = np.arange(1, 9).astype(np.float32)
     B = np.zeros_like(X).astype(np.float32)
     A, X, B = map(lambda x: aligned(x, 64), [A, X, B])
+
+    if platform.system().lower() == "emscripten":
+        return
 
     backend.load(compiled_module).mv8x8_capi_wrapper(A, X, B)
 
