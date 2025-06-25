@@ -42,6 +42,10 @@ pytest.mark.usefixtures("ctx")
 pytest.mark.usefixtures("backend")
 
 
+if platform.system().lower() == "emscripten":
+    pytest.skip("runtime doesn't work on emscripten yet", allow_module_level=True)
+
+
 @pytest.mark.skipif(
     platform.system() == "Windows", reason="windows can't load runner extras"
 )

@@ -71,6 +71,10 @@ def test_simple_parfor(ctx: MLIRContext, backend: LLVMJITBackend):
         generate_kernel_wrapper=True,
         generate_return_consumer=True,
     )
+
+    if platform.system().lower() == "emscripten":
+        return
+
     invoker = backend.load(module)
     A = np.random.randint(0, 10, (10, 10)).astype(np.float32)
-    # invoker.main(A)
+    invoker.main(A)

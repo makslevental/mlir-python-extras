@@ -1,3 +1,5 @@
+import platform
+
 import numpy as np
 
 import mlir.extras.types as T
@@ -156,6 +158,9 @@ print(compiled_module)
 A = np.random.randint(0, 10, (M, K)).astype(np.float32)
 B = np.random.randint(0, 10, (K, N)).astype(np.float32)
 C = np.zeros((M, N), dtype=np.float32)
+
+if platform.system().lower() == "emscripten":
+    exit()
 
 backend.load(compiled_module).matmul_tensors_capi_wrapper(A, B, C)
 assert np.allclose(A @ B, C)

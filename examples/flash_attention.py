@@ -23,7 +23,13 @@ from mlir.extras.runtime.passes import run_pipeline, Pipeline
 from mlir.extras.util import find_ops
 
 # noinspection PyUnresolvedReferences
-from util import hip_check, launch_kernel, hip_synchronize, hip_bindings_not_installed, get_hip_arch
+from util import (
+    hip_check,
+    launch_kernel,
+    hip_synchronize,
+    hip_bindings_not_installed,
+    get_hip_arch,
+)
 
 
 def init_copy_host_device(B, nh, N, d):

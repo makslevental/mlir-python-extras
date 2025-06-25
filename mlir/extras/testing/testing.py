@@ -14,7 +14,7 @@ import pytest
 from .generate_test_checks import main
 from ..context import MLIRContext, mlir_mod_ctx
 from ..runtime.refbackend import LLVMJITBackend
-from ...ir import Module
+from ...ir import Module, Operation
 
 
 def replace_correct_str_with_comments(fun, correct_with_checks):
@@ -36,9 +36,7 @@ def replace_correct_str_with_comments(fun, correct_with_checks):
         f.writelines(lines)
 
 
-def filecheck(correct: str, module):
-    if isinstance(module, Module):
-        assert module.operation.verify()
+def get_filecheck_path():
     filecheck_name = "FileCheck"
     if platform.system() == "Windows":
         filecheck_name += ".exe"
@@ -52,13 +50,27 @@ def filecheck(correct: str, module):
         filecheck_path is not None and Path(filecheck_path).exists() is not None
     ), "couldn't find FileCheck"
 
-    correct = "\n".join(filter(None, correct.splitlines()))
-    correct = dedent(correct)
-    correct_with_checks = main(correct).replace("CHECK:", "CHECK-NEXT:")
+    return filecheck_path
+
+
+def filecheck(correct: str, module):
+    if isinstance(module, Module):
+        module = module.operation
+    if isinstance(module, Operation):
+        assert module.verify()
 
     op = str(module).strip()
     op = "\n".join(filter(None, op.splitlines()))
     op = dedent(op)
+
+    if platform.system().lower() == "emscripten":
+        return
+
+    correct = "\n".join(filter(None, correct.splitlines()))
+    correct = dedent(correct)
+    correct_with_checks = main(correct).replace("CHECK:", "CHECK-NEXT:")
+
+    filecheck_path = get_filecheck_path()
     with tempfile.NamedTemporaryFile() as tmp:
         tmp.write(correct_with_checks.encode())
         tmp.flush()
@@ -79,27 +91,22 @@ def filecheck(correct: str, module):
 
 def filecheck_with_comments(module):
     if isinstance(module, Module):
-        assert module.operation.verify()
-    filecheck_name = "FileCheck"
-    if platform.system() == "Windows":
-        filecheck_name += ".exe"
+        module = module.operation
+    if isinstance(module, Operation):
+        assert module.verify()
 
-    # try from mlir-native-tools
-    filecheck_path = Path(sys.prefix) / "bin" / filecheck_name
-    # try to find using which
-    if not filecheck_path.exists():
-        filecheck_path = shutil.which(filecheck_name)
-    assert (
-        filecheck_path is not None and Path(filecheck_path).exists() is not None
-    ), "couldn't find FileCheck"
+    op = str(module).strip()
+    op = "\n".join(filter(None, op.splitlines()))
+    op = dedent(op)
+
+    if platform.system().lower() == "emscripten":
+        return
 
     fun = inspect.currentframe().f_back.f_code
     _, lnum = inspect.findsource(fun)
     fun_with_checks = inspect.getsource(fun)
 
-    op = str(module).strip()
-    op = "\n".join(filter(None, op.splitlines()))
-    op = dedent(op)
+    filecheck_path = get_filecheck_path()
     with tempfile.NamedTemporaryFile() as tmp:
         tmp.write(("\n" * lnum + fun_with_checks).encode())
         tmp.flush()
