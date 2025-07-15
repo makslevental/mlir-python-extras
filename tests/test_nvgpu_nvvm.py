@@ -360,7 +360,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     # CHECK:        %[[VAL_89:.*]] = memref.load %[[VAL_44]]{{\[}}%[[VAL_78]], %[[VAL_88]]] : memref<16x16xf16>
     # CHECK:        %[[VAL_90:.*]] = memref.load %[[VAL_44]]{{\[}}%[[VAL_83]], %[[VAL_86]]] : memref<16x16xf16>
     # CHECK:        %[[VAL_91:.*]] = memref.load %[[VAL_44]]{{\[}}%[[VAL_83]], %[[VAL_88]]] : memref<16x16xf16>
-    # CHECK:        %[[VAL_92:.*]] = vector.splat %[[VAL_80]] : vector<4x2xf16>
+    # CHECK:        %[[VAL_92:.*]] = vector.broadcast %[[VAL_80]] : f16 to vector<4x2xf16>
     # CHECK:        %[[VAL_93:.*]] = vector.insert %[[VAL_80]], %[[VAL_92]] [0, 0] : f16 into vector<4x2xf16>
     # CHECK:        %[[VAL_94:.*]] = vector.insert %[[VAL_82]], %[[VAL_93]] [0, 1] : f16 into vector<4x2xf16>
     # CHECK:        %[[VAL_95:.*]] = vector.insert %[[VAL_84]], %[[VAL_94]] [1, 0] : f16 into vector<4x2xf16>
@@ -373,7 +373,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     # CHECK:        %[[VAL_102:.*]] = memref.load %[[VAL_45]]{{\[}}%[[VAL_81]], %[[VAL_78]]] : memref<16x8xf16>
     # CHECK:        %[[VAL_103:.*]] = memref.load %[[VAL_45]]{{\[}}%[[VAL_86]], %[[VAL_78]]] : memref<16x8xf16>
     # CHECK:        %[[VAL_104:.*]] = memref.load %[[VAL_45]]{{\[}}%[[VAL_88]], %[[VAL_78]]] : memref<16x8xf16>
-    # CHECK:        %[[VAL_105:.*]] = vector.splat %[[VAL_101]] : vector<2x2xf16>
+    # CHECK:        %[[VAL_105:.*]] = vector.broadcast %[[VAL_101]] : f16 to vector<2x2xf16>
     # CHECK:        %[[VAL_106:.*]] = vector.insert %[[VAL_101]], %[[VAL_105]] [0, 0] : f16 into vector<2x2xf16>
     # CHECK:        %[[VAL_107:.*]] = vector.insert %[[VAL_102]], %[[VAL_106]] [0, 1] : f16 into vector<2x2xf16>
     # CHECK:        %[[VAL_108:.*]] = vector.insert %[[VAL_103]], %[[VAL_107]] [1, 0] : f16 into vector<2x2xf16>
@@ -382,7 +382,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     # CHECK:        %[[VAL_111:.*]] = memref.load %[[VAL_46]]{{\[}}%[[VAL_78]], %[[VAL_81]]] : memref<16x8xf16>
     # CHECK:        %[[VAL_112:.*]] = memref.load %[[VAL_46]]{{\[}}%[[VAL_83]], %[[VAL_79]]] : memref<16x8xf16>
     # CHECK:        %[[VAL_113:.*]] = memref.load %[[VAL_46]]{{\[}}%[[VAL_83]], %[[VAL_81]]] : memref<16x8xf16>
-    # CHECK:        %[[VAL_114:.*]] = vector.splat %[[VAL_110]] : vector<2x2xf16>
+    # CHECK:        %[[VAL_114:.*]] = vector.broadcast %[[VAL_110]] : f16 to vector<2x2xf16>
     # CHECK:        %[[VAL_115:.*]] = vector.insert %[[VAL_110]], %[[VAL_114]] [0, 0] : f16 into vector<2x2xf16>
     # CHECK:        %[[VAL_116:.*]] = vector.insert %[[VAL_111]], %[[VAL_115]] [0, 1] : f16 into vector<2x2xf16>
     # CHECK:        %[[VAL_117:.*]] = vector.insert %[[VAL_112]], %[[VAL_116]] [1, 0] : f16 into vector<2x2xf16>
@@ -413,6 +413,7 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     # CHECK:    }
     # CHECK:  }
 
+    print(mod)
     filecheck_with_comments(mod)
 
 
