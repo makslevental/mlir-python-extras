@@ -108,68 +108,6 @@ def placeholder_opaque_t():
 for__ = region_op(_build_for, terminator=yield__)
 
 
-@_cext.register_operation(_Dialect, replace=True)
-class ForallOp(ForallOp):
-    def __init__(
-        self,
-        lower_bounds,
-        upper_bounds,
-        steps,
-        shared_outs: Optional[Union[Operation, OpView, Sequence[Value]]] = None,
-        *,
-        device_mapping: Optional[List[Attribute]] = None,
-        loc=None,
-        ip=None,
-    ):
-        assert len(lower_bounds) == len(upper_bounds) == len(steps)
-        if shared_outs is not None:
-            results = [o.type for o in shared_outs]
-        else:
-            results = shared_outs = []
-        iv_types = [IndexType.get()] * len(lower_bounds)
-        context = get_default_loc_context(loc)
-        mapping = None
-        if device_mapping is not None:
-            mapping = get_device_mapping_array_attr(device_mapping)
-
-        super().__init__(
-            results_=results,
-            dynamicLowerBound=[],
-            dynamicUpperBound=[],
-            dynamicStep=[],
-            staticLowerBound=_denseI64ArrayAttr(lower_bounds, context),
-            staticUpperBound=_denseI64ArrayAttr(upper_bounds, context),
-            staticStep=_denseI64ArrayAttr(steps, context),
-            outputs=shared_outs,
-            mapping=mapping,
-            loc=loc,
-            ip=ip,
-        )
-        self.regions[0].blocks.append(*iv_types, *results)
-
-    @property
-    def body(self):
-        """Returns the body (block) of the loop."""
-        return self.regions[0].blocks[0]
-
-    @property
-    def arguments(self):
-        """Returns the induction variable of the loop."""
-        return self.body.arguments
-
-
-@_cext.register_operation(_Dialect, replace=True)
-class InParallelOp(InParallelOp):
-    def __init__(self, *, loc=None, ip=None):
-        super().__init__(loc=loc, ip=ip)
-        self.regions[0].blocks.append(*[])
-
-    @property
-    def body(self):
-        """Returns the body (block) of the loop."""
-        return self.regions[0].blocks[0]
-
-
 def _parfor(op_ctor):
     def _base(
         lower_bounds, upper_bounds=None, steps=None, *, loc=None, ip=None, **kwargs
