@@ -81,7 +81,7 @@ def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContex
         [1, 1],
         [2, 2],
         [3, 3],
-        device_mapping=[thread("x"), thread("y")],
+        mapping=[thread("x"), thread("y")],
     ):
         a = memref.load(x, (i, j))
         b = memref.load(y, (i, j))
@@ -101,7 +101,7 @@ def test_forall_insert_slice_no_region_with_for_with_gpu_mapping(ctx: MLIRContex
     # CHECK:  %[[VAL_6:.*]] = arith.constant 2 : index
     # CHECK:  %[[VAL_7:.*]] = arith.constant 3 : index
     # CHECK:  %[[VAL_8:.*]] = arith.constant 3 : index
-    # CHECK:  scf.forall (%[[VAL_9:.*]], %[[VAL_10:.*]]) = (1, 1) to (2, 2) step (3, 3) {
+    # CHECK:  scf.forall (%[[VAL_9:.*]], %[[VAL_10:.*]]) = (%[[VAL_3]], %[[VAL_4]]) to (%[[VAL_5]], %[[VAL_6]]) step (%[[VAL_7]], %[[VAL_8]]) {
     # CHECK:    %[[VAL_11:.*]] = memref.load %[[VAL_0]]{{\[}}%[[VAL_9]], %[[VAL_10]]] : memref<10x10xf32>
     # CHECK:    %[[VAL_12:.*]] = memref.load %[[VAL_1]]{{\[}}%[[VAL_9]], %[[VAL_10]]] : memref<10x10xf32>
     # CHECK:    %[[VAL_13:.*]] = math.fma %[[VAL_2]], %[[VAL_11]], %[[VAL_12]] : f32

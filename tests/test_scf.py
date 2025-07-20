@@ -2133,7 +2133,7 @@ def test_forall_1(ctx: MLIRContext):
     # CHECK:  %[[VAL_0:.*]] = arith.constant 1 : index
     # CHECK:  %[[VAL_1:.*]] = arith.constant 2 : index
     # CHECK:  %[[VAL_2:.*]] = arith.constant 3 : index
-    # CHECK:  scf.forall (%[[VAL_3:.*]]) = (1) to (2) step (3) {
+    # CHECK:  scf.forall (%[[VAL_3:.*]]) = (%[[VAL_0]]) to (%[[VAL_1]]) step (%[[VAL_2]]) {
     # CHECK:    %[[VAL_4:.*]] = arith.constant 1.000000e+00 : f32
     # CHECK:  }
 
@@ -2153,7 +2153,7 @@ def test_forall_3(ctx: MLIRContext):
     # CHECK:  %[[VAL_3:.*]] = arith.constant 2 : index
     # CHECK:  %[[VAL_4:.*]] = arith.constant 3 : index
     # CHECK:  %[[VAL_5:.*]] = arith.constant 3 : index
-    # CHECK:  scf.forall (%[[VAL_6:.*]], %[[VAL_7:.*]]) = (1, 1) to (2, 2) step (3, 3) {
+    # CHECK:  scf.forall (%[[VAL_6:.*]], %[[VAL_7:.*]]) = (%[[VAL_0]], %[[VAL_1]]) to (%[[VAL_2]], %[[VAL_3]]) step (%[[VAL_4]], %[[VAL_5]]) {
     # CHECK:    %[[VAL_8:.*]] = arith.constant 1.000000e+00 : f32
     # CHECK:  }
 
@@ -2184,7 +2184,7 @@ def test_forall_insert_slice(ctx: MLIRContext):
     # CHECK:  %[[VAL_4:.*]] = arith.constant 2 : index
     # CHECK:  %[[VAL_5:.*]] = arith.constant 3 : index
     # CHECK:  %[[VAL_6:.*]] = arith.constant 3 : index
-    # CHECK:  %[[VAL_7:.*]] = scf.forall (%[[VAL_8:.*]], %[[VAL_9:.*]]) = (1, 1) to (2, 2) step (3, 3) shared_outs(%[[VAL_10:.*]] = %[[VAL_0]]) -> (tensor<10x10xi32>) {
+    # CHECK:  %[[VAL_7:.*]] = scf.forall (%[[VAL_8:.*]], %[[VAL_9:.*]]) = (%[[VAL_1]], %[[VAL_2]]) to (%[[VAL_3]], %[[VAL_4]]) step (%[[VAL_5]], %[[VAL_6]]) shared_outs(%[[VAL_10:.*]] = %[[VAL_0]]) -> (tensor<10x10xi32>) {
     # CHECK:    %[[VAL_11:.*]] = arith.constant 1.000000e+00 : f32
     # CHECK:    scf.forall.in_parallel {
     # CHECK:      tensor.parallel_insert_slice %[[VAL_0]] into %[[VAL_10]]{{\[}}%[[VAL_8]], %[[VAL_9]]] [10, 10] [1, 1] : tensor<10x10xi32> into tensor<10x10xi32>
@@ -2218,7 +2218,7 @@ def test_forall_insert_slice_no_region(ctx: MLIRContext):
     # CHECK:  %[[VAL_4:.*]] = arith.constant 2 : index
     # CHECK:  %[[VAL_5:.*]] = arith.constant 3 : index
     # CHECK:  %[[VAL_6:.*]] = arith.constant 3 : index
-    # CHECK:  %[[VAL_7:.*]] = scf.forall (%[[VAL_8:.*]], %[[VAL_9:.*]]) = (1, 1) to (2, 2) step (3, 3) shared_outs(%[[VAL_10:.*]] = %[[VAL_0]]) -> (tensor<10x10xi32>) {
+    # CHECK:  %[[VAL_7:.*]] = scf.forall (%[[VAL_8:.*]], %[[VAL_9:.*]]) = (%[[VAL_1]], %[[VAL_2]]) to (%[[VAL_3]], %[[VAL_4]]) step (%[[VAL_5]], %[[VAL_6]]) shared_outs(%[[VAL_10:.*]] = %[[VAL_0]]) -> (tensor<10x10xi32>) {
     # CHECK:    %[[VAL_11:.*]] = arith.constant 1.000000e+00 : f32
     # CHECK:    scf.forall.in_parallel {
     # CHECK:      tensor.parallel_insert_slice %[[VAL_0]] into %[[VAL_10]]{{\[}}%[[VAL_8]], %[[VAL_9]]] [10, 10] [1, 1] : tensor<10x10xi32> into tensor<10x10xi32>
@@ -2280,7 +2280,7 @@ def test_forall_insert_slice_no_region_with_for(ctx: MLIRContext):
     # CHECK:  %[[VAL_4:.*]] = arith.constant 2 : index
     # CHECK:  %[[VAL_5:.*]] = arith.constant 3 : index
     # CHECK:  %[[VAL_6:.*]] = arith.constant 3 : index
-    # CHECK:  %[[VAL_7:.*]] = scf.forall (%[[VAL_8:.*]], %[[VAL_9:.*]]) = (1, 1) to (2, 2) step (3, 3) shared_outs(%[[VAL_10:.*]] = %[[VAL_0]]) -> (tensor<10x10xi32>) {
+    # CHECK:  %[[VAL_7:.*]] = scf.forall (%[[VAL_8:.*]], %[[VAL_9:.*]]) = (%[[VAL_1]], %[[VAL_2]]) to (%[[VAL_3]], %[[VAL_4]]) step (%[[VAL_5]], %[[VAL_6]]) shared_outs(%[[VAL_10:.*]] = %[[VAL_0]]) -> (tensor<10x10xi32>) {
     # CHECK:    %[[VAL_11:.*]] = arith.constant 1.000000e+00 : f32
     # CHECK:    scf.forall.in_parallel {
     # CHECK:      tensor.parallel_insert_slice %[[VAL_0]] into %[[VAL_10]]{{\[}}%[[VAL_8]], %[[VAL_9]]] [10, 10] [1, 1] : tensor<10x10xi32> into tensor<10x10xi32>
