@@ -132,7 +132,7 @@ def index_cast(
 ) -> Value:
     if loc is None:
         loc = get_user_code_loc()
-    assert bool(to) != bool(out), "either `to` or `out` must be set"
+    assert bool(to) != bool(out), "either `to` or `out` must be set but not both"
     res_type = out or to
     if res_type is None:
         res_type = IndexType.get()

@@ -288,9 +288,10 @@ class ReduceOp(ReduceOp):
             self.regions[i].blocks.append(operands[i].type, operands[i].type)
 
 
-def reduce_(*operands, num_reductions=1):
-    loc = get_user_code_loc()
-    return ReduceOp(operands, num_reductions, loc=loc)
+def reduce_(*operands, num_reductions=1, loc=None, ip=None):
+    if loc is None:
+        loc = get_user_code_loc()
+    return ReduceOp(operands, num_reductions, loc=loc, ip=ip)
 
 
 reduce = region_op(reduce_, terminator=lambda xs: reduce_return(*xs))

@@ -2400,11 +2400,11 @@ def test_parange_inits_with_for_with_three_reduce(ctx: MLIRContext):
             return lhs + rhs
 
         @another_reduce(res1)
-        def res1(lhs: T.index(), rhs: T.index()):
+        def res2(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
-        @another_reduce(res1)
-        def res2(lhs: T.index(), rhs: T.index()):
+        @another_reduce(res2)
+        def res3(lhs: T.index(), rhs: T.index()):
             return lhs + rhs
 
     ctx.module.operation.verify()
