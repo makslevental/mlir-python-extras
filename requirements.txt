@@ -3,3 +3,4 @@ bytecode
 cloudpickle>=3.0.0
 einspect @ git+https://github.com/makslevental/einspect@makslevental/bump-py.3.13
 numpy>=1.19.5, <=2.1.2
+sortedcontainers==2.4.0
