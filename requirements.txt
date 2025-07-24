@@ -1,4 +1,4 @@
-PyYAML>=6.0.2
+PyYAML>=5.4.0, <=6.0.1
 bytecode
 cloudpickle>=3.0.0
 einspect @ git+https://github.com/makslevental/einspect@makslevental/bump-py.3.13
