@@ -162,7 +162,7 @@ jobs:
         shell: bash
         run: |
           
-          pip install .[test,mlir,eudsl] -v
+          pip install .[test,mlir] -v
 
       - name: Test gpu examples
         shell: bash

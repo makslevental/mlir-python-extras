@@ -1,5 +1,5 @@
 PyYAML>=5.4.0
-bytecode
+bytecode @ git+https://github.com/MatthieuDartiailh/bytecode@3.14-support
 cloudpickle>=3.0.0
 einspect @ git+https://github.com/makslevental/einspect@makslevental/bump-py.3.13
 numpy>=1.19.5, <=2.1.2
