@@ -27,7 +27,7 @@ from mlir.extras.dialects.ext.func import func
 from mlir.extras.dialects.ext.gpu import smem_space
 from mlir.extras.dialects.ext.llvm import llvm_ptr_t
 from mlir.extras.runtime.passes import Pipeline, run_pipeline
-from mlir.extras.runtime.refbackend import LLVMJITBackend
+from mlir.extras.runtime.refbackend import LLVMJITBackend, CUDA_RUNTIME_LIB_PATH
 
 # noinspection PyUnresolvedReferences
 from mlir.extras.testing import (
@@ -202,7 +202,8 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())): ...
+        def printMemrefF32(x: T.memref(T.f32())):
+            ...
 
         printMemrefF32_.append(printMemrefF32)
 
@@ -413,10 +414,11 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     # CHECK:    }
     # CHECK:  }
 
-    filecheck_with_comments(mod)
+    mod.operation.verify()
 
+    if CUDA_RUNTIME_LIB_PATH.exists():
+        filecheck_with_comments(mod)
 
-CUDA_RUNTIME_LIB_PATH = Path(_mlir_libs.__file__).parent / f"libmlir_cuda_runtime.so"
 
 NVIDIA_GPU = False
 try:
@@ -553,7 +555,8 @@ def test_transform_mma_sync_matmul_f16_f16_accum_run(ctx: MLIRContext, capfd):
         compute_linspace_val.emit()
 
         @func
-        def printMemrefF32(x: T.memref(T.f32())): ...
+        def printMemrefF32(x: T.memref(T.f32())):
+            ...
 
         printMemrefF32_.append(printMemrefF32)
 
