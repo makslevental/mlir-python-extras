@@ -33,7 +33,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
-        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.14t" ]
 
         exclude:
           - os: macos-13
@@ -149,7 +149,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
-        py_version: [ "3.12", "3.13" ]
+        py_version: [ "3.12", "3.13", "3.14", "3.14t" ]
 
     steps:
       - name: Checkout
