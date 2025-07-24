@@ -201,7 +201,9 @@ class FuncBase:
 
     def _is_decl(self):
         # magic constant found from looking at the code for an empty fn
-        if sys.version_info.minor == 13:
+        if sys.version_info.minor == 14:
+            return self.body_builder.__code__.co_code == b'\x80\x00R\x00#\x00'
+        elif sys.version_info.minor == 13:
             return self.body_builder.__code__.co_code == b"\x95\x00g\x00"
         elif sys.version_info.minor == 12:
             return self.body_builder.__code__.co_code == b"\x97\x00y\x00"

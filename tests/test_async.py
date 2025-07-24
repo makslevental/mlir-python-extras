@@ -34,10 +34,6 @@ def test_simple_parfor(ctx: MLIRContext, backend: LLVMJITBackend):
         %initial = arith.constant 0 : index
         %step = arith.constant 1: index
         scf.parallel (%iv1, %iv2, %iv3, %iv4) = (%initial, %initial, %initial, %initial) to (%bound1, %bound2, %bound1, %bound2) step (%step, %step, %step, %step) {
-            vector.print %iv1 :index
-            vector.print %iv2 :index
-            vector.print %iv3 :index
-            vector.print %iv4 :index
             %e = arith.addi %iv3, %iv4 : index
             %d = arith.addi %e, %iv1 : index
             %b = arith.index_cast %d : index to i32
