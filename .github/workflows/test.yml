@@ -57,12 +57,9 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          if [ ${{ matrix.py_version }} == '3.9' ]; then
+        
             pip install .[test,mlir] -v
-          else
-            pip install .[test,mlir,eudsl] -v
-          fi
-
+    
       - name: Test
         shell: bash
         run: |
