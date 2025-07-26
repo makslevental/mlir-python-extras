@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 CONSUME_RETURN_CALLBACK_ATTR = "refbackend_consume_return_callback"
 refback_cb_attr = CONSUME_RETURN_CALLBACK_ATTR
 
+_exec_engine_shared_libs = []
+
 if ASYNC_RUNTIME_LIB_PATH := os.getenv("ASYNC_RUNTIME_LIB_PATH"):
     ASYNC_RUNTIME_LIB_PATH = Path(ASYNC_RUNTIME_LIB_PATH)
 else:
@@ -48,6 +50,9 @@ else:
         Path(_mlir_libs.__file__).parent
         / f"{shlib_prefix()}mlir_async_runtime.{shlib_ext()}"
     )
+
+if ASYNC_RUNTIME_LIB_PATH.exists():
+    _exec_engine_shared_libs.append(ASYNC_RUNTIME_LIB_PATH)
 
 if C_RUNNER_UTILS_LIB_PATH := os.getenv("C_RUNNER_UTILS_LIB_PATH"):
     C_RUNNER_UTILS_LIB_PATH = Path(C_RUNNER_UTILS_LIB_PATH)
@@ -57,6 +62,9 @@ else:
         / f"{shlib_prefix()}mlir_c_runner_utils.{shlib_ext()}"
     )
 
+if C_RUNNER_UTILS_LIB_PATH.exists():
+    _exec_engine_shared_libs.append(C_RUNNER_UTILS_LIB_PATH)
+
 if RUNNER_UTILS_LIB_PATH := os.getenv("RUNNER_UTILS_LIB_PATH"):
     RUNNER_UTILS_LIB_PATH = Path(RUNNER_UTILS_LIB_PATH)
 else:
@@ -64,6 +72,21 @@ else:
         Path(_mlir_libs.__file__).parent
         / f"{shlib_prefix()}mlir_runner_utils.{shlib_ext()}"
     )
+
+if RUNNER_UTILS_LIB_PATH.exists():
+    _exec_engine_shared_libs.append(RUNNER_UTILS_LIB_PATH)
+
+if CUDA_RUNTIME_LIB_PATH := os.getenv("CUDA_RUNTIME_LIB_PATH"):
+    CUDA_RUNTIME_LIB_PATH = Path(CUDA_RUNTIME_LIB_PATH)
+else:
+    CUDA_RUNTIME_LIB_PATH = (
+        Path(_mlir_libs.__file__).parent
+        / f"{shlib_prefix()}mlir_cuda_runtime.{shlib_ext()}"
+    )
+
+# TODO(max): for some reason adding this lib to execengine causes a segfault (or something)
+# if CUDA_RUNTIME_LIB_PATH.exists():
+#     _exec_engine_shared_libs.append(CUDA_RUNTIME_LIB_PATH)
 
 
 def get_ctype_func(mlir_ret_types):
@@ -202,14 +225,10 @@ class LLVMJITBackend:
         shared_lib_paths=None,
     ):
         if shared_lib_paths is None:
-            shared_lib_paths = []
+            shared_lib_paths = set()
         if platform.system() != "Windows":
-            shared_lib_paths += [
-                ASYNC_RUNTIME_LIB_PATH,
-                C_RUNNER_UTILS_LIB_PATH,
-                RUNNER_UTILS_LIB_PATH,
-            ]
-        self.shared_lib_paths = shared_lib_paths
+            shared_lib_paths |= set(_exec_engine_shared_libs)
+        self.shared_lib_paths = list(shared_lib_paths)
         self.return_func_types = None
         self.return_func_name = None
 
