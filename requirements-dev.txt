@@ -1,3 +1,4 @@
 black
 inflection
 pytest
+astpretty

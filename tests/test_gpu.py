@@ -601,7 +601,7 @@ def test_generic_type_var_closure_patching(ctx: MLIRContext):
     exec(
         dedent(
             """\
-    from mlir.extras.ast.util import PyTypeVarObject
+    from mlir.extras.ast.py_type import PyTypeVarObject
 
     def fun2[foo, bar, A: foo + bar]():
         print(A.__bound__)

@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 from bytecode import ConcreteBytecode
-from einspect.structs import PyTypeObject
+from ...ast.py_type import PyTypeObject
 
 from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
