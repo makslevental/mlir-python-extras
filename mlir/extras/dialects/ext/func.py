@@ -308,7 +308,7 @@ class FuncBase:
         generics = copy.deepcopy(self.generics)
         for i, t in enumerate(generics):
             if sys.version_info >= (3, 12):
-                type_var_bound = PyTypeVarObject.try_from(t).bound
+                type_var_bound = PyTypeVarObject.from_object(t).bound
             else:
                 type_var_bound = t.__bound__
             if type_var_bound:

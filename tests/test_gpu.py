@@ -610,7 +610,7 @@ def test_generic_type_var_closure_patching(ctx: MLIRContext):
     A_type_param = fun2.__type_params__[2]
 
 
-    a = PyTypeVarObject.try_from(A_type_param)
+    a = PyTypeVarObject.from_object(A_type_param)
     a_something = a.bound.contents.into_object()
     a_something.__closure__[0].cell_contents = 5
     a_something.__closure__[1].cell_contents = 7
