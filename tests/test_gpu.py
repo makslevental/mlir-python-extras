@@ -1220,8 +1220,6 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
     def gpu_module():
         smol_matmul.emit()
 
-    print(gpu_module)
-
     lowered_module = run_pipeline(
         gpu_module,
         Pipeline()

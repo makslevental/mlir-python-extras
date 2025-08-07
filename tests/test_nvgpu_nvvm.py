@@ -413,7 +413,6 @@ def test_transform_mma_sync_matmul_f16_f16_accum(ctx: MLIRContext, capfd):
     # CHECK:    }
     # CHECK:  }
 
-    print(mod)
     filecheck_with_comments(mod)
 
 

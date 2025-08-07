@@ -123,12 +123,12 @@ def filecheck_with_comments(module):
             raise ValueError(f"\n{err}")
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mlir_ctx() -> MLIRContext:
     with mlir_mod_ctx(allow_unregistered_dialects=True) as ctx:
         yield ctx
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def backend() -> LLVMJITBackend:
     return LLVMJITBackend()

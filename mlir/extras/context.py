@@ -16,6 +16,24 @@ class MLIRContext:
 
 
 @contextmanager
+def mlir_mod(
+    src: Optional[str] = None,
+    location: ir.Location = None,
+) -> ir.Module:
+    with ExitStack() as stack:
+        if location is None:
+            location = ir.Location.unknown()
+        stack.enter_context(location)
+        if src is not None:
+            module = ir.Module.parse(src)
+        else:
+            module = ir.Module.create()
+        ip = ir.InsertionPoint(module.body)
+        stack.enter_context(ip)
+        yield module
+
+
+@contextmanager
 def mlir_mod_ctx(
     src: Optional[str] = None,
     context: ir.Context = None,
@@ -110,24 +128,6 @@ class ExplicitlyManagedModule:
 
     def __str__(self):
         return str(self.module)
-
-
-@contextmanager
-def mlir_mod(
-    src: Optional[str] = None,
-    location: ir.Location = None,
-) -> ir.Module:
-    with ExitStack() as stack:
-        if location is None:
-            location = ir.Location.unknown()
-        stack.enter_context(location)
-        if src is not None:
-            module = ir.Module.parse(src)
-        else:
-            module = ir.Module.create()
-        ip = ir.InsertionPoint(module.body)
-        stack.enter_context(ip)
-        yield module
 
 
 @contextlib.contextmanager
