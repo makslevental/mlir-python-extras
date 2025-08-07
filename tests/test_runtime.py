@@ -522,7 +522,6 @@ def test_setting_memref_diagonal_no_iter(ctx: MLIRContext, backend: LLVMJITBacke
             mem[i, i] = mem[i, i] + mem[i, i] * sitofp(T.f32(), index_cast(T.i32(), i))
 
     memfoo.emit()
-    print(ctx.module)
 
     module = backend.compile(
         ctx.module,

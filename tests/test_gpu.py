@@ -601,7 +601,7 @@ def test_generic_type_var_closure_patching(ctx: MLIRContext):
     exec(
         dedent(
             """\
-    from mlir.extras.ast.util import PyTypeVarObject
+    from mlir.extras.ast.py_type import PyTypeVarObject
 
     def fun2[foo, bar, A: foo + bar]():
         print(A.__bound__)
@@ -610,7 +610,7 @@ def test_generic_type_var_closure_patching(ctx: MLIRContext):
     A_type_param = fun2.__type_params__[2]
 
 
-    a = PyTypeVarObject.try_from(A_type_param)
+    a = PyTypeVarObject.from_object(A_type_param)
     a_something = a.bound.contents.into_object()
     a_something.__closure__[0].cell_contents = 5
     a_something.__closure__[1].cell_contents = 7
@@ -1219,8 +1219,6 @@ def test_amdgpu_vector_wmma(ctx: MLIRContext):
     @module("naive", [f'#rocdl.target<chip = "{arch}", abi = "500">'])
     def gpu_module():
         smol_matmul.emit()
-
-    print(gpu_module)
 
     lowered_module = run_pipeline(
         gpu_module,

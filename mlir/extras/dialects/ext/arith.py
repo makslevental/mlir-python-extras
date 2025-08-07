@@ -8,7 +8,6 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 from bytecode import ConcreteBytecode
-from einspect.structs import PyTypeObject
 
 from ...ast.canonicalize import StrictTransformer, Canonicalizer, BytecodePatcher
 from ...util import get_user_code_loc, infer_mlir_type, mlir_type_to_np_dtype
@@ -139,13 +138,7 @@ def index_cast(
     return get_op_result_or_op_results(IndexCastOp(res_type, in_, loc=loc, ip=ip))
 
 
-nb_meta_cls = type(Value)
-
-_Py_TPFLAGS_BASETYPE = 1 << 10
-PyTypeObject.from_object(nb_meta_cls).tp_flags |= _Py_TPFLAGS_BASETYPE
-
-
-class ArithValueMeta(nb_meta_cls):
+class ArithValueMeta(type(Value)):
     """Metaclass that orchestrates the Python object protocol
     (i.e., calling __new__ and __init__) for Indexing dialect extension values
     (created using `mlir_value_subclass`).

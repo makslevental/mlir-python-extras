@@ -4,12 +4,10 @@ import inspect
 import types
 from opcode import opmap
 from textwrap import dedent
-from typing import Dict, TypeVar
+from typing import Dict
 
 from bytecode import ConcreteBytecode
 from cloudpickle import cloudpickle
-from einspect import ptr
-from einspect.structs import PyVarObject, PyObject
 
 
 def set_lineno(node, n=1):
@@ -164,13 +162,3 @@ def find_func_in_code_object(co, func_name):
                 f = find_func_in_code_object(c, func_name)
                 if f is not None:
                     return f
-
-
-_T = TypeVar("_T")
-
-
-# https://github.com/python/cpython/blob/809aa9a682fc865f7502e7421da0a74d204aab6d/Objects/typevarobject.c#L29
-class PyTypeVarObject(PyVarObject[_T, None, None]):
-    name: ptr[PyObject]
-    # not sure why but this is the only thing that works but that's fine because it's the only thing we need
-    bound: ptr[PyObject]

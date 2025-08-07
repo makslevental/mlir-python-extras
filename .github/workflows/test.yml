@@ -21,7 +21,7 @@ concurrency:
 
 env:
   SYSTEM_VERSION_COMPAT: 0
-  PIP_FIND_LINKS: "https://github.com/llvm/eudsl/releases/expanded_assets/latest https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
+  PIP_FIND_LINKS: "https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
 
 jobs:
 
@@ -33,7 +33,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
-        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        py_version: [ "3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.14t" ]
 
         exclude:
           - os: macos-13
@@ -42,6 +42,13 @@ jobs:
           - os: macos-14
             py_version: "3.9"
 
+          # <frozen importlib._bootstrap>:491: Warning: Numpy built with MINGW-W64 on Windows 64 bits is experimental, and only available for testing. You are advised not to use it for production.
+          - os: windows-2022
+            py_version: "3.14"
+
+          - os: windows-2022
+            py_version: "3.14t"
+
     name: "${{ matrix.os }}-${{ matrix.py_version }}"
 
     steps:
@@ -49,7 +56,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5.6
         with:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
@@ -57,17 +64,18 @@ jobs:
       - name: Install and configure
         shell: bash
         run: |
-          if [ ${{ matrix.py_version }} == '3.9' ]; then
+        
             pip install .[test,mlir] -v
-          else
-            pip install .[test,mlir,eudsl] -v
-          fi
-
+    
       - name: Test
         shell: bash
         run: |
           
-          pytest -v tests
+          # so that loaded modules isn't reused between modules
+          for f in tests/test*.py; do
+            echo "Testing $f"
+            pytest -v $f
+          done
 
       - name: Test mwe
         shell: bash
@@ -86,7 +94,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5.6
         with:
           python-version: 3.12
 
@@ -121,7 +129,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5.6
         with:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
@@ -149,14 +157,22 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
-        py_version: [ "3.12", "3.13" ]
+        py_version: [ "3.12", "3.13", "3.14", "3.14t" ]
+
+        # <frozen importlib._bootstrap>:491: Warning: Numpy built with MINGW-W64 on Windows 64 bits is experimental, and only available for testing. You are advised not to use it for production.
+        exclude:
+          - os: windows-2022
+            py_version: "3.14"
+
+          - os: windows-2022
+            py_version: "3.14t"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5.6
         with:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true
@@ -165,7 +181,7 @@ jobs:
         shell: bash
         run: |
           
-          pip install .[test,mlir,eudsl] -v
+          pip install .[test,mlir] -v
 
       - name: Test gpu examples
         shell: bash
@@ -182,7 +198,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-22.04, macos-13, macos-14, windows-2022, ubuntu-22.04-arm ]
-        py_version: [ "3.12", "3.13" ]
+        py_version: [ "3.12", "3.13", "3.14", "3.14t" ]
+
+        # <frozen importlib._bootstrap>:491: Warning: Numpy built with MINGW-W64 on Windows 64 bits is experimental, and only available for testing. You are advised not to use it for production.
+        exclude:
+          - os: windows-2022
+            py_version: "3.14"
+
+          - os: windows-2022
+            py_version: "3.14t"
 
     steps:
 
@@ -190,7 +214,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5.6
         with:
           python-version: ${{ matrix.py_version }}
           allow-prereleases: true

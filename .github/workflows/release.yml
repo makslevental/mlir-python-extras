@@ -11,15 +11,15 @@ on:
         description: 'bundle mlir python bindings'
         type: string
         default: 1
-  release:
-    types:
-      - published
-  push:
-    branches:
-      - main
-  pull_request:
-    paths:
-      - .github/workflows/release.yml
+#  release:
+#    types:
+#      - published
+#  push:
+#    branches:
+#      - main
+#  pull_request:
+#    paths:
+#      - .github/workflows/release.yml
 
 concurrency:
   group: ci-build-release-${{ github.event.number || github.sha }}
@@ -27,7 +27,7 @@ concurrency:
 
 env:
   SYSTEM_VERSION_COMPAT: 0
-  PIP_FIND_LINKS: "https://github.com/llvm/eudsl/releases/expanded_assets/latest https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
+  PIP_FIND_LINKS: "https://github.com/makslevental/mlir-wheels/releases/expanded_assets/latest"
 
 jobs:
 

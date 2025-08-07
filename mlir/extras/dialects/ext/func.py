@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from functools import update_wrapper
 from typing import Optional, List, Union, TypeVar
 
-from ...ast.util import copy_func, PyTypeVarObject
+from ...ast.util import copy_func
+from ...ast.py_type import PyTypeVarObject
 from ...meta import op_region_builder
 from ... import types as T
 from ...util import get_user_code_loc, make_maybe_no_args_decorator
@@ -201,7 +202,9 @@ class FuncBase:
 
     def _is_decl(self):
         # magic constant found from looking at the code for an empty fn
-        if sys.version_info.minor == 13:
+        if sys.version_info.minor == 14:
+            return self.body_builder.__code__.co_code == b"\x80\x00R\x00#\x00"
+        elif sys.version_info.minor == 13:
             return self.body_builder.__code__.co_code == b"\x95\x00g\x00"
         elif sys.version_info.minor == 12:
             return self.body_builder.__code__.co_code == b"\x97\x00y\x00"
@@ -305,7 +308,7 @@ class FuncBase:
         generics = copy.deepcopy(self.generics)
         for i, t in enumerate(generics):
             if sys.version_info >= (3, 12):
-                type_var_bound = PyTypeVarObject.try_from(t).bound
+                type_var_bound = PyTypeVarObject.from_object(t).bound
             else:
                 type_var_bound = t.__bound__
             if type_var_bound:

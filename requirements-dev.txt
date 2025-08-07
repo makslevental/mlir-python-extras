@@ -1,2 +1,4 @@
 black
 inflection
+pytest
+astpretty

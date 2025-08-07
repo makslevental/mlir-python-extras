@@ -120,8 +120,6 @@ def test_e2e(ctx: MLIRContext):
         ),
     )
 
-    print(vectorized_module)
-
     compiled_module = backend.compile(
         find_ops(
             vectorized_module.operation,
