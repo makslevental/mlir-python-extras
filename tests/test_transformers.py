@@ -34,7 +34,7 @@ def _fields(n: ast.AST, show_offsets: bool = True) -> Tuple[str, ...]:
 # astpretty._leaf = _leaf
 astpretty._fields = _fields
 
-if sys.version_info.minor != 12:
+if sys.version_info.minor not in (12, 13, 14):
     pytest.skip("only check latest", allow_module_level=True)
 
 

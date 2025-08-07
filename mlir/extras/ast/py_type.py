@@ -34,7 +34,6 @@ class _Ptr(_Pointer):
         return pointer(*args, **kwargs)
 
     def __class_getitem__(cls, item):
-        """Return a `ctypes.POINTER` of the given type."""
         # For ptr[Self], return a special object
         if item is Self:
             return _SelfPtr
@@ -128,11 +127,9 @@ class PyObject(Structure):
     _fields_ = _py_object_fields
 
     def as_ref(self) -> _Ptr[Self]:
-        """Return a pointer to the Structure."""
         return pointer(self)  # type: ignore
 
     def into_object(self):
-        """Cast the PyObject into a Python object."""
         py_obj = cast(self.as_ref(), py_object)
         return py_obj.value
 
@@ -200,7 +197,6 @@ class PyTypeObject(Structure):
 
     @classmethod
     def from_object(cls, obj) -> Self:
-        """Create a PyObject from an object."""
         return cls.from_address(address(obj))
 
 
@@ -214,7 +210,6 @@ class PyTypeVarObject(Structure):
 
     @classmethod
     def from_object(cls, obj) -> Self:
-        """Create a PyObject from an object."""
         return cls.from_address(address(obj))
 
 

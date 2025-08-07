@@ -1,6 +1,12 @@
 from textwrap import dedent
 
 import pytest
+
+# noinspection PyUnresolvedReferences
+# has to be first to set nanobind.nb_type_0
+import mlir.extras
+
+
 from mlir.dialects import linalg as linalg_dialect, arith as arith_dialect
 from mlir.dialects import pdl
 from mlir.dialects.builtin import module
