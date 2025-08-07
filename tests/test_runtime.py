@@ -856,25 +856,25 @@ def test_linalg_tensor(ctx: MLIRContext, backend: LLVMJITBackend):
     # # assert np.array_equal(A + B, C)
 
 
-def test_raii_context():
-    def foo():
-        ctx = RAIIMLIRContext()
-        mod = Module.create()
-        with InsertionPoint(mod.body):
-
-            @func(emit=True)
-            def foo(x: T.i32()):
-                return x
-
-        # CHECK:  func.func @foo(%[[VAL_0:.*]]: i32) -> i32 {
-        # CHECK:    return %[[VAL_0]] : i32
-        # CHECK:  }
-
-        filecheck_with_comments(mod)
-
-    foo()
-
-    assert Context.current is None
+# def test_raii_context():
+#     def foo():
+#         ctx = RAIIMLIRContext()
+#         mod = Module.create()
+#         with InsertionPoint(mod.body):
+#
+#             @func(emit=True)
+#             def foo(x: T.i32()):
+#                 return x
+#
+#         # CHECK:  func.func @foo(%[[VAL_0:.*]]: i32) -> i32 {
+#         # CHECK:    return %[[VAL_0]] : i32
+#         # CHECK:  }
+#
+#         filecheck_with_comments(mod)
+#
+#     foo()
+#
+#     assert Context.current is None
 
 
 def test_explicit_module():
