@@ -9,7 +9,7 @@ from mlir.ir import FunctionType
 
 from mlir.extras.ast.canonicalize import canonicalize
 from mlir.extras.context import mlir_mod_ctx, RAIIMLIRContextModule
-from mlir.extras.dialects.ext import linalg, arith, scf
+from mlir.extras.dialects.ext import linalg, arith, scf, memref
 from mlir.extras.dialects.ext.arith import constant
 from mlir.extras.dialects.ext.func import func
 
@@ -47,7 +47,7 @@ def test_declare_byte_rep(ctx: MLIRContext):
     def demo_fun1(): ...
 
     if sys.version_info.minor == 14:
-        assert demo_fun1.__code__.co_code == b'\x80\x00R\x00#\x00'
+        assert demo_fun1.__code__.co_code == b"\x80\x00R\x00#\x00"
     elif sys.version_info.minor == 13:
         assert demo_fun1.__code__.co_code == b"\x95\x00g\x00"
     elif sys.version_info.minor == 12:
@@ -254,8 +254,7 @@ def test_generics_with_canonicalizations(ctx: MLIRContext):
 
 
 def test_raii_mlir_context_module():
-    tls = threading.local()
-    tls.ctx = RAIIMLIRContextModule()
+    ctx = RAIIMLIRContextModule()
 
     @func
     def demo_fun1():
@@ -271,7 +270,7 @@ def test_raii_mlir_context_module():
     # CHECK:    return %[[VAL_0]] : i32
     # CHECK:  }
 
-    filecheck_with_comments(tls.ctx.module)
+    filecheck_with_comments(ctx.module)
 
 
 def test_explicit_function_type(ctx: MLIRContext):

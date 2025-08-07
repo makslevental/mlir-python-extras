@@ -44,17 +44,7 @@ def mlir_mod_ctx(
         context = ir.Context()
     if allow_unregistered_dialects:
         context.allow_unregistered_dialects = True
-    with ExitStack() as stack:
-        stack.enter_context(context)
-        if location is None:
-            location = ir.Location.unknown()
-        stack.enter_context(location)
-        if src is not None:
-            module = ir.Module.parse(src)
-        else:
-            module = ir.Module.create()
-        ip = ir.InsertionPoint(module.body)
-        stack.enter_context(ip)
+    with context, mlir_mod(src, location) as module:
         yield MLIRContext(context, module)
     context._clear_live_operations()
 
