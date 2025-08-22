@@ -1,4 +1,4 @@
 PyYAML>=5.4.0
-bytecode
+bytecode @ git+https://github.com/MatthieuDartiailh/bytecode
 cloudpickle>=3.0.0
 numpy>=1.19.5, <=2.1.2
