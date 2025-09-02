@@ -54,32 +54,32 @@ class CMakeBuild(build_ext):
     def build_extension(self, ext: CMakeExtension) -> None:
         pass
 
+version_s = os.getenv("MLIR_PYTHON_EXTRAS_SET_VERSION", "")
+if not version_s:
+    now = datetime.now()
+    version_s = f"0.0.8.{now.year}{now.month:02}{now.day:02}{now.hour:02}"
+    if bool(int(os.getenv("USE_LOCAL_VERSION", True) or 1)):
+        version_s += "+"
+        local_version = []
+        GPU = os.getenv("GPU", None)
+        if GPU not in {None, "none"}:
+            local_version += [GPU]
 
-now = datetime.now()
-version_s = f"0.0.8.{now.year}{now.month:02}{now.day:02}{now.hour:02}"
+        try:
+            short_hash = run_git(
+                ["rev-parse", "--short", "HEAD"],
+                Path(__file__).parent,
+            ).parse_success(
+                parse=str,
+                error_msg="branch err (abbrev-err)",
+            )
+        except Exception as e:
+            short_hash = "no-hash"
 
-if bool(int(os.getenv("USE_LOCAL_VERSION", True) or 1)):
-    version_s += "+"
-    local_version = []
-    GPU = os.getenv("GPU", None)
-    if GPU not in {None, "none"}:
-        local_version += [GPU]
-
-    try:
-        short_hash = run_git(
-            ["rev-parse", "--short", "HEAD"],
-            Path(__file__).parent,
-        ).parse_success(
-            parse=str,
-            error_msg="branch err (abbrev-err)",
-        )
-    except Exception as e:
-        short_hash = "no-hash"
-
-    if local_version:
-        version_s += ".".join(local_version + [short_hash])
-    else:
-        version_s += short_hash
+        if local_version:
+            version_s += ".".join(local_version + [short_hash])
+        else:
+            version_s += short_hash
 
 packages = (
     [HOST_MLIR_PYTHON_PACKAGE_PREFIX]
