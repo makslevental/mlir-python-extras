@@ -354,8 +354,8 @@ def test_memref_of_vector_linalg_generic_2(ctx: MLIRContext):
             v6 = vector.gather(
                 result=T.vector(8, T.f32()),
                 base=X,
-                indices=[c0],
-                index_vec=aidx,
+                offsets=[c0],
+                indices=aidx,
                 mask=v0,
                 pass_thru=v1,
             )
