@@ -3,7 +3,7 @@ from functools import partial
 from typing import Any, List, Optional, Tuple, Union
 
 
-from .arith import constant
+from . import arith as arith_ext
 from .func import FuncBase
 from ... import types as T
 from ...meta import (
@@ -16,7 +16,12 @@ from ...util import (
     make_maybe_no_args_decorator,
     find_ops,
 )
-from ....dialects._gpu_ops_gen import _Dialect
+from ....dialects import _gpu_ops_gen
+from ....dialects._gpu_ops_gen import (
+    _Dialect,
+    GPUFuncOp as _GPUFuncOp,
+    LaunchOp as _LaunchOp,
+)
 from ....dialects._ods_common import (
     _cext,
     get_default_loc_context,
@@ -223,7 +228,7 @@ class GPUModuleMeta(ModuleMeta):
         return {"ip": ip, "gpu_module_op": gpu_module_op}
 
 
-class GPUFuncOp(GPUFuncOp):
+class GPUFuncOp(_GPUFuncOp):
     def __init__(
         self,
         sym_name,
@@ -269,7 +274,7 @@ class GPUFuncOp(GPUFuncOp):
             )
 
 
-class LaunchOp(LaunchOp):
+class LaunchOp(_LaunchOp):
     def __init__(
         self,
         grid_size: Tuple[Any, Any, Any],
@@ -321,7 +326,7 @@ def launch_(
     for size in [grid_size, block_size]:
         for i, s in enumerate(size):
             if isinstance(s, int):
-                size[i] = constant(s, index=True)
+                size[i] = arith_ext.constant(s, index=True)
     launch_op = LaunchOp(
         grid_size,
         block_size,
@@ -394,7 +399,7 @@ class GPUFunc(FuncBase):
         for size in [grid_size, block_size]:
             for i, s in enumerate(size):
                 if isinstance(s, int):
-                    size[i] = constant(s, index=True)
+                    size[i] = arith_ext.constant(s, index=True)
 
         if loc is None:
             loc = get_user_code_loc()
@@ -634,7 +639,7 @@ def memset(dst, value, async_dependencies=None, *, loc=None, ip=None):
     if len(async_dependencies):
         async_token = gpu_async_token()
     if isinstance(value, (int, float, bool)):
-        value = constant(value, type=dst.type.element_type)
+        value = arith_ext.constant(value, type=dst.type.element_type)
     return _memset(async_token, async_dependencies, dst, value, loc=loc, ip=ip)
 
 
