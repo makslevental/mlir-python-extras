@@ -395,8 +395,6 @@ def _structured_bufferize_to_allocation(
             memory_space = StringAttr.get(memory_space)
 
     return __structured_bufferize_to_allocation(
-        allocated_buffer=transform_any_value_t(),
-        new_ops=transform_any_op_t(),
         target=target,
         memory_space=memory_space,
         memcpy_op=memcpy_op,

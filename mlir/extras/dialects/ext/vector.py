@@ -155,14 +155,14 @@ def transfer_read(
 _extract = extract
 
 
-def extract(vector, position, *, loc=None, ip=None):
+def extract(source, position, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
     dynamic_position, _packed_position, static_position = _dispatch_mixed_values(
         position
     )
     return _extract(
-        vector=vector,
+        source=source,
         dynamic_position=dynamic_position,
         static_position=static_position,
         loc=loc,
@@ -231,14 +231,14 @@ def broadcast(vector, source, *, loc=None, ip=None):
 _extract_strided_slice = extract_strided_slice
 
 
-def extract_strided_slice(vector, offsets, sizes, strides, *, loc=None, ip=None):
+def extract_strided_slice(source, offsets, sizes, strides, *, loc=None, ip=None):
     if loc is None:
         loc = get_user_code_loc()
-    result_shape = [int(s) for s in sizes] + vector.type.shape[len(sizes) :]
-    result = T.vector(*result_shape, vector.type.element_type)
+    result_shape = [int(s) for s in sizes] + source.type.shape[len(sizes) :]
+    result = T.vector(*result_shape, source.type.element_type)
     return _extract_strided_slice(
         result=result,
-        vector=vector,
+        source=source,
         offsets=offsets,
         sizes=sizes,
         strides=strides,
