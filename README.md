@@ -1,3 +1,5 @@
+# All work has moved to [https://github.com/llvm/eudsl/tree/main/projects/eudsl-python-extras](https://github.com/llvm/eudsl/tree/main/projects/eudsl-python-extras)
+
 # mlir-python-extras
 
 [![Test](https://github.com/makslevental/mlir-python-extras/actions/workflows/test.yml/badge.svg)](https://github.com/makslevental/mlir-python-extras/actions/workflows/test.yml)
