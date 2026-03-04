@@ -1,4 +1,4 @@
-# All work has moved to [https://github.com/llvm/eudsl/tree/main/projects/eudsl-python-extras(https://github.com/llvm/eudsl/tree/main/projects/eudsl-python-extras)
+# All work has moved to [https://github.com/llvm/eudsl/tree/main/projects/eudsl-python-extras](https://github.com/llvm/eudsl/tree/main/projects/eudsl-python-extras)
 
 # mlir-python-extras
 
