@@ -46,7 +46,6 @@ def mlir_mod_ctx(
         context.allow_unregistered_dialects = True
     with context, mlir_mod(src, location) as module:
         yield MLIRContext(context, module)
-    context._clear_live_operations()
 
 
 class RAIIMLIRContext:
